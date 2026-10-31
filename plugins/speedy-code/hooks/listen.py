@@ -1,46 +1,46 @@
-"""Dictation for the speedy-code mod: listens to the microphone and prints what is said, phrase by phrase.
+"""Dictation for the speedy-code mod: Windows' own speech recognizer, streamed phrase by phrase.
 
-Usage: listen.py MODEL LANGUAGE CONTROL_FILE [MICROPHONE]
+Usage: listen.py LANGUAGE CONTROL_FILE [MICROPHONE]
        listen.py --list
+       listen.py --check LANGUAGE
 
-MICROPHONE is part of a microphone's name (`JBL Tune 520BT`); absent, the system's default.
-`--list` prints "mic <name>" for each microphone, as the system names it, and exits.
+LANGUAGE is the narration's language (`es`, `en`): the recognizer installed for it is used. MICROPHONE
+is part of a microphone's name (`JBL Tune 520BT`); absent, the system's default.
+`--list` prints "mic <name>" for each microphone connected, as Windows names it, and exits.
+`--check` prints "ok <language>" when dictation can start, or "fail <why>", and exits.
 
-Prints "ready" once the preview model is loaded (the microphone records from the start, so nothing
-said while it loads is lost). While a phrase is being said, "partial <n> <text>" about once a second:
-a quick, rough transcription by a small model, so the person sees at once what is heard. A phrase
-ends at a pause of PAUSE_SECONDS or after MAX_SECONDS; then "text <n> <text>", written by MODEL, the
-accurate one, which replaces phrase n's preview. Writing "stop" to CONTROL_FILE ends it: the phrase
-under way is written out first, then "done".
+The recognizer is Windows.Media.SpeechRecognition, the engine behind Windows' dictation, driven with
+no window of its own. It listens to Windows' default microphone only: to dictate with another, that
+one is made the default while the dictation runs, and the one before is put back as it ends.
 
-Runs in its own Python 3.12 environment (~/.claude/speedy-code/venv): faster-whisper's audio
-dependency publishes no build for newer Pythons.
+Prints "ready" once the recognizer listens. While a phrase is being said, "partial <n> <text>" each
+time the recognizer's guess grows; at the phrase's end, "text <n> <text>", its final text, which
+replaces phrase n's guess. Writing "stop" to CONTROL_FILE ends it: the phrase under way is written
+out first, then "done".
+
+Runs in the mod's Python 3.12 environment (~/.claude/speedy-code/venv), with the winrt and pycaw packages.
 """
 
+import asyncio
+import datetime
 import os
-import queue
 import sys
 import threading
 import time
 
-import numpy as np
-import sounddevice as sd
-from faster_whisper import WhisperModel
+from pycaw.constants import DEVICE_STATE, EDataFlow, ERole
+from pycaw.utils import AudioUtilities
+from winrt.windows.globalization import Language
+from winrt.windows.media.speechrecognition import (SpeechRecognitionCompilationResult,
+                                                   SpeechRecognitionResultStatus, SpeechRecognitionScenario,
+                                                   SpeechRecognitionTopicConstraint, SpeechRecognizer)
 
-RATE = 16000
-BLOCK_SECONDS = 0.03
-PAUSE_SECONDS = 0.7
-MAX_SECONDS = 8.0
-MIN_SPEECH_SECONDS = 0.3
-# The quick model the previews come from, and how often one is made.
-PREVIEW_MODEL = "base"
-PREVIEW_SECONDS = 0.8
-# Words the transcription is nudged towards: Spanish with a developer's English in it.
-PROMPT = (
-    "Programación en español con términos en inglés: refactor, endpoint, API, pull request, merge, "
-    "commit, push, deploy, hook, React, useEffect, useState, pytest (no pitest), unit tests, TypeScript, Python, "
-    "frontend, backend, bug, fix, branch, main, script, JSON, CLI, plugin, Claude Code."
-)
+# Every role Windows keeps a default microphone for: the recognizer may ask any of them.
+ROLES = (ERole.eConsole, ERole.eMultimedia, ERole.eCommunications)
+# Windows ends a dictation after this much silence: long enough that it only ends on "stop".
+SILENCE_LIMIT = datetime.timedelta(hours=4)
+# Why a recognizer refuses to start, in words the person can act on.
+PRIVACY_ERROR = -2147199735  # 0x80045509: online speech recognition is off in Windows' privacy settings.
 
 _say_lock = threading.Lock()
 
@@ -61,20 +61,50 @@ def is_stopped(control: str) -> bool:
         return False
 
 
-def microphones() -> "dict[str, int]":
-    """The microphones by name: WASAPI's, which keeps names whole (MME cuts them at 31 characters)."""
-    found: "dict[str, int]" = {}
-    for index, device in enumerate(sd.query_devices()):
-        api = sd.query_hostapis(device["hostapi"])["name"]
-        if device["max_input_channels"] > 0 and "WASAPI" in api:
-            found.setdefault(device["name"], index)
+def microphones() -> "dict[str, str]":
+    """The microphones connected, by Windows' name, with their endpoint ids."""
+    found: "dict[str, str]" = {}
+    for device in AudioUtilities.GetAllDevices(EDataFlow.eCapture.value, DEVICE_STATE.ACTIVE.value):
+        if device.FriendlyName:
+            found.setdefault(device.FriendlyName, device.id)
     return found
 
 
-def transcribe(model: WhisperModel, audio: np.ndarray, language: str) -> str:
-    segments, _ = model.transcribe(audio, language=language, beam_size=1, initial_prompt=PROMPT,
-                                   condition_on_previous_text=False, without_timestamps=True)
-    return " ".join(segment.text.strip() for segment in segments).strip()
+def default_microphones() -> "dict[ERole, str]":
+    """The default microphone of each role, by endpoint id."""
+    enumerator = AudioUtilities.GetDeviceEnumerator()
+    return {role: enumerator.GetDefaultAudioEndpoint(EDataFlow.eCapture.value, role.value).GetId() for role in ROLES}
+
+
+def make_default(ids: "dict[ERole, str]") -> None:
+    """Makes each role's microphone the given one."""
+    for role, device in ids.items():
+        AudioUtilities.SetDefaultDevice(device, [role])
+
+
+def recognizer_language(wanted: str) -> Language:
+    """The dictation language installed for `wanted` (`es` → `es-ES`); none, Windows' own."""
+    installed = list(SpeechRecognizer.supported_topic_languages)
+    for language in installed:
+        tag = language.language_tag.lower()
+        if tag == wanted.lower() or tag.split("-")[0] == wanted.lower().split("-")[0]:
+            return language
+    return SpeechRecognizer.system_speech_language
+
+
+async def open_recognizer(wanted: str) -> SpeechRecognizer:
+    """A recognizer ready to dictate in `wanted`'s language, or an error that says why not."""
+    recognizer = SpeechRecognizer(recognizer_language(wanted))
+    recognizer.constraints.append(SpeechRecognitionTopicConstraint(SpeechRecognitionScenario.DICTATION, "dictation"))
+    try:
+        compiled: SpeechRecognitionCompilationResult = await recognizer.compile_constraints_async()
+    except OSError as error:
+        if getattr(error, "winerror", None) == PRIVACY_ERROR:
+            raise RuntimeError("activá el reconocimiento de voz en línea en Configuración > Privacidad > Voz") from error
+        raise
+    if compiled.status != SpeechRecognitionResultStatus.SUCCESS:
+        raise RuntimeError(f"Windows no pudo preparar el dictado ({compiled.status.name})")
+    return recognizer
 
 
 def clear_stale(folder: str) -> None:
@@ -108,54 +138,71 @@ class Log:
             pass
 
 
-class Cutter:
-    """Cuts the microphone's blocks into phrases at the pauses, and hands each, numbered, to be written."""
+class Phrases:
+    """Numbers the recognizer's phrases: guesses for the phrase under way, then its final text."""
 
-    def __init__(self, phrases: "queue.Queue[tuple[int, np.ndarray] | None]", log: Log) -> None:
-        self.phrases = phrases
+    def __init__(self, log: Log) -> None:
         self.log = log
         self.lock = threading.Lock()
-        # The noise floor, learned from the quietest blocks: speech is well above it. A headset's
-        # microphone can be very quiet, so the least level that counts as speech is low.
-        self.floor = 0.0005
-        self.phrase: list[np.ndarray] = []
-        self.spoken = 0.0
-        self.silent = 0.0
         self.number = 1
-        self.blocks = 0
-        self.loudest = 0.0
         self.count = 0
 
-    def feed(self, block: np.ndarray) -> None:
-        level = float(np.sqrt(np.mean(block ** 2)))
-        self.blocks += 1
-        self.loudest = max(self.loudest, level)
-        is_speech = level > max(self.floor * 3, 0.002)
-        if not is_speech:
-            self.floor = self.floor * 0.95 + level * 0.05
+    def guess(self, text: str) -> None:
         with self.lock:
-            if is_speech or self.phrase:
-                self.phrase.append(block)
-                self.spoken += BLOCK_SECONDS if is_speech else 0
-                self.silent = 0.0 if is_speech else self.silent + BLOCK_SECONDS
-        if self.silent >= PAUSE_SECONDS or len(self.phrase) * BLOCK_SECONDS >= MAX_SECONDS:
-            self.flush()
+            if text.strip():
+                say(f"partial {self.number} {text.strip()}")
 
-    def current(self) -> "tuple[int, np.ndarray | None]":
-        """The phrase being said, for a preview: its number and its audio so far, if it holds speech."""
+    def final(self, text: str) -> None:
         with self.lock:
-            if not self.phrase or self.spoken < MIN_SPEECH_SECONDS:
-                return self.number, None
-            return self.number, np.concatenate(self.phrase)
+            text = text.strip()
+            if not text:
+                return
+            say(f"text {self.number} {text}")
+            self.log.write(f"phrase {self.number}: {len(text)} characters")
+            self.number += 1
+            self.count += 1
 
-    def flush(self) -> None:
-        with self.lock:
-            if self.phrase and self.spoken >= MIN_SPEECH_SECONDS:
-                self.phrases.put((self.number, np.concatenate(self.phrase)))
-                self.log.write(f"phrase {self.number}: {len(self.phrase) * BLOCK_SECONDS:.1f}s, speech {self.spoken:.1f}s")
-                self.number += 1
-                self.count += 1
-            self.phrase, self.spoken, self.silent = [], 0.0, 0.0
+
+async def dictate(language: str, control: str, log: Log) -> None:
+    recognizer = await open_recognizer(language)
+    log.write(f"language: {recognizer.current_language.language_tag}")
+    session = recognizer.continuous_recognition_session
+    session.auto_stop_silence_timeout = SILENCE_LIMIT
+    phrases = Phrases(log)
+    stopping = False
+    loop = asyncio.get_running_loop()
+    ended = asyncio.Event()
+
+    def on_guess(_sender, args) -> None:
+        phrases.guess(args.hypothesis.text)
+
+    def on_result(_sender, args) -> None:
+        phrases.final(args.result.text)
+
+    def on_completed(_sender, args) -> None:
+        log.write(f"session ended: {args.status.name}")
+        loop.call_soon_threadsafe(ended.set)
+
+    # The tokens are kept: a handler nobody holds is dropped.
+    tokens = (recognizer.add_hypothesis_generated(on_guess), session.add_result_generated(on_result),
+              session.add_completed(on_completed))
+    await session.start_async()
+    say("ready")
+    while not stopping:
+        if is_stopped(control):
+            stopping = True
+        elif ended.is_set():
+            # Windows ended the session on its own (a network hiccup, a long silence): it listens again.
+            ended.clear()
+            await session.start_async()
+        else:
+            await asyncio.sleep(0.1)
+    # Stopping hands over the phrase under way before the session ends.
+    if not ended.is_set():
+        await session.stop_async()
+    log.write(f"stopped: {phrases.count} phrases")
+    del tokens
+    recognizer.close()
 
 
 def main() -> None:
@@ -164,88 +211,31 @@ def main() -> None:
         for name in microphones():
             say(f"mic {name}")
         return
-    model_name, language, control = sys.argv[1:4]
-    wanted = sys.argv[4] if len(sys.argv) > 4 else ""
-    device = next((index for name, index in microphones().items() if wanted and wanted in name), None)
-    blocks: "queue.Queue[np.ndarray]" = queue.Queue()
-    phrases: "queue.Queue[tuple[int, np.ndarray] | None]" = queue.Queue()
-
-    # NARRADOR_LISTEN_FILE, raw 16 kHz mono float32, stands for the microphone in a test: fed in real time.
-    test_audio = os.environ.get("NARRADOR_LISTEN_FILE")
-    if test_audio:
-        samples = np.fromfile(test_audio, dtype=np.float32)
-        size = int(RATE * BLOCK_SECONDS)
-
-        def feed() -> None:
-            for start in range(0, len(samples), size):
-                blocks.put(samples[start:start + size])
-                time.sleep(BLOCK_SECONDS)
-
-        stream = None
-        threading.Thread(target=feed, daemon=True).start()
-    else:
-        # WASAPI records at the device's own rate: auto_convert brings it to 16 kHz.
-        extra = sd.WasapiSettings(auto_convert=True) if device is not None else None
-        stream = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=int(RATE * BLOCK_SECONDS),
-                                device=device, extra_settings=extra,
-                                callback=lambda data, frames, when, status: blocks.put(data[:, 0].copy()))
-        stream.start()
-
+    if sys.argv[1:2] == ["--check"]:
+        try:
+            recognizer = asyncio.run(open_recognizer(sys.argv[2] if len(sys.argv) > 2 else "es"))
+            say(f"ok {recognizer.current_language.language_tag}")
+        except Exception as error:  # pylint: disable=broad-except
+            say(f"fail {error}")
+        return
+    language, control = sys.argv[1:3]
+    wanted = sys.argv[3] if len(sys.argv) > 3 else ""
     clear_stale(os.path.dirname(control))
     log = Log(os.path.join(os.path.dirname(control), "listen.log"))
-    log.write(f"microphone: {sd.query_devices(device)['name'] if device is not None else 'default'}")
-    cores = os.cpu_count() or 4
-    # The quick model loads in a second: previews start while the accurate one still loads.
-    preview = WhisperModel(PREVIEW_MODEL, device="cpu", compute_type="int8", cpu_threads=2)
-    say("ready")
-    cutter = Cutter(phrases, log)
-    stopped = threading.Event()
-
-    def write_phrases() -> None:
-        # Most of the cores, the rest left to the previews.
-        model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=max(1, cores // 2 - 2))
-        while (item := phrases.get()) is not None:
-            number, audio = item
-            say(f"text {number} {transcribe(model, audio, language)}")
-
-    def preview_phrases() -> None:
-        shown = (0, 0)
-        while not stopped.is_set():
-            time.sleep(PREVIEW_SECONDS)
-            number, audio = cutter.current()
-            # Only a phrase that grew since its last preview is transcribed again.
-            if audio is None or (number, len(audio)) == shown:
-                continue
-            shown = (number, len(audio))
-            text = transcribe(preview, audio, language)
-            if text and not stopped.is_set():
-                say(f"partial {number} {text}")
-
-    writer = threading.Thread(target=write_phrases)
-    writer.start()
-    previewer = threading.Thread(target=preview_phrases, daemon=True)
-    previewer.start()
-
-    while not is_stopped(control):
-        try:
-            cutter.feed(blocks.get(timeout=0.1))
-        except queue.Empty:
-            continue
-
-    # Stopped, maybe before a phrase ended: what was recorded is still cut and written.
-    stopped.set()
-    if stream:
-        stream.stop()
-    while not blocks.empty():
-        cutter.feed(blocks.get())
-    cutter.flush()
-    phrases.put(None)
-    writer.join()
-    log.write(f"stopped: {cutter.blocks} blocks, loudest {cutter.loudest:.4f}, floor {cutter.floor:.4f}, {cutter.count} phrases")
+    chosen = next((device for name, device in microphones().items() if wanted and wanted in name), None)
+    before = default_microphones() if chosen else {}
     try:
-        os.remove(control)
-    except OSError:
-        pass
+        if chosen:
+            make_default({role: chosen for role in ROLES})
+        log.write(f"microphone: {wanted if chosen else 'default'}")
+        asyncio.run(dictate(language, control, log))
+    finally:
+        if before:
+            make_default(before)
+        try:
+            os.remove(control)
+        except OSError:
+            pass
     say("done")
 
 

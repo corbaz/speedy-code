@@ -429,7 +429,8 @@ test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
-  expect(w.listened[0]?.slice(-4, -2)).toEqual(['large-v3-turbo', 'es'])
+  // listen.py LANGUAGE CONTROL_FILE MICROPHONE: Windows' recognizer takes no model.
+  expect(w.listened[0]?.slice(-4, -2).map(arg => arg.split(/[\\/]/).pop())).toEqual(['listen.py', 'es'])
   expect(filled).toEqual([{ text: ' Hola, quiero hacer un', mode: 'append' }, { text: ' refactor del endpoint.', mode: 'append' }])
   expect(draft).toBe('Tengo una duda: Hola, quiero hacer un refactor del endpoint.')
   await ui.unmount()

@@ -1,7 +1,7 @@
 # speedy-code
 
 Talk to Claude Code and hear it answer. A Claude Code mod for Windows: Edge neural voices read the
-answers aloud, Whisper turns your voice into the prompt offline, and a footer of shortcuts handles
+answers aloud, Windows' dictation turns your voice into the prompt as you speak, and a footer of shortcuts handles
 the rest.
 
 ## The footer
@@ -44,10 +44,13 @@ columns as the width holds and paged so the menu always fits. ✦ marks a multil
 
 ## Dictation
 
-Click 🎙️ and speak. It shows 🔵 while it loads (it records already), 🔴 while it listens. Above the
-prompt, a quick model shows what it hears as you speak; at each pause, the accurate model writes the
-phrase into the prompt. Click 🎙️ again to stop: what you were saying is still written. Whisper runs
-on the CPU and the audio never leaves the machine. ▾ picks the microphone; the choice is kept.
+Click 🎙️ and speak. It shows 🔵 for the second it takes to start, 🔴 while it listens. Above the
+prompt, what Windows hears shows word by word as you speak; at each pause, the phrase goes into the
+prompt. Click 🎙️ again to stop: what you were saying is still written. The recognizer is Windows'
+own (the one behind its dictation), with no window of its own; it needs online speech recognition
+switched on (Settings → Privacy → Speech). ▾ picks the microphone; the choice is kept. Windows
+dictates with its default microphone only, so the one picked is made the default while you dictate,
+and the one before comes back when you stop.
 
 ## Settings (⚙️)
 
@@ -74,14 +77,15 @@ on the CPU and the audio never leaves the machine. ▾ picks the microphone; the
 - Windows 10 or 11, with PowerShell 5.1 (it ships with Windows).
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY`; the draft is sent to Groq.
-- Everything else (uv, Python 3.12, edge-tts, faster-whisper, the Whisper models) is installed by
+- Internet and online speech recognition for dictation: Windows' recognizer works in Microsoft's cloud.
+- Everything else (uv, Python 3.12, edge-tts, winrt, pycaw) is installed by
   ⚙️ → Instalación, or by `setup/install.ps1`, under `~/.claude/speedy-code`.
 
 ## Privacy
 
 What leaves the machine: each narration's text (Microsoft, for the voice), each answer narrated in
-another language (Anthropic, Haiku), and the draft when 🖋️ is clicked (Groq). Dictation, settings and
-social accounts stay on the machine.
+another language (Anthropic, Haiku), the audio of each dictation (Microsoft, for Windows' speech
+recognition), and the draft when 🖋️ is clicked (Groq). Settings and social accounts stay on the machine.
 
 ## License
 

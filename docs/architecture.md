@@ -17,7 +17,7 @@ looks odd in the code is the answer to something that broke.
 | `setup/install.ps1` | PowerShell, from ⚙️ → Instalación or `install.ps1` | stdout lines |
 
 Every Python script runs in one environment of the mod's own, `~/.claude/speedy-code/venv`, Python
-3.12: faster-whisper's audio dependency (`av`) publishes no build for newer Pythons. The data folder
+3.12. The data folder
 `~/.claude/speedy-code` also holds the pause and stop files and `listen.log`.
 
 Saved across sessions, in the plugin store (`~/.claude/plugins/store/speedy-code_*.json`):
@@ -65,15 +65,28 @@ Saved across sessions, in the plugin store (`~/.claude/plugins/store/speedy-code
 
 ## Dictation
 
-`listen.py` records 16 kHz mono by WASAPI (MME cuts device names at 31 characters), cuts phrases at a
-0.7 s pause or 8 s, and runs two models: `base` every 0.8 s on the phrase being said, for the preview
-above the prompt (about 1 s on a 6-core CPU), and `large-v3-turbo` on each finished phrase, written
-into the prompt (about 0.8× the phrase's length). The mic records while the models load, so nothing
-said early is lost; a stop before the first phrase ended still cuts and writes what was recorded.
-The speech threshold is low (0.002) because headset microphones are quiet. `listen.log` keeps each
-dictation's microphone and levels.
+`listen.py` drives Windows.Media.SpeechRecognition (the `winrt` packages) in a continuous dictation
+session: no window, no Win+H overlay. Each `HypothesisGenerated` is a `partial` line, the guess
+shown above the prompt; each `ResultGenerated` is a `text` line, written into the prompt. It starts
+in about a second, against the several seconds Whisper took to load its models on the CPU.
 
-`NARRADOR_LISTEN_FILE` (raw 16 kHz float32) stands for the microphone in a test.
+Gotchas, each one measured:
+
+- It needs Windows' **online speech recognition** on (Settings → Privacy → Speech); off, compiling
+  the dictation constraint fails with `0x80045509`, which `listen.py` turns into that instruction.
+  The audio goes to Microsoft.
+- It only takes the dictation languages installed in Windows. On a Spanish Windows that is `es-ES`
+  alone: `es`, `es-MX` and `es-AR` are refused. `listen.py` picks the installed language with the
+  same prefix, else Windows' own speech language.
+- It listens to Windows' **default** microphone and takes no device. The ▾ choice is honored by
+  making that microphone the default for every role (`pycaw`'s `SetDefaultDevice`, the undocumented
+  but stable `IPolicyConfig`) while dictating, and putting the previous defaults back in a `finally`.
+- The session ends by itself after a silence unless `AutoStopSilenceTimeout` is raised: it is set to
+  hours, and a session Windows ends anyway (a network hiccup) is started again.
+- `StopAsync` hands over the phrase under way before the session completes.
+
+`listen.py --check LANG` answers `ok <language>` or `fail <why>`: the setup tab and `install.ps1`
+use it. `listen.log` keeps each dictation's microphone, language and how its session ended.
 
 ## The pen (🖋️)
 

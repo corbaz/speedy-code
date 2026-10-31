@@ -1,20 +1,19 @@
 ﻿# speedy-code setup: installs everything the mod needs beside its own code, on Windows.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-SkipModels] [-GroqKey <key>]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-GroqKey <key>]
 #
 # What it installs, all under the user's own folders (no administrator rights):
 #   - uv, the Python manager, if missing (from astral.sh, its official installer)
 #   - a Python 3.12 environment at ~/.claude/speedy-code/venv (uv fetches Python 3.12 if missing)
-#   - edge-tts (the voices), faster-whisper, sounddevice and numpy (the dictation)
-#   - the two Whisper models, base and large-v3-turbo (about 1.8 GB), unless -SkipModels
-# It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses; -GroqKey
+#   - edge-tts (the voices), and winrt and pycaw (the dictation, by Windows' own speech recognizer)
+# It then checks that Windows can dictate, the microphones, the Edge voices and the GROQ_API_KEY
+# the pen uses; -GroqKey
 # saves that key as a user environment variable. The key's value is never printed.
 #
 # Every line it prints starts with a word the mod reads: "step <name> <text>" as a step starts,
 # "ok <name> <text>" or "fail <name> <text>" as it ends, "info <text>" along the way, and "done"
 # at the end. Run again at any time: each step skips what is already in place.
 param(
-  [switch]$SkipModels,
   [string]$GroqKey
 )
 
@@ -68,19 +67,16 @@ Step 'python' 'Creando el entorno con Python 3.12' {
 }
 
 Step 'packages' 'Instalando las voces y el dictado' {
-  Run { uv pip install --python $python edge-tts faster-whisper sounddevice numpy }
+  Run { uv pip install --python $python edge-tts pycaw winrt-runtime winrt-Windows.Foundation winrt-Windows.Foundation.Collections winrt-Windows.Globalization winrt-Windows.Media.SpeechRecognition }
   if ($LASTEXITCODE -ne 0) { throw "uv pip install salió con $LASTEXITCODE" }
-  & $python -c "import edge_tts, faster_whisper, sounddevice, numpy; print('edge-tts, faster-whisper, sounddevice y numpy listos')"
+  & $python -c "import edge_tts, winrt.windows.media.speechrecognition, pycaw; print('edge-tts, winrt y pycaw listos')"
   if ($LASTEXITCODE -ne 0) { throw 'los paquetes no se pueden importar' }
 }
 
-if ($SkipModels) {
-  Say 'info Modelos de Whisper salteados: se bajan solos en el primer dictado'
-} else {
-  Step 'models' 'Descargando los modelos de Whisper (unos 1,8 GB, puede tardar)' {
-    & $python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8'); WhisperModel('large-v3-turbo', device='cpu', compute_type='int8'); print('base y large-v3-turbo listos')" 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'no se pudieron descargar' }
-  }
+Step 'speech' 'Probando el dictado de Windows' {
+  $answer = (& $python $listen --check es) -join ' '
+  if ($answer -notlike 'ok *') { throw ($answer -replace '^fail ', '') }
+  "reconocedor $($answer.Substring(3))"
 }
 
 Step 'mics' 'Buscando micrófonos' {

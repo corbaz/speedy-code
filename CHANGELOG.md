@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Dictation: Windows' own speech recognizer replaces Whisper. The text shows word by word as you
+  speak and it starts in about a second; no models to download (about 1.8 GB less). It needs
+  online speech recognition on, and the audio goes to Microsoft. The microphone picked with ▾ is
+  made Windows' default while dictating, and the previous one is put back after.
+- Setup: `-SkipModels` is gone; a new step checks that Windows can dictate.
+
 ## 0.9.0 — 2026-10-31
 
 First version as `speedy-code` (it was `narrador`, built as a local mod).

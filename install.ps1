@@ -1,14 +1,13 @@
 ﻿# speedy-code: installs the plugin into Claude Code and everything it needs, from a clone of this
 # repository, in one go.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-SkipModels] [-GroqKey <key>]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-GroqKey <key>]
 #
 # 1. Adds this folder to Claude Code as the `speedy-code` marketplace, and installs the plugin.
-# 2. Runs plugins/speedy-code/setup/install.ps1: uv, Python 3.12, the voices, the dictation and
-#    the Whisper models (see that script). The same runs from Claude Code: ⚙️ → Instalación.
+# 2. Runs plugins/speedy-code/setup/install.ps1: uv, Python 3.12, the voices and the dictation
+#    (see that script). The same runs from Claude Code: ⚙️ → Instalación.
 # Then restart Claude Code.
 param(
-  [switch]$SkipModels,
   [string]$GroqKey
 )
 
@@ -27,11 +26,10 @@ $ErrorActionPreference = 'Continue'
 & claude plugin install speedy-code@speedy-code 2>&1 | Out-Host
 $ErrorActionPreference = $previous
 
-Write-Host '2/2  Instalando las voces, el dictado y los modelos' -ForegroundColor Cyan
+Write-Host '2/2  Instalando las voces y el dictado' -ForegroundColor Cyan
 $setup = Join-Path $PSScriptRoot 'plugins\speedy-code\setup\install.ps1'
 # A process of its own: the setup writes straight to its console, which a pipe in this one would miss.
 $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $setup)
-if ($SkipModels) { $arguments += '-SkipModels' }
 if ($GroqKey) { $arguments += @('-GroqKey', $GroqKey) }
 & powershell @arguments | ForEach-Object {
   $word, $rest = $_ -split ' ', 2

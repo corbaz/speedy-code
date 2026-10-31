@@ -17,13 +17,10 @@ const SHORT_ANSWER = 3000
 /** Where the pause button leaves its word for speak.ps1: a file per narration, so sessions narrating
  * at once never pause each other. speak.ps1 removes it as it ends. */
 const CONTROL_DIR = '.claude/speedy-code'
-/** The dictation model: the most accurate for Spanish with a developer's English, about 12 s behind a
- * 7 s phrase on a 6-core CPU; `small` is about three times faster and makes more mistakes. */
-const DICTATION_MODEL = 'large-v3-turbo'
 /**
- * The Python environment every script runs in: the voice (edge-tts), the dictation (faster-whisper)
- * and the pen. Python 3.12: faster-whisper publishes no build for newer Pythons. One environment of
- * the mod's own, so a machine needs no Python package installed by hand.
+ * The Python environment every script runs in: the voice (edge-tts), the dictation (Windows' speech
+ * recognizer, through winrt and pycaw) and the pen. One environment of the mod's own, so a machine
+ * needs no Python package installed by hand.
  */
 const PYTHON = '.claude/speedy-code/venv/Scripts/python.exe'
 /** The wand: Groq's model that cleans the prompt up, and where it is asked. The key is the system's
@@ -73,14 +70,12 @@ const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Inst
 const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['uv', 'uv, el administrador de Python'],
   ['python', 'Entorno de Python 3.12'],
-  ['packages', 'Voces y dictado (edge-tts, faster-whisper)'],
-  ['models', 'Modelos de Whisper (~1,8 GB)'],
+  ['packages', 'Voces y dictado (edge-tts, winrt, pycaw)'],
+  ['speech', 'Dictado de Windows (reconocimiento en línea)'],
   ['mics', 'Micrófonos'],
   ['voices', 'Voces de Edge (internet)'],
   ['groq', 'Clave de Groq (la pluma, opcional)']
 ]
-/** Where Hugging Face keeps the Whisper models, under the user's folder, unless HF_HOME says otherwise. */
-const WHISPER_MODELS = ['models--Systran--faster-whisper-base', 'models--mobiuslabsgmbh--faster-whisper-large-v3-turbo']
 
 
 /** The tabs, in the person's order: Spanish, English, French, Italian, Portuguese, Russian, Chinese, Arabic, then Hindi, Bengali and Urdu; each with a color of its own. */
@@ -241,7 +236,7 @@ async function loadVoices ($: EngineInterface) {
   if (found.length > 0) await update($, voices, () => found)
 }
 
-/** The microphones connected, by `listen.py --list`: WASAPI's, whose names come whole. */
+/** The microphones connected, by `listen.py --list`, as Windows names them. */
 async function loadMics ($: EngineInterface) {
   const result = await $.process.run([await homeFile($, PYTHON), `${$.plugin.root}/hooks/listen.py`, '--list'], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   if (!result || result.exitCode !== 0) return
@@ -428,7 +423,7 @@ async function listen ($: EngineInterface) {
   let pending = ''
   try {
     const listener = $.process.spawn({
-      argv: [await homeFile($, PYTHON), '-u', `${$.plugin.root}/hooks/listen.py`, DICTATION_MODEL, lang, file, await read($, mic)],
+      argv: [await homeFile($, PYTHON), '-u', `${$.plugin.root}/hooks/listen.py`, lang, file, await read($, mic)],
       env: { PYTHONIOENCODING: 'utf-8' }
     })
     for await (const { stream, text } of listener) {
@@ -627,24 +622,25 @@ async function setCheck ($: EngineInterface, name: string, check: SetupCheck) {
 
 /**
  * Checks what is in place without the network and without installing: the Python environment, its
- * packages, the Whisper models, the microphones and the Groq key. uv and the Edge voices are
+ * packages, Windows' dictation, the microphones and the Groq key. uv and the Edge voices are
  * checked by the setup itself.
  */
 async function checkSetup ($: EngineInterface) {
   const python = await homeFile($, PYTHON)
   const hasPython = await $.fs.exists(python).catch(() => false)
   await setCheck($, 'python', hasPython ? { state: 'ok', detail: 'listo' } : { state: 'fail', detail: 'falta' })
+  let hasPackages = false
   if (hasPython) {
-    const probe = await $.process.run([python, '-c', 'import edge_tts, faster_whisper, sounddevice, numpy']).catch(() => undefined)
-    await setCheck($, 'packages', probe?.exitCode === 0 ? { state: 'ok', detail: 'listos' } : { state: 'fail', detail: 'faltan' })
-  } else {
-    await setCheck($, 'packages', { state: 'fail', detail: 'faltan' })
+    const probe = await $.process.run([python, '-c', 'import edge_tts, winrt.windows.media.speechrecognition, pycaw']).catch(() => undefined)
+    hasPackages = probe?.exitCode === 0
   }
-  const hfHome = (await $.env.get('HF_HOME')) || `${(await homeFile($, '.cache/huggingface'))}`
-  const present = await Promise.all(WHISPER_MODELS.map(model => $.fs.exists(`${hfHome.replace(/\\/g, '/')}/hub/${model}`).catch(() => false)))
-  const count = present.filter(Boolean).length
-  await setCheck($, 'models', count === WHISPER_MODELS.length ? { state: 'ok', detail: 'base y large-v3-turbo' } : { state: 'fail', detail: count ? 'falta uno' : 'faltan (se bajan solos en el primer dictado)' })
-  if (hasPython) await loadMics($)
+  await setCheck($, 'packages', hasPackages ? { state: 'ok', detail: 'listos' } : { state: 'fail', detail: 'faltan' })
+  // Windows' answer, as listen.py gets it: "ok es-ES", or "fail" and why.
+  const lang = (await read($, picks)).active ?? DEFAULT_LANG
+  const speech = hasPackages ? await $.process.run([python, `${$.plugin.root}/hooks/listen.py`, '--check', lang], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined) : undefined
+  const answer = speech?.stdout.trim() ?? ''
+  await setCheck($, 'speech', answer.startsWith('ok ') ? { state: 'ok', detail: answer.slice(3) } : { state: 'fail', detail: answer.startsWith('fail ') ? answer.slice(5) : 'faltan los paquetes' })
+  if (hasPackages) await loadMics($)
   const found = (await read($, mics)).length
   await setCheck($, 'mics', found ? { state: 'ok', detail: `${found} conectado(s)` } : { state: 'fail', detail: hasPython ? 'ninguno conectado' : 'se buscan al instalar' })
   await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
