@@ -77,6 +77,23 @@ def transcribe(model: WhisperModel, audio: np.ndarray, language: str) -> str:
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
+def clear_stale(folder: str) -> None:
+    """Stop files a dictation ended by force left behind: those an hour old go."""
+    cutoff = time.time() - 3600
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(folder, name)
+        if name.startswith("listen-") and name.endswith(".txt"):
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+            except OSError:
+                pass
+
+
 class Log:
     """What each dictation heard, kept beside the stop files: why a dictation wrote nothing shows there."""
 
@@ -174,6 +191,7 @@ def main() -> None:
                                 callback=lambda data, frames, when, status: blocks.put(data[:, 0].copy()))
         stream.start()
 
+    clear_stale(os.path.dirname(control))
     log = Log(os.path.join(os.path.dirname(control), "listen.log"))
     log.write(f"microphone: {sd.query_devices(device)['name'] if device is not None else 'default'}")
     cores = os.cpu_count() or 4
@@ -224,6 +242,10 @@ def main() -> None:
     phrases.put(None)
     writer.join()
     log.write(f"stopped: {cutter.blocks} blocks, loudest {cutter.loudest:.4f}, floor {cutter.floor:.4f}, {cutter.count} phrases")
+    try:
+        os.remove(control)
+    except OSError:
+        pass
     say("done")
 
 

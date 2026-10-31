@@ -18,7 +18,13 @@ if ($speed -le 0) { $speed = 1.0 }
 $percent = [int][Math]::Round(($speed - 1) * 100)
 $rate = if ($percent -ge 0) { "+$percent%" } else { "$percent%" }
 
-# A narration cut short never cleans up after itself: its files go an hour later.
+# A narration cut short never cleans up after itself: its files, and its pause file beside
+# NARRATOR_CONTROL, go an hour later.
+if ($control) {
+  Get-ChildItem -LiteralPath (Split-Path -Parent $control) -Filter 'control-*.txt' -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+}
 $temp = [IO.Path]::GetTempPath()
 Get-ChildItem -LiteralPath $temp -Filter 'narrador-*' -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |

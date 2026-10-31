@@ -706,7 +706,7 @@ test('the send button presses Enter, and with an empty prompt presses nothing', 
 
 test('socialLink builds the profile link of each network, and refuses a name no network takes', () => {
   expect(socialLink('github', 'juliocorbaz')).toBe('https://github.com/juliocorbaz')
-  expect(socialLink('youtube', '@midudev')).toBe('https://www.youtube.com/@midudev')
+  expect(socialLink('youtube', '@juliocorbaz')).toBe('https://www.youtube.com/@juliocorbaz')
   expect(socialLink('linkedin', ' julio-corbaz ')).toBe('https://www.linkedin.com/in/julio-corbaz')
   expect(socialLink('x', "a'; rm -rf")).toBe('')
   expect(socialLink('x', '')).toBe('')

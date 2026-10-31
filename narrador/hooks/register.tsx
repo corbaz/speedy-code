@@ -63,8 +63,6 @@ const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
 const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['socials', 'Redes sociales']]
 
-/** The picks of the edge-voice mod this one replaces, read once. */
-const LEGACY_PICKS = '.claude/narrator-edge/voices.json'
 
 /** The tabs, in the person's order: Spanish, English, French, Italian, Portuguese, Russian, Chinese, Arabic, then Hindi, Bengali and Urdu; each with a color of its own. */
 const LANGUAGES: ReadonlyArray<readonly [string, string, string, string]> = [
@@ -199,19 +197,10 @@ async function homeFile ($: EngineInterface, path: string) {
   return `${home.replace(/\\/g, '/')}/${path}`
 }
 
-/** The saved picks: the store, else the edge-voice mod's voices.json, else Elena. */
+/** The saved picks, else Elena. */
 async function loadPicks ($: EngineInterface): Promise<Picks> {
   const stored = await $.store.get('picks')
-  if (stored && typeof stored === 'object') return stored as Picks
-  const legacy = await $.fs.read(await homeFile($, LEGACY_PICKS)).catch(() => '')
-  try {
-    const parsed: unknown = typeof legacy === 'string' && legacy ? JSON.parse(legacy) : undefined
-    if (parsed && typeof parsed === 'object') {
-      const entries = Object.entries(parsed).filter((pair): pair is [string, string] => typeof pair[1] === 'string')
-      if (entries.length > 0) return Object.fromEntries(entries)
-    }
-  } catch {}
-  return DEFAULT_PICKS
+  return stored && typeof stored === 'object' ? stored as Picks : DEFAULT_PICKS
 }
 
 /** The neural voices edge-tts offers in the tabs' languages, by `python -m edge_tts --list-voices`. */
