@@ -65,28 +65,37 @@ Saved across sessions, in the plugin store (`~/.claude/plugins/store/speedy-code
 
 ## Dictation
 
-`listen.py` drives Windows.Media.SpeechRecognition (the `winrt` packages) in a continuous dictation
-session: no window, no Win+H overlay. Each `HypothesisGenerated` is a `partial` line, the guess
-shown above the prompt; each `ResultGenerated` is a `text` line, written into the prompt. It starts
-in about a second, against the several seconds Whisper took to load its models on the CPU.
+`listen.py` records 16 kHz mono by WASAPI (MME cuts device names at 31 characters) and feeds it to
+NVIDIA's Nemotron 3.5 ASR Streaming (0.6B, Q8_0 GGUF, the model Handy uses) through `transcribe-cpp`,
+the engine behind Handy, on the CPU. The model lives at `~/.claude/speedy-code/models`. It loads in
+about half a second and transcribes about 7× faster than real time, so the words follow the voice
+by about a second.
+
+How the words reach the prompt:
+
+- The stream's `text().committed` only grows. Each new piece is a `text <n> <piece>` line, appended
+  to the prompt **as it is**: the model can cut a word in two (`princi`, `pal.`), so `listen.py`
+  keeps its spaces and `register.tsx` adds none. A phrase's first piece starts with a space; the
+  mod drops it only at the prompt's start or after a space already there.
+- `tentative` is a `partial` line, shown above the prompt. Nemotron rarely leaves anything
+  tentative: it commits as it goes.
+- A pause of 0.8 s (loudness over a learned noise floor, low because headsets are quiet) ends the
+  phrase: `finalize()` hands over its last word, and a fresh stream starts the next phrase.
+- Blocks waiting when a feed ends are fed together, so a slow feed never leaves the model behind.
 
 Gotchas, each one measured:
 
-- It needs Windows' **online speech recognition** on (Settings → Privacy → Speech); off, compiling
-  the dictation constraint fails with `0x80045509`, which `listen.py` turns into that instruction.
-  The audio goes to Microsoft.
-- It only takes the dictation languages installed in Windows. On a Spanish Windows that is `es-ES`
-  alone: `es`, `es-MX` and `es-AR` are refused. `listen.py` picks the installed language with the
-  same prefix, else Windows' own speech language.
-- It listens to Windows' **default** microphone and takes no device. The ▾ choice is honored by
-  making that microphone the default for every role (`pycaw`'s `SetDefaultDevice`, the undocumented
-  but stable `IPolicyConfig`) while dictating, and putting the previous defaults back in a `finally`.
-- The session ends by itself after a silence unless `AutoStopSilenceTimeout` is raised: it is set to
-  hours, and a session Windows ends anyway (a network hiccup) is started again.
-- `StopAsync` hands over the phrase under way before the session completes.
+- `language` takes the model's own tags: `es` is refused, `es-US` and `es-ES` are taken. `listen.py`
+  maps the narration's language to them (`es` → `es-US`).
+- The model takes no vocabulary list (`transcribe-cpp` says so and ignores it): "commit" can come
+  out "camit". The 🖋️ pen fixes those.
+- The engine writes notes on stderr as it loads. PowerShell 5.1 takes any stderr line as a failure,
+  even redirected, so `listen.py` points its stderr at `os.devnull` before importing it; errors
+  still reach stdout as `error …`.
 
-`listen.py --check LANG` answers `ok <language>` or `fail <why>`: the setup tab and `install.ps1`
-use it. `listen.log` keeps each dictation's microphone, language and how its session ended.
+`listen.py --check LANG` loads the model and answers `ok <language>` or `fail <why>`: the setup tab
+and `install.ps1` use it. `listen.log` keeps each dictation's microphone, language and levels.
+`NARRADOR_LISTEN_FILE` (raw 16 kHz float32) stands for the microphone in a test.
 
 ## The pen (🖋️)
 

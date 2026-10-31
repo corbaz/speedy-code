@@ -170,14 +170,15 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
       yield { stream: 'stdout' as const, text: `${polish.reply}\n` }
       return { value: { code: 0, signal: null } }
     }
-    // The microphone: listen.py says it is ready, then two phrases, as they are written.
+    // The microphone: listen.py says it is ready, then two phrases, as their words are committed;
+    // a phrase's first piece starts with a space, and a word can come in two pieces ("end", "point.").
     if (e.argv.some(arg => arg.endsWith('listen.py'))) {
       listened.push([...e.argv])
-      yield { stream: 'stdout' as const, text: 'ready\npartial 1 Hola quiero\ntext 1 Hola, quiero hacer un\n' }
+      yield { stream: 'stdout' as const, text: 'ready\npartial 1 Hola quiero\ntext 1  Hola, quiero hacer un\n' }
       yield { stream: 'stdout' as const, text: 'partial 2 refactor del en\n' }
       // A microphone left on stops between the preview of phrase 2 and its text.
       while (mic.on) await clock.sleep(100)
-      yield { stream: 'stdout' as const, text: 'text 2 refactor del endpoint.\n' }
+      yield { stream: 'stdout' as const, text: 'text 2  refactor del end\ntext 2 point.\n' }
       return { value: { code: 0, signal: null } }
     }
     spoken.push(e.env ?? {})
@@ -429,9 +430,9 @@ test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
-  // listen.py LANGUAGE CONTROL_FILE MICROPHONE: Windows' recognizer takes no model.
+  // listen.py LANGUAGE CONTROL_FILE MICROPHONE: the model is fixed, so it is no argument.
   expect(w.listened[0]?.slice(-4, -2).map(arg => arg.split(/[\\/]/).pop())).toEqual(['listen.py', 'es'])
-  expect(filled).toEqual([{ text: ' Hola, quiero hacer un', mode: 'append' }, { text: ' refactor del endpoint.', mode: 'append' }])
+  expect(filled).toEqual([{ text: ' Hola, quiero hacer un', mode: 'append' }, { text: ' refactor del end', mode: 'append' }, { text: 'point.', mode: 'append' }])
   expect(draft).toBe('Tengo una duda: Hola, quiero hacer un refactor del endpoint.')
   await ui.unmount()
 })

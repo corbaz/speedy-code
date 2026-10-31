@@ -18,8 +18,8 @@ const SHORT_ANSWER = 3000
  * at once never pause each other. speak.ps1 removes it as it ends. */
 const CONTROL_DIR = '.claude/speedy-code'
 /**
- * The Python environment every script runs in: the voice (edge-tts), the dictation (Windows' speech
- * recognizer, through winrt and pycaw) and the pen. One environment of the mod's own, so a machine
+ * The Python environment every script runs in: the voice (edge-tts), the dictation (transcribe-cpp
+ * with a local streaming model) and the pen. One environment of the mod's own, so a machine
  * needs no Python package installed by hand.
  */
 const PYTHON = '.claude/speedy-code/venv/Scripts/python.exe'
@@ -70,8 +70,8 @@ const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Inst
 const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['uv', 'uv, el administrador de Python'],
   ['python', 'Entorno de Python 3.12'],
-  ['packages', 'Voces y dictado (edge-tts, winrt, pycaw)'],
-  ['speech', 'Dictado de Windows (reconocimiento en línea)'],
+  ['packages', 'Voces y dictado (edge-tts, transcribe-cpp)'],
+  ['model', 'Modelo de dictado Nemotron (~750 MB, local)'],
   ['mics', 'Micrófonos'],
   ['voices', 'Voces de Edge (internet)'],
   ['groq', 'Clave de Groq (la pluma, opcional)']
@@ -442,14 +442,16 @@ async function listen ($: EngineInterface) {
           const text = said[3] ?? ''
           await update($, heard, list => [...list.filter(one => one.number !== number), { number, text }].sort((a, b) => a.number - b.number))
         } else if (said?.[1] === 'text') {
-          // The accurate text replaces the preview: it goes into the prompt.
+          // Words the model committed replace the preview: they go into the prompt as they come.
+          // listen.py sets the spaces (a piece with none goes on the word before); only a space
+          // at the prompt's start, or after one already there, is dropped.
           const number = Number(said[2])
           const text = said[3] ?? ''
           await update($, heard, list => list.filter(one => one.number !== number))
-          if (text) {
+          if (text.trim()) {
             const draft = (await $.prompt.read()).text
-            const gap = draft === '' || /\s$/.test(draft) ? '' : ' '
-            await $.prompt.fill({ text: gap + text, mode: 'append' })
+            const piece = draft === '' || /\s$/.test(draft) ? text.trimStart() : text
+            await $.prompt.fill({ text: piece, mode: 'append' })
           }
         } else if (line.startsWith('error ')) {
           $.ui.toast(`speedy-code: el micrófono falló: ${line.slice(6)}`)
@@ -622,7 +624,7 @@ async function setCheck ($: EngineInterface, name: string, check: SetupCheck) {
 
 /**
  * Checks what is in place without the network and without installing: the Python environment, its
- * packages, Windows' dictation, the microphones and the Groq key. uv and the Edge voices are
+ * packages, the dictation model, the microphones and the Groq key. uv and the Edge voices are
  * checked by the setup itself.
  */
 async function checkSetup ($: EngineInterface) {
@@ -631,15 +633,15 @@ async function checkSetup ($: EngineInterface) {
   await setCheck($, 'python', hasPython ? { state: 'ok', detail: 'listo' } : { state: 'fail', detail: 'falta' })
   let hasPackages = false
   if (hasPython) {
-    const probe = await $.process.run([python, '-c', 'import edge_tts, winrt.windows.media.speechrecognition, pycaw']).catch(() => undefined)
+    const probe = await $.process.run([python, '-c', 'import edge_tts, transcribe_cpp, sounddevice, numpy']).catch(() => undefined)
     hasPackages = probe?.exitCode === 0
   }
   await setCheck($, 'packages', hasPackages ? { state: 'ok', detail: 'listos' } : { state: 'fail', detail: 'faltan' })
-  // Windows' answer, as listen.py gets it: "ok es-ES", or "fail" and why.
+  // The model loaded as a dictation loads it: "ok es-US", or "fail" and why.
   const lang = (await read($, picks)).active ?? DEFAULT_LANG
-  const speech = hasPackages ? await $.process.run([python, `${$.plugin.root}/hooks/listen.py`, '--check', lang], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined) : undefined
-  const answer = speech?.stdout.trim() ?? ''
-  await setCheck($, 'speech', answer.startsWith('ok ') ? { state: 'ok', detail: answer.slice(3) } : { state: 'fail', detail: answer.startsWith('fail ') ? answer.slice(5) : 'faltan los paquetes' })
+  const loaded = hasPackages ? await $.process.run([python, `${$.plugin.root}/hooks/listen.py`, '--check', lang], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined) : undefined
+  const answer = loaded?.stdout.trim() ?? ''
+  await setCheck($, 'model', answer.startsWith('ok ') ? { state: 'ok', detail: answer.slice(3) } : { state: 'fail', detail: answer.startsWith('fail ') ? answer.slice(5) : 'faltan los paquetes' })
   if (hasPackages) await loadMics($)
   const found = (await read($, mics)).length
   await setCheck($, 'mics', found ? { state: 'ok', detail: `${found} conectado(s)` } : { state: 'fail', detail: hasPython ? 'ninguno conectado' : 'se buscan al instalar' })

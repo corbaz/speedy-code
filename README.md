@@ -1,11 +1,11 @@
 # speedy-code
 
 **Hablale a Claude Code y escuchalo responder.** Un plugin de Claude Code para Windows: lee las
-respuestas en voz alta con las voces neurales de Microsoft Edge, convierte tu voz en el prompt con
-el dictado de Windows mientras hablás, y suma al pie de la pantalla una barra de atajos (copiar, pegar texto o
+respuestas en voz alta con las voces neurales de Microsoft Edge, convierte tu voz en el prompt
+mientras hablás, con un modelo que corre en tu máquina, y suma al pie de la pantalla una barra de atajos (copiar, pegar texto o
 imagen, corregir el prompt con IA, enviar, tus redes, salir y volver).
 
-*Talk to Claude Code and hear it answer: Edge neural voices, Windows dictation streamed as you speak, prompt tools
+*Talk to Claude Code and hear it answer: Edge neural voices, local dictation streamed as you speak, prompt tools
 and a footer of shortcuts. Windows.*
 
 ---
@@ -22,9 +22,8 @@ In Claude Code:
 ```
 
 Restart Claude Code. On its first start it opens ⚙️ → **Instalación**: click **Instalar / reparar
-todo** and it installs the rest (uv, Python 3.12, the voices, the dictation). Nothing needs
-administrator rights. Dictation needs Windows' online speech recognition switched on (Settings →
-Privacy → Speech).
+todo** and it installs the rest (uv, Python 3.12, the voices, the dictation and its model, about
+750 MB). Nothing needs administrator rights.
 
 ### From a clone
 
@@ -50,7 +49,7 @@ plugins/speedy-code/              the plugin: what Claude Code copies and runs
   hooks/register.tsx                the mod: footer, menus, narration, dictation, settings
   hooks/control.tsx                 a footer control with no hover background
   hooks/speak.ps1, tts.py           the voice: Edge TTS in parts, played with pause and resume
-  hooks/listen.py                   dictation: Windows' recognizer, its guesses and text
+  hooks/listen.py                   dictation: microphone, pauses, streamed words
   hooks/polish.py                   the 🖋️ button: Groq, in ASCII both ways
   setup/install.ps1                 installs everything beside the code
   tests/speedy-code.test.tsx        the tests

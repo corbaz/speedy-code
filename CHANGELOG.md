@@ -2,11 +2,10 @@
 
 ## Unreleased
 
-- Dictation: Windows' own speech recognizer replaces Whisper. The text shows word by word as you
-  speak and it starts in about a second; no models to download (about 1.8 GB less). It needs
-  online speech recognition on, and the audio goes to Microsoft. The microphone picked with ▾ is
-  made Windows' default while dictating, and the previous one is put back after.
-- Setup: `-SkipModels` is gone; a new step checks that Windows can dictate.
+- Dictation: NVIDIA's Nemotron 3.5 ASR Streaming, run by transcribe-cpp, replaces Whisper. The
+  words go into the prompt as they are said, it loads in half a second, and it is still local.
+  One model of about 750 MB instead of two of 1.8 GB.
+- Setup: `-SkipModels` is gone; the model always downloads, and is loaded once to check it.
 
 ## 0.9.0 — 2026-10-31
 

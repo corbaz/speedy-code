@@ -1,7 +1,7 @@
 # speedy-code
 
 Talk to Claude Code and hear it answer. A Claude Code mod for Windows: Edge neural voices read the
-answers aloud, Windows' dictation turns your voice into the prompt as you speak, and a footer of shortcuts handles
+answers aloud, a local speech model turns your voice into the prompt as you speak, and a footer of shortcuts handles
 the rest.
 
 ## The footer
@@ -44,13 +44,11 @@ columns as the width holds and paged so the menu always fits. ✦ marks a multil
 
 ## Dictation
 
-Click 🎙️ and speak. It shows 🔵 for the second it takes to start, 🔴 while it listens. Above the
-prompt, what Windows hears shows word by word as you speak; at each pause, the phrase goes into the
-prompt. Click 🎙️ again to stop: what you were saying is still written. The recognizer is Windows'
-own (the one behind its dictation), with no window of its own; it needs online speech recognition
-switched on (Settings → Privacy → Speech). ▾ picks the microphone; the choice is kept. Windows
-dictates with its default microphone only, so the one picked is made the default while you dictate,
-and the one before comes back when you stop.
+Click 🎙️ and speak. It shows 🔵 for the half second the model takes to load, 🔴 while it listens.
+The words go into the prompt as you say them, about a second behind your voice; a pause closes the
+phrase. Click 🎙️ again to stop: what you were saying is still written. The model is NVIDIA's
+Nemotron 3.5 ASR Streaming, the one Handy uses, run by transcribe-cpp on the CPU: the audio never
+leaves the machine. ▾ picks the microphone; the choice is kept.
 
 ## Settings (⚙️)
 
@@ -77,15 +75,14 @@ and the one before comes back when you stop.
 - Windows 10 or 11, with PowerShell 5.1 (it ships with Windows).
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY`; the draft is sent to Groq.
-- Internet and online speech recognition for dictation: Windows' recognizer works in Microsoft's cloud.
-- Everything else (uv, Python 3.12, edge-tts, winrt, pycaw) is installed by
+- Everything else (uv, Python 3.12, edge-tts, transcribe-cpp, the dictation model) is installed by
   ⚙️ → Instalación, or by `setup/install.ps1`, under `~/.claude/speedy-code`.
 
 ## Privacy
 
 What leaves the machine: each narration's text (Microsoft, for the voice), each answer narrated in
-another language (Anthropic, Haiku), the audio of each dictation (Microsoft, for Windows' speech
-recognition), and the draft when 🖋️ is clicked (Groq). Settings and social accounts stay on the machine.
+another language (Anthropic, Haiku), and the draft when 🖋️ is clicked (Groq). Dictation, settings and
+social accounts stay on the machine.
 
 ## License
 

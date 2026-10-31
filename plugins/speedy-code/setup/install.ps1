@@ -5,9 +5,10 @@
 # What it installs, all under the user's own folders (no administrator rights):
 #   - uv, the Python manager, if missing (from astral.sh, its official installer)
 #   - a Python 3.12 environment at ~/.claude/speedy-code/venv (uv fetches Python 3.12 if missing)
-#   - edge-tts (the voices), and winrt and pycaw (the dictation, by Windows' own speech recognizer)
-# It then checks that Windows can dictate, the microphones, the Edge voices and the GROQ_API_KEY
-# the pen uses; -GroqKey
+#   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation)
+#   - the dictation model, NVIDIA's Nemotron 3.5 ASR Streaming (about 750 MB, from Hugging Face),
+#     at ~/.claude/speedy-code/models: dictation runs on this machine with it
+# It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses; -GroqKey
 # saves that key as a user environment variable. The key's value is never printed.
 #
 # Every line it prints starts with a word the mod reads: "step <name> <text>" as a step starts,
@@ -67,16 +68,29 @@ Step 'python' 'Creando el entorno con Python 3.12' {
 }
 
 Step 'packages' 'Instalando las voces y el dictado' {
-  Run { uv pip install --python $python edge-tts pycaw winrt-runtime winrt-Windows.Foundation winrt-Windows.Foundation.Collections winrt-Windows.Globalization winrt-Windows.Media.SpeechRecognition }
+  Run { uv pip install --python $python edge-tts transcribe-cpp sounddevice numpy }
   if ($LASTEXITCODE -ne 0) { throw "uv pip install salió con $LASTEXITCODE" }
-  & $python -c "import edge_tts, winrt.windows.media.speechrecognition, pycaw; print('edge-tts, winrt y pycaw listos')"
+  # transcribe-cpp notes on stderr as it loads: Run keeps them from counting as a failure.
+  Run { & $python -c "import edge_tts, transcribe_cpp, sounddevice, numpy" }
   if ($LASTEXITCODE -ne 0) { throw 'los paquetes no se pueden importar' }
+  'edge-tts, transcribe-cpp, sounddevice y numpy listos'
 }
 
-Step 'speech' 'Probando el dictado de Windows' {
+Step 'model' 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' {
+  $models = Join-Path $data 'models'
+  $model = Join-Path $models 'nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf'
+  if (-not (Test-Path -LiteralPath $model)) {
+    New-Item -ItemType Directory -Force -Path $models | Out-Null
+    # To a .part first: a download cut halfway never passes for the model.
+    $part = "$model.part"
+    Run { curl.exe -L --fail --silent --show-error -o $part 'https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf' }
+    if ($LASTEXITCODE -ne 0) { Remove-Item -LiteralPath $part -ErrorAction SilentlyContinue; throw "la descarga salió con $LASTEXITCODE" }
+    Move-Item -LiteralPath $part -Destination $model -Force
+  }
+  # Loaded as a dictation loads it: "ok es-US", or "fail" and why.
   $answer = (& $python $listen --check es) -join ' '
   if ($answer -notlike 'ok *') { throw ($answer -replace '^fail ', '') }
-  "reconocedor $($answer.Substring(3))"
+  "Nemotron listo ($($answer.Substring(3)))"
 }
 
 Step 'mics' 'Buscando micrófonos' {
