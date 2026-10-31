@@ -1,0 +1,8 @@
+{
+  "name": "narrador",
+  "version": "0.1.0",
+  "description": "Reads Claude's answers aloud with Microsoft Edge neural voices on Windows, with a voice picker and play/pause in the footer.",
+  "author": { "name": "Julio Cesar Corbaz" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
