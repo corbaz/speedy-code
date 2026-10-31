@@ -149,6 +149,7 @@ const editing = atom({ plugin: 'speedy-code', key: 'editing' } as const, '')
 const setupChecks = atom({ plugin: 'speedy-code', key: 'setupChecks' } as const, {} as Record<string, SetupCheck>)
 const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as string[])
 const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
+const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 
 const regions = (() => {
@@ -274,6 +275,7 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     await update($, settingsOpened, count => count + 1)
     await update($, editing, () => '')
     void checkSetup($)
+    void switchStatusLine($, 'status')
   }
   await update($, menu, () => which)
 }
@@ -648,6 +650,18 @@ async function checkSetup ($: EngineInterface) {
   await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
 }
 
+/**
+ * speedy-code's status line, in color, switched on or off in the user's settings by switch.py: the
+ * status line set before is kept and comes back when it is switched off.
+ */
+async function switchStatusLine ($: EngineInterface, action: 'on' | 'off' | 'status') {
+  const result = await $.process.run([await homeFile($, PYTHON), `${$.plugin.root}/statusline/switch.py`, action]).catch(() => undefined)
+  const said = result?.stdout.trim() ?? ''
+  if (said === 'on' || said === 'off') await update($, statusLine, () => said)
+  else if (action !== 'status') $.ui.toast(`speedy-code: no pude cambiar la barra de estado: ${said.replace(/^error /, '') || 'falta instalar'}`)
+  if (action !== 'status' && (said === 'on' || said === 'off')) $.ui.toast(said === 'on' ? 'speedy-code: barra de estado a colores activada; aparece en un segundo.' : 'speedy-code: volvió tu barra de estado anterior.')
+}
+
 /** Runs install.ps1, each line it prints shown as it comes; then checks again. */
 async function runSetup ($: EngineInterface) {
   if (await read($, isInstalling)) return
@@ -760,6 +774,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
   const checks = await read($, setupChecks)
   const log = await read($, setupLog)
   const installing = await read($, isInstalling)
+  const bar = await read($, statusLine)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
   const setupTab = (
     <Box flexDirection="column" marginTop={1}>
@@ -781,6 +796,13 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
         <Text dimColor>{'  instala lo que falta y deja como está lo que ya funciona'}</Text>
       </Box>
       {log.map((line, index) => <Text key={`setup-log:${index}`} dimColor>{`   ${line}`}</Text>)}
+      <Box flexDirection="row" marginTop={1}>
+        <Box width={49}><Text>{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
+        <Button key="setup:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
+          <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
+        </Button>
+        <Text dimColor>{bar === 'on' ? '  en uso' : '  la tuya queda guardada'}</Text>
+      </Box>
     </Box>
   )
   const header = (

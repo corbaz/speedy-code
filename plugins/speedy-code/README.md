@@ -52,6 +52,9 @@ on the CPU and the audio never leaves the machine. ▾ picks the microphone; the
 ## Settings (⚙️)
 
 - **Instalación:** checks what is in place and installs or repairs it with one button.
+  It also switches on speedy-code's status line: folder, branch, model, time, tokens, context left,
+  cost and the 5-hour and weekly limits, colored by how much is left; the status line you had is kept
+  and comes back with "Volver a mi barra anterior".
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,
   Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network. Click a
   user name to edit it, Enter keeps it. Discord takes the numeric user ID.

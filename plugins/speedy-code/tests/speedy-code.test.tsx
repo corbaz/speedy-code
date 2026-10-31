@@ -36,6 +36,7 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.setupChecks ??= { value: {}, version: 1 }
   held.setupLog ??= { value: [], version: 1 }
   held.isInstalling ??= { value: false, version: 1 }
+  held.statusLine ??= { value: '', version: 1 }
   held.picks ??= { value: { shape: 'picks-1', value: { es: 'es-AR-ElenaNeural', active: 'es' } }, version: 1 }
   on('state.get', (_, e) => ({ value: held[e.key] }))
   on('state.set', (_, e) => { held[e.key] = { value: e.value, version: 2 }; return { value: { isSet: true, version: 2 } } })
@@ -135,6 +136,11 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
       copied.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '' } }
     }
+    // The status line switch answers what is in use.
+    if (e.argv.some(arg => arg.endsWith('switch.py'))) {
+      switched.push(e.argv.at(-1) ?? '')
+      return { value: { exitCode: 0, stdout: `${e.argv.at(-1) === 'on' ? 'on' : 'off'}\r\n`, stderr: '' } }
+    }
     if (e.argv.includes('--list')) return { value: { exitCode: 0, stdout: `mic ${JBL}\r\nmic ${G432}\r\n`, stderr: '' } }
     return { value: { exitCode: 1, stdout: '', stderr: '' } }
   })
@@ -150,6 +156,7 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
   const pressed: string[] = []
   const copied: string[] = []
   const opened: string[] = []
+  const switched: string[] = []
   on('process.spawn', async function * (_, e) {
     // The setup: install.ps1 says each step as it starts and ends.
     if (e.argv.some(arg => arg.endsWith('install.ps1'))) {
@@ -182,7 +189,7 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
     }
     return { value: { code: 0, signal: null } }
   })
-  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened }
+  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened, switched }
 }
 
 const answer = ($: Engine, text: string) =>
@@ -864,5 +871,23 @@ test('a first start with nothing installed says so and opens the settings on the
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Instalar \/ reparar todo/ }))).toBeDefined()
   await band.unmount()
+  await ui.unmount()
+})
+
+test('the setup tab switches the colored status line on, keeping the one before', { timeoutMs: 30000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:setup' })
+  await band.unmount()
+  const setup = await $.ui.mount(BAND)
+  expect((await setup.find({ type: 'Text', text: /Usar la de speedy-code/ }))?.text).toBe(' Usar la de speedy-code ')
+  await setup.press({ key: 'setup:statusline' })
+  await setup.unmount()
+  expect(w.switched).toContain('on')
+  const after = await $.ui.mount(BAND)
+  expect((await after.find({ type: 'Text', text: /Volver a mi barra anterior/ }))).toBeDefined()
+  await after.unmount()
   await ui.unmount()
 })

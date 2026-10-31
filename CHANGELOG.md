@@ -13,5 +13,6 @@ First version as `speedy-code` (it was `narrador`, built as a local mod).
   reload, settings, exit with `claude --resume` on the clipboard.
 - Settings: an install tab that checks and repairs everything; social networks with several
   accounts each.
+- Status line: a colored one, switched on from ⚙️ → Instalación, the previous one kept.
 - Setup: `install.ps1` installs uv, Python 3.12, the voices, the dictation and the models with no
   administrator rights; one Python environment for every script.

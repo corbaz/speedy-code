@@ -59,6 +59,8 @@ declare module 'claude-code' {
       setupLog: string[]
       /** Whether install.ps1 is running. */
       isInstalling: boolean
+      /** Whether speedy-code's status line is the one in use; empty: not checked yet. */
+      statusLine: '' | 'on' | 'off'
       /** Whether the wand is cleaning the prompt up with Groq. */
       isPolishing: boolean
       /** The microphones connected, as the system names them. */
