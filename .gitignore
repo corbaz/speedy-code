@@ -8,3 +8,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 odd/
+# Speech models: the setup downloads them to ~/.claude/speedy-code/models, never into the repository.
+*.gguf
+*.gguf.part
+models/
