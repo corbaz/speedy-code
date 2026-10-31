@@ -29,10 +29,11 @@ $ErrorActionPreference = $previous
 
 Write-Host '2/2  Instalando las voces, el dictado y los modelos' -ForegroundColor Cyan
 $setup = Join-Path $PSScriptRoot 'plugins\speedy-code\setup\install.ps1'
-$arguments = @{}
-if ($SkipModels) { $arguments.SkipModels = $true }
-if ($GroqKey) { $arguments.GroqKey = $GroqKey }
-& $setup @arguments | ForEach-Object {
+# A process of its own: the setup writes straight to its console, which a pipe in this one would miss.
+$arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $setup)
+if ($SkipModels) { $arguments += '-SkipModels' }
+if ($GroqKey) { $arguments += @('-GroqKey', $GroqKey) }
+& powershell @arguments | ForEach-Object {
   $word, $rest = $_ -split ' ', 2
   switch ($word) {
     'step' { Write-Host "  … $(($rest -split ' ', 2)[1])" -ForegroundColor DarkGray }
