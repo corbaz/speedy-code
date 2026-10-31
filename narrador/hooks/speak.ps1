@@ -59,7 +59,9 @@ try {
     }
     # One process makes them all: the first alone, then the rest at once while it plays.
     $arguments = @("`"$PSScriptRoot\tts.py`"", $voice, $rate, "`"$(Join-Path $temp "narrador-$key")`"") + $textFiles
-    $maker = Start-Process -FilePath (Get-Command python).Source -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    # The mod's own Python environment (NARRATOR_PYTHON), else whatever python the PATH finds.
+    $python = if ($env:NARRATOR_PYTHON -and (Test-Path -LiteralPath $env:NARRATOR_PYTHON)) { $env:NARRATOR_PYTHON } else { (Get-Command python).Source }
+    $maker = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru
   }
 
   Add-Type -AssemblyName PresentationCore

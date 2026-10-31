@@ -20,8 +20,12 @@ const CONTROL_DIR = '.claude/narrador'
 /** The dictation model: the most accurate for Spanish with a developer's English, about 12 s behind a
  * 7 s phrase on a 6-core CPU; `small` is about three times faster and makes more mistakes. */
 const DICTATION_MODEL = 'large-v3-turbo'
-/** The Python 3.12 environment dictation runs in: faster-whisper publishes no build for newer Pythons. */
-const DICTATION_PYTHON = '.claude/narrador/venv/Scripts/python.exe'
+/**
+ * The Python environment every script runs in: the voice (edge-tts), the dictation (faster-whisper)
+ * and the pen. Python 3.12: faster-whisper publishes no build for newer Pythons. One environment of
+ * the mod's own, so a machine needs no Python package installed by hand.
+ */
+const PYTHON = '.claude/narrador/venv/Scripts/python.exe'
 /** The wand: Groq's model that cleans the prompt up, and where it is asked. The key is the system's
  * GROQ_API_KEY: it never leaves the request's header. */
 const POLISH_MODEL = 'openai/gpt-oss-120b'
@@ -205,7 +209,7 @@ async function loadPicks ($: EngineInterface): Promise<Picks> {
 
 /** The neural voices edge-tts offers in the tabs' languages, by `python -m edge_tts --list-voices`. */
 async function loadVoices ($: EngineInterface) {
-  const result = await $.process.run(['python', '-m', 'edge_tts', '--list-voices']).catch(() => undefined)
+  const result = await $.process.run([await homeFile($, PYTHON), '-m', 'edge_tts', '--list-voices']).catch(() => undefined)
   if (!result || result.exitCode !== 0) return
   const found: Voice[] = []
   for (const line of result.stdout.split(/\r?\n/)) {
@@ -220,7 +224,7 @@ async function loadVoices ($: EngineInterface) {
 
 /** The microphones connected, by `listen.py --list`: WASAPI's, whose names come whole. */
 async function loadMics ($: EngineInterface) {
-  const result = await $.process.run([await homeFile($, DICTATION_PYTHON), `${$.plugin.root}/hooks/listen.py`, '--list'], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  const result = await $.process.run([await homeFile($, PYTHON), `${$.plugin.root}/hooks/listen.py`, '--list'], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   if (!result || result.exitCode !== 0) return
   const found = result.stdout.split(/\r?\n/).filter(line => line.startsWith('mic ')).map(line => line.slice(4).trim())
   await update($, mics, () => found)
@@ -327,7 +331,7 @@ async function narrate ($: EngineInterface, answer: string) {
     await $.fs.write(control, 'play')
     const speaker = $.process.spawn({
       argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/speak.ps1`],
-      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control }
+      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: await homeFile($, PYTHON) }
     })
     for await (const { text: said } of speaker) {
       // Leaving the loop ends the process, and its sound with it.
@@ -403,7 +407,7 @@ async function listen ($: EngineInterface) {
   let pending = ''
   try {
     const listener = $.process.spawn({
-      argv: [await homeFile($, DICTATION_PYTHON), '-u', `${$.plugin.root}/hooks/listen.py`, DICTATION_MODEL, lang, file, await read($, mic)],
+      argv: [await homeFile($, PYTHON), '-u', `${$.plugin.root}/hooks/listen.py`, DICTATION_MODEL, lang, file, await read($, mic)],
       env: { PYTHONIOENCODING: 'utf-8' }
     })
     for await (const { stream, text } of listener) {
@@ -511,7 +515,7 @@ async function polish ($: EngineInterface) {
     // Groq is asked by polish.py, in ASCII both ways: the HTTP client here decoded Groq's UTF-8 as
     // another encoding and broke every accent.
     const polisher = $.process.spawn({
-      argv: ['python', '-X', 'utf8', `${$.plugin.root}/hooks/polish.py`],
+      argv: [await homeFile($, PYTHON), '-X', 'utf8', `${$.plugin.root}/hooks/polish.py`],
       input: ascii(JSON.stringify({ model: POLISH_MODEL, system: POLISH_SYSTEM, text: draft }))
     })
     let out = ''
