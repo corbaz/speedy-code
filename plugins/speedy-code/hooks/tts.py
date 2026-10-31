@@ -1,4 +1,4 @@
-"""Synthesizes the parts of a narration with edge-tts, for the narrador mod's speak.ps1.
+"""Synthesizes the parts of a narration with edge-tts, for the speedy-code mod's speak.ps1.
 
 Usage: tts.py VOICE RATE OUT_PREFIX TEXT_FILE...
 

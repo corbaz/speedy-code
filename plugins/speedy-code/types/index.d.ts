@@ -21,7 +21,7 @@ export type Socials = Record<string, string>
 
 declare module 'claude-code' {
   interface PluginState {
-    narrador: {
+    'speedy-code': {
       /** Whether answers are read aloud. */
       isEnabled: boolean
       /** The voices picked, one per language, and the language narrated in. */

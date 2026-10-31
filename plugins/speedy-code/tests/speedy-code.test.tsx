@@ -4,13 +4,13 @@ import type { Engine } from 'claude-code/testing'
 import { accountsOf, ascii, guessLanguage, micName, plain, socialLink } from '../hooks/register'
 
 const PANE = {
-  plugin: 'narrador',
+  plugin: 'speedy-code',
   component: 'Pane',
-  requestId: 'narrador',
+  requestId: 'speedy-code',
   props: { title: 'Voz del narrador', isFocused: true, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 
-const FOOTER = { plugin: 'narrador', component: 'SessionMode', requestId: 'footer', props: { modes: [] }, surface: 'terminal' } as const
+const FOOTER = { plugin: 'speedy-code', component: 'SessionMode', requestId: 'footer', props: { modes: [] }, surface: 'terminal' } as const
 
 const JBL = 'Auriculares con micrófono (2- JBL Tune 520BT)'
 const G432 = 'Micrófono (G432 Gaming Headset)'
@@ -86,9 +86,9 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   const stored: Record<string, unknown> = {}
   on('store.set', (_, e) => { stored[e.key] = e.value; return { value: undefined } })
   const ui = await $.ui.mount(FOOTER)
-  expect((await ui.find({ type: 'Text', in: 'narrador:switch' }))?.text).toBe(' 🔊 ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:switch' }))?.text).toBe(' 🔊 ')
   // The left button going down on the edge of the speaker's region is enough.
-  await ui.pointer({ type: 'down', x: 3, y: 0, button: 'left', in: 'narrador:switch' })
+  await ui.pointer({ type: 'down', x: 3, y: 0, button: 'left', in: 'speedy:switch' })
   expect(stored.isEnabled).toBe(false)
   expect(held.isEnabled).toEqual({ value: false, version: 2 })
   await ui.unmount()
@@ -216,8 +216,8 @@ test('a session nobody is at is not narrated', async ($, on) => {
 test('switched off, the play button stays, in gray', async ($, on) => {
   holdState(on, { isEnabled: { value: false, version: 1 }, speech: { value: 'idle', version: 1 } })
   const ui = await $.ui.mount(FOOTER)
-  expect((await ui.find({ type: 'Text', in: 'narrador:switch' }))?.text).toBe(' 🔇 ')
-  expect((await ui.find({ type: 'Text', in: 'narrador:play' }))?.props.color).toBe('#495057')
+  expect((await ui.find({ type: 'Text', in: 'speedy:switch' }))?.text).toBe(' 🔇 ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:play' }))?.props.color).toBe('#495057')
   await ui.unmount()
 })
 
@@ -228,8 +228,8 @@ test('once it has read, the play button reads the last answer again', async ($, 
   await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
   await w.clock.settle()
   const ui = await $.ui.mount(FOOTER)
-  expect((await ui.find({ type: 'Text', in: 'narrador:play' }))?.text).toBe(' ⏵ ')
-  await ui.post({ isClicked: true }, { in: 'narrador:play' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:play' }))?.text).toBe(' ⏵ ')
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.settle()
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual([
     'Listo, ya funciona la voz de Elena en el pie de la pantalla.',
@@ -243,7 +243,7 @@ test('reading the last answer again calls Haiku no more', async ($, on) => {
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
   await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
   await w.clock.settle()
-  await $.command.run({ command: 'narrador', args: 'leer', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  await $.command.run({ command: 'speedy', args: 'leer', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   await w.clock.settle()
   expect(w.prompts.length).toBe(1)
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Pronto, a voz já funciona.', 'Pronto, a voz já funciona.'])
@@ -257,13 +257,13 @@ test('while it speaks, the footer pauses its own narration and goes on', { timeo
   await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
   await w.clock.advance(200)
   const control = w.written[0]?.path ?? ''
-  // A pause file of its own, under ~/.claude/narrador, that speak.ps1 is told of.
-  expect(control).toMatch(/^C:\/Users\/test\/\.claude\/narrador\/control-[0-9a-f-]+\.txt$/)
+  // A pause file of its own, under ~/.claude/speedy-code, that speak.ps1 is told of.
+  expect(control).toMatch(/^C:\/Users\/test\/\.claude\/speedy-code\/control-[0-9a-f-]+\.txt$/)
   expect(w.spoken[0]?.NARRATOR_CONTROL?.split('\\').join('/')).toBe(control)
   const ui = await $.ui.mount(FOOTER)
-  expect((await ui.find({ type: 'Text', in: 'narrador:play' }))?.text).toBe(' ⏸︎ ')
-  await ui.post({ isClicked: true }, { in: 'narrador:play' })
-  await ui.post({ isClicked: true }, { in: 'narrador:play' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:play' }))?.text).toBe(' ⏸︎ ')
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
   expect(w.written.map(one => `${one.path === control ? 'own' : one.path}=${one.text}`)).toEqual(['own=play', 'own=pause', 'own=play'])
   talks.on = false
   await w.clock.advance(200)
@@ -278,8 +278,8 @@ test('switched off while it speaks, it pauses; switched on, it goes on', { timeo
   await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
   await w.clock.advance(200)
   const ui = await $.ui.mount(FOOTER)
-  await ui.post({ isClicked: true }, { in: 'narrador:switch' })
-  await ui.post({ isClicked: true }, { in: 'narrador:switch' })
+  await ui.post({ isClicked: true }, { in: 'speedy:switch' })
+  await ui.post({ isClicked: true }, { in: 'speedy:switch' })
   expect(w.written.map(one => one.text)).toEqual(['play', 'pause', 'play'])
   expect(w.spoken.length).toBe(1)
   talks.on = false
@@ -322,7 +322,7 @@ for (const row of BUTTONS) {
         await w.clock.advance(200)
         talks.on = true
       } else {
-        await ui.post({ isClicked: true }, { in: `narrador:${step}` })
+        await ui.post({ isClicked: true }, { in: `speedy:${step}` })
         await w.clock.advance(200)
       }
     }
@@ -330,11 +330,11 @@ for (const row of BUTTONS) {
     const words = w.written.filter((one, index) => !(one.text === 'play' && w.written.findIndex(first => first.path === one.path) === index)).map(one => one.text)
     expect(words).toEqual(row.words)
     expect(w.spoken.length).toBe(row.starts)
-    const play = await ui.find({ type: 'Text', in: 'narrador:play' })
+    const play = await ui.find({ type: 'Text', in: 'speedy:play' })
     expect(play?.text).toBe(row.last)
     // Off, play stays where it was, in gray.
     expect(play?.props.color === '#495057').toBe(row.speaker === ' 🔇 ')
-    expect((await ui.find({ type: 'Text', in: 'narrador:switch' }))?.text).toBe(row.speaker)
+    expect((await ui.find({ type: 'Text', in: 'speedy:switch' }))?.text).toBe(row.speaker)
     talks.on = false
     await w.clock.advance(200)
     await ui.unmount()
@@ -353,9 +353,9 @@ async function footerSession ($: Engine, on: Parameters<Parameters<typeof test>[
 test('the clip reads the text selected with the mouse, and play reads it again', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:clip' })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:play' })
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.advance(200)
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual([
     'Hola, este es el texto que seleccioné en la terminal.',
@@ -367,7 +367,7 @@ test('the clip reads the text selected with the mouse, and play reads it again',
 test('with nothing selected, the clip reads the clipboard', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'Texto que copié de otro lado, en el portapapeles.\r\n')
-  await ui.post({ isClicked: true }, { in: 'narrador:clip' })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Texto que copié de otro lado, en el portapapeles.'])
   await ui.unmount()
@@ -376,8 +376,8 @@ test('with nothing selected, the clip reads the clipboard', { timeoutMs: 30000 }
 test('switched off, the clip stays, in gray, and reads nothing', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { isEnabled: false })
-  expect((await ui.find({ type: 'Text', in: 'narrador:clip' }))?.props.color).toBe('#495057')
-  await ui.post({ isClicked: true }, { in: 'narrador:clip' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:clip' }))?.props.color).toBe('#495057')
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
   expect(w.spoken).toEqual([])
   await ui.unmount()
@@ -396,7 +396,7 @@ test('after another voice is picked, play reads the last answer with it', { time
   await pane.press({ key: 'es-CO-GonzaloNeural' })
   await pane.unmount()
   const ui = await $.ui.mount(FOOTER)
-  await ui.post({ isClicked: true }, { in: 'narrador:play' })
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.advance(200)
   expect(w.spoken.map(env => env.NARRATOR_VOICE)).toEqual(['es-AR-ElenaNeural', 'es-CO-GonzaloNeural'])
   expect(w.prompts).toEqual([])
@@ -409,7 +409,7 @@ test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000
   on('prompt.read', () => ({ value: { text: draft } }))
   on('prompt.fill', (_, e) => { filled.push({ text: e.text, mode: e.mode }); draft += e.text; return { isFilled: true } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:mic' })
+  await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
   expect(w.listened[0]?.slice(-4, -2)).toEqual(['large-v3-turbo', 'es'])
   expect(filled).toEqual([{ text: ' Hola, quiero hacer un', mode: 'append' }, { text: ' refactor del endpoint.', mode: 'append' }])
@@ -422,21 +422,21 @@ test('clicked again, the microphone is asked to stop, and it goes back to gray',
   on('prompt.read', () => ({ value: { text: '' } }))
   on('prompt.fill', () => ({ isFilled: true }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.props.color).toBe('#adb5bd')
-  await ui.post({ isClicked: true }, { in: 'narrador:mic' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#adb5bd')
+  await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.props.color).toBe('#ff6b6b')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#ff6b6b')
   // An emoji takes no color: the glyph itself is red while it records.
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.text).toBe(' 🔴')
-  await ui.post({ isClicked: true }, { in: 'narrador:mic' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔴')
+  await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   const file = w.listened[0]?.at(-2)?.split('\\').join('/') ?? ''
   expect(w.written.filter(one => one.path === file).map(one => one.text)).toEqual(['listen', 'stop'])
   // Blue while the last phrases are written.
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.props.color).toBe('#748ffc')
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.text).toBe(' 🔵')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#748ffc')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔵')
   mic.on = false
   await w.clock.advance(200)
-  expect((await ui.find({ type: 'Text', in: 'narrador:mic' }))?.props.color).toBe('#adb5bd')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#adb5bd')
   await ui.unmount()
 })
 
@@ -454,7 +454,7 @@ test('the microphone menu lists the default and every microphone; the one picked
   on('ui.close', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
   await w.clock.advance(200)
-  const menu = await $.ui.mount({ ...PANE, requestId: 'narrador-mic', surface: 'terminal' })
+  const menu = await $.ui.mount({ ...PANE, requestId: 'speedy-code-mic', surface: 'terminal' })
   expect((await menu.findAll({ type: 'Text' })).map(text => text.text)).toEqual([
     ' ● Predeterminado de Windows ',
     ' ○ JBL Tune 520BT ',
@@ -463,13 +463,13 @@ test('the microphone menu lists the default and every microphone; the one picked
   await menu.press({ key: `mic:${JBL}` })
   await menu.unmount()
   expect(w.kept.mic).toBe(JBL)
-  await ui.post({ isClicked: true }, { in: 'narrador:mic' })
+  await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
   expect(w.listened[0]?.at(-1)).toBe(JBL)
   await ui.unmount()
 })
 
-const BAND = { plugin: 'narrador', component: 'AbovePrompt', requestId: 'band', props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 130, scroll: { offset: 0, bodyRows: 30 } }, surface: 'terminal' } as const
+const BAND = { plugin: 'speedy-code', component: 'AbovePrompt', requestId: 'band', props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 130, scroll: { offset: 0, bodyRows: 30 } }, surface: 'terminal' } as const
 
 test('above the prompt, what is heard shows while it is said, and leaves once it is written', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: true }
@@ -477,7 +477,7 @@ test('above the prompt, what is heard shows while it is said, and leaves once it
   on('prompt.read', () => ({ value: { text: draft } }))
   on('prompt.fill', (_, e) => { draft += e.text; return { isFilled: true } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
-  await ui.post({ isClicked: true }, { in: 'narrador:mic' })
+  await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   await w.clock.advance(200)
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /^🔴 escuchando$/ }))?.text).toBe('🔴 escuchando')
@@ -500,9 +500,9 @@ test('the prompt buttons copy the draft, paste the clipboard and clear it all', 
   on('prompt.fill', (_, e) => { fills.push({ text: e.text, mode: e.mode }); return { isFilled: true } })
   on('ui.copy', (_, e) => { copies.push(e.text); return { value: { isCopied: true } } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'useEffect(() => {})\r\n')
-  await ui.post({ isClicked: true }, { in: 'narrador:copy' })
-  await ui.post({ isClicked: true }, { in: 'narrador:paste' })
-  await ui.post({ isClicked: true }, { in: 'narrador:clear' })
+  await ui.post({ isClicked: true }, { in: 'speedy:copy' })
+  await ui.post({ isClicked: true }, { in: 'speedy:paste' })
+  await ui.post({ isClicked: true }, { in: 'speedy:clear' })
   expect(copies).toEqual(['Mi pregunta sobre React'])
   expect(fills).toEqual([{ text: 'useEffect(() => {})', mode: 'insert' }, { text: '', mode: 'replace' }])
   await ui.unmount()
@@ -519,7 +519,7 @@ test('the wand sends the prompt to Groq and puts back the text it cleaned up, ac
   on('prompt.read', () => ({ value: { text: 'eh una varita mágica tomás el texto' } }))
   on('prompt.fill', (_, e) => { fills.push({ text: e.text, mode: e.mode }); return { isFilled: true } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, polish)
-  await ui.post({ isClicked: true }, { in: 'narrador:polish' })
+  await ui.post({ isClicked: true }, { in: 'speedy:polish' })
   // What polish.py is sent is ASCII alone, and reads back as the draft.
   expect(/^[\x00-\x7f]*$/.test(polish.sent[0] ?? '')).toBe(true)
   const ask = JSON.parse(polish.sent[0] ?? '{}') as { model: string; text: string; system: string }
@@ -536,7 +536,7 @@ test('typed into while Groq answers, the wand overwrites nothing', { timeoutMs: 
   on('prompt.read', () => ({ value: { text: reads++ === 0 ? 'eh necesito un refactor' : 'eh necesito un refactor y algo más' } }))
   on('prompt.fill', (_, e) => { fills.push(e.text); return { isFilled: true } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, { reply: '{"text": "Necesito un refactor."}', sent: [] })
-  await ui.post({ isClicked: true }, { in: 'narrador:polish' })
+  await ui.post({ isClicked: true }, { in: 'speedy:polish' })
   expect(fills).toEqual([])
   await ui.unmount()
 })
@@ -546,14 +546,14 @@ test('where its pane has no room, the voice menu shows above the prompt, and its
   on('ui.close', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Voz:/ }))?.text).toMatch(/^ Voz: Elena \(Español - (Argentina|AR)\) $/)
   expect((await band.find({ type: 'Text', text: /Mujeres/ }))?.text).toContain('2')
   // No hotkeys: a tab is its label alone, no "1: " drawn before it.
   expect((await band.find({ type: 'Text', text: /Español/ }))?.text?.trim()).toBe('Español ▶')
   // The close control has no background under the pointer: a Client, clicked as the terminal reports it.
-  await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'narrador:menu-close' })
+  await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'speedy:menu-close' })
   await band.unmount()
   const after = await $.ui.mount(BAND)
   expect(await after.find({ type: 'Text', text: /Voz:/ })).toBeUndefined()
@@ -566,7 +566,7 @@ test('picked above the prompt, a voice closes the menu', { timeoutMs: 30000 }, a
   on('ui.close', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   await band.press({ key: 'gender:Male' })
   await band.press({ key: 'es-CO-GonzaloNeural' })
@@ -580,7 +580,7 @@ test('picked above the prompt, a voice closes the menu', { timeoutMs: 30000 }, a
 
 test('the image button asks Windows to press Alt+V, only when the clipboard holds an image', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'image')
-  await ui.post({ isClicked: true }, { in: 'narrador:image' })
+  await ui.post({ isClicked: true }, { in: 'speedy:image' })
   expect(w.pressed.length).toBe(1)
   expect(w.pressed[0]).toContain('ContainsImage()')
   expect(w.pressed[0]).toContain("SendWait('%v')")
@@ -591,7 +591,7 @@ test('the exit button runs /exit', { timeoutMs: 30000 }, async ($, on) => {
   const commands: string[] = []
   on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:exit' })
+  await ui.post({ isClicked: true }, { in: 'speedy:exit' })
   expect(commands).toEqual(['exit'])
   await ui.unmount()
 })
@@ -611,11 +611,11 @@ test('however wide the terminal, the menus show framed above the prompt, never i
   on('ui.close', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Voz:/ }))?.text).toContain('Elena')
   await band.unmount()
-  await ui.post({ isClicked: true }, { in: 'narrador:mics' })
+  await ui.post({ isClicked: true }, { in: 'speedy:mics' })
   const micBand = await $.ui.mount(BAND)
   expect((await micBand.find({ type: 'Text', text: /Micrófono para dictar/ }))?.text).toBe(' Micrófono para dictar ')
   await micBand.unmount()
@@ -626,7 +626,7 @@ test('however wide the terminal, the menus show framed above the prompt, never i
 test('the switch lists one gender at a time: women first, men once picked', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Mujeres/ }))?.text).toBe(' ♀ Mujeres  2 ')
   expect((await band.find({ type: 'Text', text: /Hombres/ }))?.text).toBe(' ♂ Hombres  1 ')
@@ -645,7 +645,7 @@ test('the reload button runs /reload-plugins', { timeoutMs: 30000 }, async ($, o
   const commands: string[] = []
   on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:reload' })
+  await ui.post({ isClicked: true }, { in: 'speedy:reload' })
   expect(commands).toEqual(['reload-plugins'])
   await ui.unmount()
 })
@@ -653,7 +653,7 @@ test('the reload button runs /reload-plugins', { timeoutMs: 30000 }, async ($, o
 test('Italian has a tab of its own', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Italiano/ }))?.text?.trim()).toBe('Italiano')
   await band.unmount()
@@ -663,7 +663,7 @@ test('Italian has a tab of its own', { timeoutMs: 30000 }, async ($, on) => {
 test('the language tabs come in the order asked for', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
   const names = ['Español', 'Inglés', 'Francés', 'Italiano', 'Portugués', 'Ruso', 'Chino', 'Árabe', 'Hindi', 'Bengalí', 'Urdu']
   const drawn = (await band.findAll({ type: 'Text' }))
@@ -677,7 +677,7 @@ test('the language tabs come in the order asked for', { timeoutMs: 30000 }, asyn
 test('the voices take as many columns as the width holds, up to four', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  await ui.post({ isClicked: true }, { in: 'narrador:voice' })
+  await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const columnsAt = async (bodyColumns: number) => {
     const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns } })
     const keys = (await band.findAll({ type: 'Box' })).map(box => String(box.key ?? '')).filter(key => key.startsWith('column:'))
@@ -695,10 +695,10 @@ test('the send button presses Enter, and with an empty prompt presses nothing', 
   let draft = ''
   on('prompt.read', () => ({ value: { text: draft } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:send' })
+  await ui.post({ isClicked: true }, { in: 'speedy:send' })
   expect(w.pressed).toEqual([])
   draft = 'Revisá el endpoint'
-  await ui.post({ isClicked: true }, { in: 'narrador:send' })
+  await ui.post({ isClicked: true }, { in: 'speedy:send' })
   expect(w.pressed.length).toBe(1)
   expect(w.pressed[0]).toContain("SendWait('{ENTER}')")
   await ui.unmount()
@@ -720,16 +720,16 @@ test('socialLink builds the profile link of each network, and refuses a name no 
 
 test('a network with a user name gets a footer button that opens its profile; one without, none', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'juliocorbaz', x: '' } })
-  expect((await ui.find({ type: 'Text', in: 'narrador:social:github' }))?.text).toBe(' GH ')
-  expect(await ui.find({ key: 'narrador:social:x' })).toBeUndefined()
-  await ui.post({ isClicked: true }, { in: 'narrador:social:github' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
+  expect(await ui.find({ key: 'speedy:social:x' })).toBeUndefined()
+  await ui.post({ isClicked: true }, { in: 'speedy:social:github' })
   expect(w.opened).toEqual(["Start-Process 'https://github.com/juliocorbaz'"])
   await ui.unmount()
 })
 
 test('the gear opens the settings, where a user name typed is kept', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:settings' })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Configuración/ }))?.text).toBe(' Configuración ')
   expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' Redes sociales ')
@@ -746,7 +746,7 @@ test('the gear opens the settings, where a user name typed is kept', { timeoutMs
 
 test('the settings show a table of four columns, each field holding the user name saved', { timeoutMs: 30000 }, async ($, on) => {
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'corbaz', youtube: '@juliocorbaz' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:settings' })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   for (const header of ['Red', 'Usuario', 'Link']) expect((await band.find({ type: 'Text', text: new RegExp(`^${header}$`) }))?.text).toBe(header)
   // At rest, each user name is text, whole; a network with none says so.
@@ -766,16 +766,16 @@ test('accountsOf lists the first account, then each one added, in order', () => 
 
 test('every account with a user name has its own footer button, numbered past the first', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'corbaz', 'github#2': 'trabajo' } })
-  expect((await ui.find({ type: 'Text', in: 'narrador:social:github' }))?.text).toBe(' GH ')
-  expect((await ui.find({ type: 'Text', in: 'narrador:social:github#2' }))?.text).toBe(' GH2 ')
-  await ui.post({ isClicked: true }, { in: 'narrador:social:github#2' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:social:github#2' }))?.text).toBe(' GH2 ')
+  await ui.post({ isClicked: true }, { in: 'speedy:social:github#2' })
   expect(w.opened).toEqual(["Start-Process 'https://github.com/trabajo'"])
   await ui.unmount()
 })
 
 test('+ adds an empty account with its field open; left empty, it goes', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'corbaz' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:settings' })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   await band.press({ key: 'add:github' })
   await band.unmount()
@@ -792,7 +792,7 @@ test('+ adds an empty account with its field open; left empty, it goes', { timeo
 test('the icon that opens a menu closes it when clicked again, for the voices, the microphones and the settings', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(200)
-  for (const [icon, title] of [['narrador:voice', /Voz:/], ['narrador:mics', /Micrófono para dictar/], ['narrador:settings', /Configuración/]] as const) {
+  for (const [icon, title] of [['speedy:voice', /Voz:/], ['speedy:mics', /Micrófono para dictar/], ['speedy:settings', /Configuración/]] as const) {
     await ui.post({ isClicked: true }, { in: icon })
     const open = await $.ui.mount(BAND)
     expect(await open.find({ type: 'Text', text: title })).toBeDefined()
@@ -807,7 +807,7 @@ test('the icon that opens a menu closes it when clicked again, for the voices, t
 
 test('the networks take two tables side by side where the width holds them, one where not', { timeoutMs: 30000 }, async ($, on) => {
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'narrador:settings' })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const tablesAt = async (bodyColumns: number) => {
     const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns } })
     const keys = (await band.findAll({ type: 'Box' })).map(box => String(box.key ?? '')).filter(key => key.startsWith('social-table:'))

@@ -1,4 +1,4 @@
-"""The wand of the narrador mod: asks Groq to clean a prompt up, and prints the cleaned text.
+"""The wand of the speedy-code mod: asks Groq to clean a prompt up, and prints the cleaned text.
 
 Reads one JSON object on stdin, {"model", "system", "text"}, and prints one JSON object on stdout,
 {"text"} or {"error"}. Both are pure ASCII (every other character escaped as \\uXXXX), so no
@@ -28,7 +28,7 @@ def main() -> None:
         "reasoning_effort": "low",
     }).encode("utf-8")
     request = urllib.request.Request(URL, data=body, headers={
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json; charset=utf-8", "User-Agent": "narrador"})
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json; charset=utf-8", "User-Agent": "speedy-code"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             answer = json.loads(response.read().decode("utf-8"))

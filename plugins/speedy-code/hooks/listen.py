@@ -1,4 +1,4 @@
-"""Dictation for the narrador mod: listens to the microphone and prints what is said, phrase by phrase.
+"""Dictation for the speedy-code mod: listens to the microphone and prints what is said, phrase by phrase.
 
 Usage: listen.py MODEL LANGUAGE CONTROL_FILE [MICROPHONE]
        listen.py --list
@@ -13,7 +13,7 @@ ends at a pause of PAUSE_SECONDS or after MAX_SECONDS; then "text <n> <text>", w
 accurate one, which replaces phrase n's preview. Writing "stop" to CONTROL_FILE ends it: the phrase
 under way is written out first, then "done".
 
-Runs in its own Python 3.12 environment (~/.claude/narrador/venv): faster-whisper's audio
+Runs in its own Python 3.12 environment (~/.claude/speedy-code/venv): faster-whisper's audio
 dependency publishes no build for newer Pythons.
 """
 

@@ -1,4 +1,4 @@
-# Speaks NARRATOR_TEXT with the Microsoft Edge neural voice NARRATOR_VOICE (edge-tts), for the narrador mod.
+# Speaks NARRATOR_TEXT with the Microsoft Edge neural voice NARRATOR_VOICE (edge-tts), for the speedy-code mod.
 # Prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 # Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
 #
@@ -26,7 +26,7 @@ if ($control) {
     Remove-Item -Force -ErrorAction SilentlyContinue
 }
 $temp = [IO.Path]::GetTempPath()
-Get-ChildItem -LiteralPath $temp -Filter 'narrador-*' -ErrorAction SilentlyContinue |
+Get-ChildItem -LiteralPath $temp -Filter 'speedy-code-*' -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
   Remove-Item -Force -ErrorAction SilentlyContinue
 
@@ -45,7 +45,7 @@ if ($part) { $parts.Add($part) }
 # sessions narrating at once never share a file.
 $sha = [Security.Cryptography.SHA256]::Create()
 $key = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes("$voice|$rate|$text"))).Replace('-', '').Substring(0, 16)
-$audios = @(0..($parts.Count - 1) | ForEach-Object { Join-Path $temp "narrador-$key-$_.mp3" })
+$audios = @(0..($parts.Count - 1) | ForEach-Object { Join-Path $temp "speedy-code-$key-$_.mp3" })
 $isKept = @($audios | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -eq 0
 
 $maker = $null
@@ -53,12 +53,12 @@ $textFiles = @()
 try {
   if (-not $isKept) {
     for ($i = 0; $i -lt $parts.Count; $i++) {
-      $textFile = Join-Path $temp "narrador-$PID-$i.txt"
+      $textFile = Join-Path $temp "speedy-code-$PID-$i.txt"
       [IO.File]::WriteAllText($textFile, $parts[$i], (New-Object Text.UTF8Encoding $false))
       $textFiles += "`"$textFile`""
     }
     # One process makes them all: the first alone, then the rest at once while it plays.
-    $arguments = @("`"$PSScriptRoot\tts.py`"", $voice, $rate, "`"$(Join-Path $temp "narrador-$key")`"") + $textFiles
+    $arguments = @("`"$PSScriptRoot\tts.py`"", $voice, $rate, "`"$(Join-Path $temp "speedy-code-$key")`"") + $textFiles
     # The mod's own Python environment (NARRATOR_PYTHON), else whatever python the PATH finds.
     $python = if ($env:NARRATOR_PYTHON -and (Test-Path -LiteralPath $env:NARRATOR_PYTHON)) { $env:NARRATOR_PYTHON } else { (Get-Command python).Source }
     $maker = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru

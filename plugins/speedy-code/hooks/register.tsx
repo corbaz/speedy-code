@@ -6,8 +6,8 @@ type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
 import type { Heard, Listening, Menu, Picks, Socials, Speech, Voice } from '../types'
 
-const PANE = 'narrador'
-const MIC_PANE = 'narrador-mic'
+const PANE = 'speedy-code'
+const MIC_PANE = 'speedy-code-mic'
 const DEFAULT_LANG = 'es'
 const DEFAULT_PICKS: Picks = { es: 'es-AR-ElenaNeural' }
 /** How fast the voice speaks, as a multiple of its own pace. */
@@ -16,7 +16,7 @@ const SPEED = 1.3
 const SHORT_ANSWER = 3000
 /** Where the pause button leaves its word for speak.ps1: a file per narration, so sessions narrating
  * at once never pause each other. speak.ps1 removes it as it ends. */
-const CONTROL_DIR = '.claude/narrador'
+const CONTROL_DIR = '.claude/speedy-code'
 /** The dictation model: the most accurate for Spanish with a developer's English, about 12 s behind a
  * 7 s phrase on a 6-core CPU; `small` is about three times faster and makes more mistakes. */
 const DICTATION_MODEL = 'large-v3-turbo'
@@ -25,7 +25,7 @@ const DICTATION_MODEL = 'large-v3-turbo'
  * and the pen. Python 3.12: faster-whisper publishes no build for newer Pythons. One environment of
  * the mod's own, so a machine needs no Python package installed by hand.
  */
-const PYTHON = '.claude/narrador/venv/Scripts/python.exe'
+const PYTHON = '.claude/speedy-code/venv/Scripts/python.exe'
 /** The wand: Groq's model that cleans the prompt up, and where it is asked. The key is the system's
  * GROQ_API_KEY: it never leaves the request's header. */
 const POLISH_MODEL = 'openai/gpt-oss-120b'
@@ -115,23 +115,23 @@ const COUNTRY_WIDTH = 12
 const VOICE_WIDTH = 3 + NAME_WIDTH + 1 + COUNTRY_WIDTH + 2
 const COLUMN_GAP = 2
 
-const isEnabled = atom({ plugin: 'narrador', key: 'isEnabled' } as const, false)
-const picks = atom({ plugin: 'narrador', key: 'picks' } as const, DEFAULT_PICKS, { shape: 'picks-1' })
-const voices = atom({ plugin: 'narrador', key: 'voices' } as const, [] as Voice[], { shape: 'voices-1' })
-const tab = atom({ plugin: 'narrador', key: 'tab' } as const, DEFAULT_LANG)
-const gender = atom({ plugin: 'narrador', key: 'gender' } as const, 'Female' as Voice['gender'])
-const page = atom({ plugin: 'narrador', key: 'page' } as const, 0)
-const speech = atom({ plugin: 'narrador', key: 'speech' } as const, 'idle' as Speech)
-const listening = atom({ plugin: 'narrador', key: 'listening' } as const, 'off' as Listening)
-const mics = atom({ plugin: 'narrador', key: 'mics' } as const, [] as string[])
-const heard = atom({ plugin: 'narrador', key: 'heard' } as const, [] as Heard[])
-const isPolishing = atom({ plugin: 'narrador', key: 'isPolishing' } as const, false)
-const menu = atom({ plugin: 'narrador', key: 'menu' } as const, '' as Menu)
-const socials = atom({ plugin: 'narrador', key: 'socials' } as const, {} as Socials)
-const settingsTab = atom({ plugin: 'narrador', key: 'settingsTab' } as const, 'socials')
-const settingsOpened = atom({ plugin: 'narrador', key: 'settingsOpened' } as const, 0)
-const editing = atom({ plugin: 'narrador', key: 'editing' } as const, '')
-const mic = atom({ plugin: 'narrador', key: 'mic' } as const, '')
+const isEnabled = atom({ plugin: 'speedy-code', key: 'isEnabled' } as const, false)
+const picks = atom({ plugin: 'speedy-code', key: 'picks' } as const, DEFAULT_PICKS, { shape: 'picks-1' })
+const voices = atom({ plugin: 'speedy-code', key: 'voices' } as const, [] as Voice[], { shape: 'voices-1' })
+const tab = atom({ plugin: 'speedy-code', key: 'tab' } as const, DEFAULT_LANG)
+const gender = atom({ plugin: 'speedy-code', key: 'gender' } as const, 'Female' as Voice['gender'])
+const page = atom({ plugin: 'speedy-code', key: 'page' } as const, 0)
+const speech = atom({ plugin: 'speedy-code', key: 'speech' } as const, 'idle' as Speech)
+const listening = atom({ plugin: 'speedy-code', key: 'listening' } as const, 'off' as Listening)
+const mics = atom({ plugin: 'speedy-code', key: 'mics' } as const, [] as string[])
+const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard[])
+const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
+const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
+const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
+const settingsTab = atom({ plugin: 'speedy-code', key: 'settingsTab' } as const, 'socials')
+const settingsOpened = atom({ plugin: 'speedy-code', key: 'settingsOpened' } as const, 0)
+const editing = atom({ plugin: 'speedy-code', key: 'editing' } as const, '')
+const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 
 const regions = (() => {
   try { return new Intl.DisplayNames(['es'], { type: 'region' }) } catch { return undefined }
@@ -337,10 +337,10 @@ async function narrate ($: EngineInterface, answer: string) {
       // Leaving the loop ends the process, and its sound with it.
       if (controller.signal.aborted) break
       if (/^voice /m.test(said) && (await read($, speech)) === 'thinking') await update($, speech, () => 'playing')
-      if (/^error /m.test(said)) $.ui.log(`narrador: ${said.trim()}`, { to: 'debug' })
+      if (/^error /m.test(said)) $.ui.log(`speedy: ${said.trim()}`, { to: 'debug' })
     }
   } catch (error) {
-    $.ui.log(`narrador: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+    $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
     if (current === controller) {
       current = undefined
@@ -385,7 +385,7 @@ async function clipboardText ($: EngineInterface) {
 async function readSelection ($: EngineInterface) {
   const text = await selectedText($)
   if (!text) {
-    $.ui.toast('Narrador: seleccioná o copiá un texto primero.')
+    $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
   }
   lastAnswer = text
@@ -436,12 +436,12 @@ async function listen ($: EngineInterface) {
             await $.prompt.fill({ text: gap + text, mode: 'append' })
           }
         } else if (line.startsWith('error ')) {
-          $.ui.toast(`Narrador: el micrófono falló: ${line.slice(6)}`)
+          $.ui.toast(`speedy-code: el micrófono falló: ${line.slice(6)}`)
         }
       }
     }
   } catch (error) {
-    $.ui.toast(`Narrador: no pude abrir el micrófono: ${error instanceof Error ? error.message : String(error)}`)
+    $.ui.toast(`speedy-code: no pude abrir el micrófono: ${error instanceof Error ? error.message : String(error)}`)
   } finally {
     if (listenFile === file) {
       listenFile = ''
@@ -463,7 +463,7 @@ async function stopListening ($: EngineInterface) {
 async function pickMic ($: EngineInterface, name: string) {
   await update($, mic, () => name)
   await $.store.set('mic', name)
-  $.ui.toast(`Narrador: dicto con ${name ? micName(name) : 'el micrófono predeterminado de Windows'}`)
+  $.ui.toast(`speedy-code: dicto con ${name ? micName(name) : 'el micrófono predeterminado de Windows'}`)
   await closeMenu($, 'mic')
 }
 
@@ -484,8 +484,8 @@ async function pasteImage ($: EngineInterface) {
   ].join('; ')
   const result = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script]).catch(() => undefined)
   const said = result?.stdout.trim() ?? ''
-  if (said === 'none') $.ui.toast('Narrador: el portapapeles no tiene una imagen.')
-  else if (said !== 'pasted') $.ui.toast('Narrador: no pude pegar la imagen.')
+  if (said === 'none') $.ui.toast('speedy-code: el portapapeles no tiene una imagen.')
+  else if (said !== 'pasted') $.ui.toast('speedy-code: no pude pegar la imagen.')
 }
 
 /**
@@ -494,12 +494,12 @@ async function pasteImage ($: EngineInterface) {
  */
 async function sendPrompt ($: EngineInterface) {
   if (!(await $.prompt.read()).text.trim()) {
-    $.ui.toast('Narrador: el prompt está vacío.')
+    $.ui.toast('speedy-code: el prompt está vacío.')
     return
   }
   const script = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); 'sent'"
   const result = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script]).catch(() => undefined)
-  if (result?.stdout.trim() !== 'sent') $.ui.toast('Narrador: no pude enviar; apretá Enter.')
+  if (result?.stdout.trim() !== 'sent') $.ui.toast('speedy-code: no pude enviar; apretá Enter.')
 }
 
 /** The wand: sends the whole prompt to Groq and puts back what it returns, cleaned up. */
@@ -507,7 +507,7 @@ async function polish ($: EngineInterface) {
   if (await read($, isPolishing)) return
   const draft = (await $.prompt.read()).text
   if (!draft.trim()) {
-    $.ui.toast('Narrador: el prompt está vacío.')
+    $.ui.toast('speedy-code: el prompt está vacío.')
     return
   }
   await update($, isPolishing, () => true)
@@ -523,17 +523,17 @@ async function polish ($: EngineInterface) {
     const answer = JSON.parse(out.trim() || '{}') as { text?: string; error?: string }
     const polished = answer.text?.trim() ?? ''
     if (!polished) {
-      $.ui.toast(`Narrador: ${answer.error ?? 'Groq no devolvió texto.'}`)
+      $.ui.toast(`speedy-code: ${answer.error ?? 'Groq no devolvió texto.'}`)
       return
     }
     // Typed into while Groq answered: nothing is overwritten.
     if ((await $.prompt.read()).text !== draft) {
-      $.ui.toast('Narrador: cambiaste el prompt mientras lo corregía; no lo toqué.')
+      $.ui.toast('speedy-code: cambiaste el prompt mientras lo corregía; no lo toqué.')
       return
     }
     await $.prompt.fill({ text: polished, mode: 'replace' })
   } catch (error) {
-    $.ui.toast(`Narrador: no pude hablar con Groq: ${error instanceof Error ? error.message : String(error)}`)
+    $.ui.toast(`speedy-code: no pude hablar con Groq: ${error instanceof Error ? error.message : String(error)}`)
   } finally {
     await update($, isPolishing, () => false)
   }
@@ -877,7 +877,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive
     await $.command.register({
-      name: 'narrador',
+      name: 'speedy',
       description: 'Lee en voz alta las respuestas · sin argumento: prende o apaga',
       argumentHint: '[on | off | stop | leer | voces]',
       immediate: true
@@ -921,18 +921,18 @@ export const register: Register = on => {
     return result
   })
 
-  on('command.run', { command: 'narrador' }, async ($, e) => {
+  on('command.run', { command: 'speedy' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
-    if (arg === 'stop') { await stop($); return { text: 'Narrador: callado.' } }
+    if (arg === 'stop') { await stop($); return { text: 'speedy-code: callado.' } }
     if (arg === 'leer') {
-      if (!lastAnswer) return { text: 'Narrador: todavía no hay respuesta para leer.' }
+      if (!lastAnswer) return { text: 'speedy-code: todavía no hay respuesta para leer.' }
       void narrate($, lastAnswer)
-      return { text: 'Narrador: leyendo la última respuesta.' }
+      return { text: 'speedy-code: leyendo la última respuesta.' }
     }
-    if (arg === 'voces') { await openPicker($); return { text: 'Narrador: elegí la voz en el panel.' } }
-    if (arg !== '' && arg !== 'on' && arg !== 'off') return { text: 'Uso: /narrador [on | off | stop | leer | voces]' }
+    if (arg === 'voces') { await openPicker($); return { text: 'speedy-code: elegí la voz en el panel.' } }
+    if (arg !== '' && arg !== 'on' && arg !== 'off') return { text: 'Uso: /speedy [on | off | stop | leer | voces]' }
     const now = await setEnabled($, arg === '' ? !(await read($, isEnabled)) : arg === 'on')
-    return { text: now ? 'Narrador prendido: leo cada respuesta en voz alta.' : 'Narrador apagado.' }
+    return { text: now ? 'speedy-code: narrador prendido, leo cada respuesta en voz alta.' : 'speedy-code: narrador apagado.' }
   })
 
   // The footer: the voice (a click opens the picker), the speaker that switches it on and off, and,
@@ -963,27 +963,27 @@ export const register: Register = on => {
         {beneath}
         <Text dimColor> · </Text>
         {linked.map(({ key, label, color }) => (
-          <Client key={`narrador:social:${key}`} module="./control.tsx" width={label.length + 2} props={{ label: ` ${label} `, color, bold: true }} />
+          <Client key={`speedy:social:${key}`} module="./control.tsx" width={label.length + 2} props={{ label: ` ${label} `, color, bold: true }} />
         ))}
         {linked.length > 0 ? <Text dimColor>│ </Text> : null}
-        <Client key="narrador:copy" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📋 ', color: '#adb5bd' }} />
-        <Client key="narrador:paste" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📥 ', color: '#adb5bd' }} />
-        <Client key="narrador:image" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🖼️ ', color: '#adb5bd' }} />
+        <Client key="speedy:copy" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📋 ', color: '#adb5bd' }} />
+        <Client key="speedy:paste" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📥 ', color: '#adb5bd' }} />
+        <Client key="speedy:image" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🖼️ ', color: '#adb5bd' }} />
         {/* An emoji takes no color: the glyph tells it is at work. */}
-        <Client key="narrador:polish" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: polishing ? ' ⏳ ' : ' 🖋️ ', color: '#da77f2' }} />
-        <Client key="narrador:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
-        <Client key="narrador:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
+        <Client key="speedy:polish" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: polishing ? ' ⏳ ' : ' 🖋️ ', color: '#da77f2' }} />
+        <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
+        <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
         <Text> </Text>
-        <Client key="narrador:voice" module="./control.tsx" props={{ label: `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`, color: languageColor(active) }} />
+        <Client key="speedy:voice" module="./control.tsx" props={{ label: `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`, color: languageColor(active) }} />
         {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
-        <Client key="narrador:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
-        <Client key="narrador:play" module="./control.tsx" width={PLAY_WIDTH} props={{ label: ` ${play[0]} `, color: canPlay ? play[1] : DISABLED, bold: canPlay }} />
-        <Client key="narrador:clip" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📎 ', color: enabled ? '#ffd43b' : DISABLED }} />
-        <Client key="narrador:mic" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${MIC_GLYPHS[listen]}`, color: MIC_COLORS[listen], bold: listen !== 'off' }} />
-        <Client key="narrador:mics" module="./control.tsx" width={2} props={{ label: '▾ ', color: MIC_COLORS.off }} />
-        <Client key="narrador:reload" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🔄 ', color: '#adb5bd' }} />
-        <Client key="narrador:settings" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' ⚙️ ', color: '#adb5bd' }} />
-        <Client key="narrador:exit" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
+        <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
+        <Client key="speedy:play" module="./control.tsx" width={PLAY_WIDTH} props={{ label: ` ${play[0]} `, color: canPlay ? play[1] : DISABLED, bold: canPlay }} />
+        <Client key="speedy:clip" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📎 ', color: enabled ? '#ffd43b' : DISABLED }} />
+        <Client key="speedy:mic" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${MIC_GLYPHS[listen]}`, color: MIC_COLORS[listen], bold: listen !== 'off' }} />
+        <Client key="speedy:mics" module="./control.tsx" width={2} props={{ label: '▾ ', color: MIC_COLORS.off }} />
+        <Client key="speedy:reload" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🔄 ', color: '#adb5bd' }} />
+        <Client key="speedy:settings" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' ⚙️ ', color: '#adb5bd' }} />
+        <Client key="speedy:exit" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
       </Box>
     )
   })
@@ -992,56 +992,56 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const result = await next(e)
     const data = e.data as { isClicked?: unknown } | null
-    if (!e.element.startsWith('narrador:') || data?.isClicked !== true) return result
-    if (e.element === 'narrador:voice') {
+    if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result
+    if (e.element === 'speedy:voice') {
       const active = (await read($, picks)).active ?? DEFAULT_LANG
       await update($, tab, () => active)
       await openPicker($)
-    } else if (e.element === 'narrador:switch') {
+    } else if (e.element === 'speedy:switch') {
       await setEnabled($, !(await read($, isEnabled)))
-    } else if (e.element.startsWith('narrador:social:')) {
-      const key = e.element.slice('narrador:social:'.length)
+    } else if (e.element.startsWith('speedy:social:')) {
+      const key = e.element.slice('speedy:social:'.length)
       const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
       if (link) await openLink($, link)
-    } else if (e.element === 'narrador:settings') {
+    } else if (e.element === 'speedy:settings') {
       await openMenu($, 'settings')
-    } else if (e.element === 'narrador:reload') {
+    } else if (e.element === 'speedy:reload') {
       // Reloads every plugin, this one too: an edit to the mod takes effect at once.
-      await $.command.run({ command: 'reload-plugins' }).catch(() => { $.ui.toast('Narrador: no pude recargar; escribí /reload-plugins.') })
-    } else if (e.element === 'narrador:exit') {
+      await $.command.run({ command: 'reload-plugins' }).catch(() => { $.ui.toast('speedy-code: no pude recargar; escribí /reload-plugins.') })
+    } else if (e.element === 'speedy:exit') {
       // As the person typing /exit: the session ends, and session.end copies how to come back.
-      await $.command.run({ command: 'exit' }).catch(() => { $.ui.toast('Narrador: no pude salir; escribí /exit.') })
-    } else if (e.element === 'narrador:menu-close') {
+      await $.command.run({ command: 'exit' }).catch(() => { $.ui.toast('speedy-code: no pude salir; escribí /exit.') })
+    } else if (e.element === 'speedy:menu-close') {
       const shown = await read($, menu)
       if (shown) await closeMenu($, shown)
-    } else if (e.element === 'narrador:copy') {
+    } else if (e.element === 'speedy:copy') {
       const draft = (await $.prompt.read()).text
-      if (!draft) $.ui.toast('Narrador: el prompt está vacío.')
+      if (!draft) $.ui.toast('speedy-code: el prompt está vacío.')
       else {
         const copied = await $.ui.copy({ text: draft, surface: e.surface })
-        $.ui.toast(copied.isCopied ? `Narrador: copié ${draft.length} caracteres del prompt.` : 'Narrador: no pude copiar al portapapeles.')
+        $.ui.toast(copied.isCopied ? `speedy-code: copié ${draft.length} caracteres del prompt.` : 'speedy-code: no pude copiar al portapapeles.')
       }
-    } else if (e.element === 'narrador:paste') {
+    } else if (e.element === 'speedy:paste') {
       const text = await clipboardText($)
-      if (!text) $.ui.toast('Narrador: el portapapeles está vacío.')
+      if (!text) $.ui.toast('speedy-code: el portapapeles está vacío.')
       else await $.prompt.fill({ text, mode: 'insert' })
-    } else if (e.element === 'narrador:polish') {
+    } else if (e.element === 'speedy:polish') {
       void polish($)
-    } else if (e.element === 'narrador:send') {
+    } else if (e.element === 'speedy:send') {
       await sendPrompt($)
-    } else if (e.element === 'narrador:image') {
+    } else if (e.element === 'speedy:image') {
       await pasteImage($)
-    } else if (e.element === 'narrador:clear') {
+    } else if (e.element === 'speedy:clear') {
       await $.prompt.fill({ text: '', mode: 'replace' })
-    } else if (e.element === 'narrador:mics') {
+    } else if (e.element === 'speedy:mics') {
       void loadMics($)
       await openMenu($, 'mic')
-    } else if (e.element === 'narrador:mic') {
+    } else if (e.element === 'speedy:mic') {
       if ((await read($, listening)) === 'off') void listen($)
       else await stopListening($)
-    } else if (e.element === 'narrador:clip' && (await read($, isEnabled))) {
+    } else if (e.element === 'speedy:clip' && (await read($, isEnabled))) {
       await readSelection($)
-    } else if (e.element === 'narrador:play' && isPlayable(await read($, isEnabled), await read($, speech))) {
+    } else if (e.element === 'speedy:play' && isPlayable(await read($, isEnabled), await read($, speech))) {
       await pressPlay($)
     }
     return result
@@ -1072,7 +1072,7 @@ export const register: Register = on => {
             </Box>
             {/* A Client, not a Button: no background under the pointer. Two empty cells after it
                 leave the border's last line and its corner showing. */}
-            <Client key="narrador:menu-close" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
+            <Client key="speedy:menu-close" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
             <Box width={2} />
           </Box>
         </Box>

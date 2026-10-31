@@ -1,13 +1,12 @@
 {
-  "name": "local-mods",
-  "owner": {
-    "name": "Julio Cesar Corbaz"
-  },
+  "name": "speedy-code",
+  "owner": { "name": "Julio Cesar Corbaz" },
+  "metadata": { "description": "speedy-code: talk to Claude Code and hear it answer." },
   "plugins": [
     {
-      "name": "narrador",
-      "source": "./narrador",
-      "description": "Reads Claude's answers aloud with Microsoft Edge neural voices on Windows."
+      "name": "speedy-code",
+      "source": "./plugins/speedy-code",
+      "description": "Talk to Claude Code and hear it answer: Edge neural voices, offline Whisper dictation, prompt tools and a footer of shortcuts. Windows."
     }
   ]
 }

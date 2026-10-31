@@ -1,0 +1,9 @@
+{
+  "name": "speedy-code",
+  "version": "0.9.0",
+  "description": "Talk to Claude Code and hear it answer: Edge neural voices, offline Whisper dictation, prompt tools and a footer of shortcuts. Windows.",
+  "author": { "name": "Julio Cesar Corbaz" },
+  "license": "MIT",
+  "keywords": ["voice", "narrator", "dictation", "whisper", "edge-tts", "accessibility", "windows", "footer"],
+  "types": "./types/index.d.ts"
+}
