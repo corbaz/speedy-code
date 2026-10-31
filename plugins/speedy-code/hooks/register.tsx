@@ -103,6 +103,22 @@ const MIC_GLYPHS = { off: '🎙️', loading: '🔵', on: '🔴' } as const
 const FEMALE = '#f783ac'
 const MALE = '#74c0fc'
 
+/**
+ * The Claude models the model menu offers, the most capable first: id (what `/model` takes), name,
+ * what it is for, and its color. The newest of each line, as Anthropic lists them on 2026-10-31.
+ */
+const MODELS: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['claude-fable-5-1', 'Fable 5.1', 'el más capaz: razonamiento difícil y tareas largas', '#e599f7'],
+  ['claude-opus-5-5', 'Opus 5.5', 'el Opus actual y el predeterminado', '#ff922b'],
+  ['claude-sonnet-5-5', 'Sonnet 5.5', 'velocidad y capacidad para el día a día', '#4dabf7'],
+  ['claude-haiku-5-5', 'Haiku 5.5', 'el más rápido y barato', '#63e6be']
+]
+const MODEL_COLOR = '#ffa94d'
+/** The levels `/effort` takes, as `claude --help` lists them, from the lightest to the deepest. */
+const EFFORTS: ReadonlyArray<readonly [string, string]> = [
+  ['low', '#69db7c'], ['medium', '#a9e34b'], ['high', '#ffd43b'], ['xhigh', '#ffa94d'], ['max', '#ff6b6b']
+]
+
 /** Region names that would not fit their column, said short. */
 const SHORT_COUNTRIES: Record<string, string> = {
   AE: 'Emiratos', DO: 'R. Dominicana', GB: 'Reino Unido', GQ: 'Guinea Ecuat.', HK: 'Hong Kong',
@@ -146,6 +162,9 @@ const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as
 const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
 const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
+const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
+const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
+const effort = atom({ plugin: 'speedy-code', key: 'effort' } as const, '')
 
 const regions = (() => {
   try { return new Intl.DisplayNames(['es'], { type: 'region' }) } catch { return undefined }
@@ -266,6 +285,12 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     return
   }
   // A field keeps what was typed in it while it lives: new fields, keyed anew, show what is saved.
+  // The model menu opens on what is in use: applying without a click changes nothing.
+  if (which === 'models') {
+    const current = modelOf(await $.session.model().catch(() => ''))?.[0] ?? ''
+    await update($, modelPick, () => current)
+    await update($, effortPick, () => '')
+  }
   if (which === 'settings') {
     await update($, settingsOpened, count => count + 1)
     await update($, editing, () => '')
@@ -871,6 +896,102 @@ async function micMenu ($: EngineInterface, e: Drawn) {
   )
 }
 
+/**
+ * The model menu's entry for what the session runs: `claude-opus-5-5`, `claude-opus-5-5[1m]` and the
+ * alias `opus` all name Opus 5.5. Undefined for a model the menu does not offer.
+ */
+export function modelOf (current: string) {
+  const name = current.toLowerCase().replace(/\[.*\]$/, '').trim()
+  return MODELS.find(([id]) => name === id || name.startsWith(`${id}-`)) ??
+    MODELS.find(([id]) => id.split('-')[1] === name)
+}
+
+/** The footer's label for the model in use: its short name, or the id itself if the menu lacks it. */
+export function modelLabel (current: string) {
+  return modelOf(current)?.[1] ?? (current.replace(/^claude-/, '') || 'modelo')
+}
+
+/**
+ * Applies what the model menu has picked, as the person typing `/model <id>` and then
+ * `/effort <level>` would: the model first, since a new model starts from its own effort.
+ */
+async function applyModel ($: EngineInterface) {
+  const [id, level] = [await read($, modelPick), await read($, effortPick)]
+  const current = modelOf(await $.session.model().catch(() => ''))?.[0] ?? ''
+  await closeMenu($, 'models')
+  const done: string[] = []
+  if (id && id !== current) {
+    const ran = await $.command.run({ command: 'model', args: id }).then(() => true, () => false)
+    if (!ran) {
+      $.ui.toast(`speedy-code: no pude cambiar el modelo; escribí /model ${id}.`)
+      return
+    }
+    done.push(modelOf(id)?.[1] ?? id)
+  }
+  if (level) {
+    const ran = await $.command.run({ command: 'effort', args: level }).then(() => true, () => false)
+    if (!ran) {
+      $.ui.toast(`speedy-code: no pude cambiar el esfuerzo; escribí /effort ${level}.`)
+      return
+    }
+    await update($, effort, () => level)
+    await $.store.set('effort', level)
+    done.push(`esfuerzo ${level}`)
+  }
+  $.ui.toast(done.length ? `speedy-code: ahora con ${done.join(' · ')}` : 'speedy-code: sin cambios.')
+}
+
+/**
+ * The model menu: each model with what it is for, then the effort levels, then Aplicar. A click
+ * only picks; Aplicar runs `/model` and `/effort`. The model in use and the effort last applied
+ * are marked with a dot; what is picked, filled with its color.
+ */
+async function modelMenu ($: EngineInterface, e: Drawn) {
+  const current = modelOf(await $.session.model().catch(() => ''))?.[0] ?? ''
+  const [picked, level, applied] = [await read($, modelPick), await read($, effortPick), await read($, effort)]
+  const chosenModel = picked || current
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const width = Math.max(...MODELS.map(([, name]) => name.length)) + 4
+  return (
+    <Box flexDirection="column">
+      <Text bold dimColor>MODELO</Text>
+      {MODELS.map(([id, name, use, color]) => {
+        const isChosen = id === chosenModel
+        return (
+          <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
+            <Text>
+              <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
+                {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
+              </Text>
+              <Text dimColor={!isChosen} color={isChosen ? color : undefined}>{`  ${use}`}</Text>
+            </Text>
+          </Button>
+        )
+      })}
+      <Text> </Text>
+      <Text bold dimColor>ESFUERZO</Text>
+      <Box flexDirection="row">
+        {EFFORTS.map(([name, color]) => {
+          const isChosen = name === level
+          return (
+            <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
+              <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
+                {` ${name === applied ? '●' : '○'} ${name} `}
+              </Text>
+            </Button>
+          )
+        })}
+      </Box>
+      <Text dimColor>{level ? '' : '  sin elegir: el esfuerzo queda como está'}</Text>
+      <Box flexDirection="row" justifyContent="center">
+        <Button key="models:apply" plain onPress={() => { void applyModel($) }}>
+          <Text bold color="black" backgroundColor={MODEL_COLOR}>{'  Aplicar  '}</Text>
+        </Button>
+      </Box>
+    </Box>
+  )
+}
+
 /** The voice menu: a tab per language, then its women and men side by side, the current voice marked. */
 /**
  * The voice menu, laid out for `width` cells and `rows` rows: as many language tabs and voice
@@ -1018,6 +1139,8 @@ export const register: Register = on => {
     void loadVoices($)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
+    const savedEffort = await $.store.get('effort')
+    if (typeof savedEffort === 'string') await update($, effort, () => savedEffort)
     void loadMics($)
     // A first start, with nothing installed beside the code: the settings open on the setup tab.
     if (!(await $.fs.exists(await homeFile($, PYTHON)).catch(() => false))) {
@@ -1083,6 +1206,8 @@ export const register: Register = on => {
     const linked = SOCIALS.flatMap(([id, , label, color]) => accountsOf(users, id)
       .filter(key => socialLink(id, users[key] ?? ''))
       .map(key => ({ key, label: accountLabel(label, key), color })))
+    const current = await $.session.model().catch(() => '')
+    const model = modelLabel(current)
     const beneath = await next(e)
     const { Box, Client, Text } = $.ui.resolve(e)
     // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
@@ -1107,6 +1232,7 @@ export const register: Register = on => {
         <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
         <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
         <Text> </Text>
+        <Client key="speedy:model" module="./control.tsx" props={{ label: `◆ ${model} ▾ `, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
         <Client key="speedy:voice" module="./control.tsx" props={{ label: `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`, color: languageColor(active) }} />
         {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
         <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
@@ -1138,6 +1264,8 @@ export const register: Register = on => {
       if (link) await openLink($, link)
     } else if (e.element === 'speedy:settings') {
       await openMenu($, 'settings')
+    } else if (e.element === 'speedy:model') {
+      await openMenu($, 'models')
     } else if (e.element === 'speedy:reload') {
       // Reloads every plugin, this one too: an edit to the mod takes effect at once.
       await $.command.run({ command: 'reload-plugins' }).catch(() => { $.ui.toast('speedy-code: no pude recargar; escribí /reload-plugins.') })
@@ -1187,8 +1315,8 @@ export const register: Register = on => {
       if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
       const { Box, Client, Text } = $.ui.resolve(e)
       const chosen = await read($, picks)
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? 'Modelo de Claude' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -1197,7 +1325,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : await settingsMenu($, e, width)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : await settingsMenu($, e, width)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Model menu: the ◆ footer button picks a Claude model and an effort; Aplicar runs `/model` and
+  `/effort`.
 - Dictation: NVIDIA's Nemotron 3.5 ASR Streaming, run by transcribe-cpp, replaces Whisper. The
   words go into the prompt as they are said, it loads in half a second, and it is still local.
   One model of about 750 MB instead of two of 1.8 GB.

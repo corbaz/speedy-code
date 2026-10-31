@@ -13,8 +13,8 @@ export type Listening = 'off' | 'loading' | 'on'
 /** A phrase heard and not yet written into the prompt: its number and the quick model's preview. */
 export type Heard = { number: number; text: string }
 
-/** A menu shown above the prompt, where its pane has no room: none, the voices, or the microphones. */
-export type Menu = '' | 'voices' | 'mic' | 'settings'
+/** A menu shown above the prompt: none, the voices, the microphones, the settings, or the Claude models. */
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models'
 
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>
@@ -67,6 +67,12 @@ declare module 'claude-code' {
       mics: string[]
       /** The microphone dictation listens to; empty: the system's default. */
       mic: string
+      /** The model picked in the model menu, not applied yet: an id `/model` takes. */
+      modelPick: string
+      /** The effort picked in the model menu, not applied yet; empty: left as it is. */
+      effortPick: string
+      /** The effort last applied from the model menu, kept across sessions; empty: never set. */
+      effort: string
     }
   }
 }

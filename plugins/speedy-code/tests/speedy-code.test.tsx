@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { accountsOf, ascii, guessLanguage, micName, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -667,6 +667,55 @@ test('the reload button runs /reload-plugins', { timeoutMs: 30000 }, async ($, o
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:reload' })
   expect(commands).toEqual(['reload-plugins'])
+  await ui.unmount()
+})
+
+test('modelOf knows a model by its id, a dated or [1m] id, and its alias', () => {
+  expect(modelOf('claude-opus-5-5')?.[1]).toBe('Opus 5.5')
+  expect(modelOf('claude-opus-5-5[1m]')?.[1]).toBe('Opus 5.5')
+  expect(modelOf('sonnet')?.[1]).toBe('Sonnet 5.5')
+  expect(modelOf('claude-fable-5-1')?.[1]).toBe('Fable 5.1')
+  expect(modelOf('claude-opus-4-8')).toBeUndefined()
+  expect(modelLabel('claude-opus-4-8')).toBe('opus-4-8')
+  expect(modelLabel('')).toBe('modelo')
+})
+
+test('the model menu picks a model and an effort, and Aplicar runs /model then /effort', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: Array<[string, string]> = []
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('command.run', (_, e) => { commands.push([e.command, e.args]); return { text: '' } })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
+  await ui.post({ isClicked: true }, { in: 'speedy:model' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude ')
+  const names = (await band.findAll({ type: 'Text', text: /^ [●○] \S+ [\d.]+ +$/ })).map(text => text.text.trim())
+  expect(names).toEqual(['○ Fable 5.1', '● Opus 5.5', '○ Sonnet 5.5', '○ Haiku 5.5'])
+  // A click only picks: nothing runs until Aplicar.
+  await band.press({ key: 'model:claude-sonnet-5-5' })
+  await band.press({ key: 'effort:high' })
+  expect(commands).toEqual([])
+  await band.press({ key: 'models:apply' })
+  expect(commands).toEqual([['model', 'claude-sonnet-5-5'], ['effort', 'high']])
+  expect(w.kept.effort).toBe('high')
+  await band.unmount()
+  // Applied, the menu closes.
+  const after = await $.ui.mount(BAND)
+  expect(await after.find({ type: 'Text', text: /Modelo de Claude/ })).toBeUndefined()
+  await after.unmount()
+  await ui.unmount()
+})
+
+test('Aplicar with nothing picked runs no command', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: string[] = []
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:model' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'models:apply' })
+  expect(commands).toEqual([])
+  await band.unmount()
   await ui.unmount()
 })
 

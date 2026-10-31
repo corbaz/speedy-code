@@ -42,6 +42,13 @@ closes it, as its ✕ does.
 Árabe, Hindi, Bengalí, Urdu), a switch between women's and men's voices, the voices in as many
 columns as the width holds and paged so the menu always fits. ✦ marks a multilingual voice.
 
+## Model and effort
+
+The footer's ◆ button shows the model in use. Click it for the newest Claude models (Fable 5.1,
+Opus 5.5, Sonnet 5.5, Haiku 5.5), each with what it is for, and the effort levels (`low` to
+`max`). Pick a model, an effort or both, then **Aplicar**: it runs `/model <id>` and then
+`/effort <level>`, as if you typed them. The dot marks the model in use and the effort last applied.
+
 ## Dictation
 
 Click 🎙️ and speak. It shows 🔵 for the half second the model takes to load, 🔴 while it listens.
