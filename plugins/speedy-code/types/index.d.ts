@@ -19,6 +19,9 @@ export type Menu = '' | 'voices' | 'mic' | 'settings'
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>
 
+/** One step of the setup: not checked yet, under way, in place, or missing, with what it found. */
+export type SetupCheck = { state: '' | 'working' | 'ok' | 'fail'; detail: string }
+
 declare module 'claude-code' {
   interface PluginState {
     'speedy-code': {
@@ -50,6 +53,12 @@ declare module 'claude-code' {
       settingsOpened: number
       /** The network whose user name is being edited; empty: none. */
       editing: string
+      /** Each setup step's state, by the name install.ps1 gives it. */
+      setupChecks: Record<string, SetupCheck>
+      /** The last lines install.ps1 printed along the way. */
+      setupLog: string[]
+      /** Whether install.ps1 is running. */
+      isInstalling: boolean
       /** Whether the wand is cleaning the prompt up with Groq. */
       isPolishing: boolean
       /** The microphones connected, as the system names them. */

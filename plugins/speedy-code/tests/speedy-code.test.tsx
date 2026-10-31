@@ -33,6 +33,9 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.settingsTab ??= { value: 'socials', version: 1 }
   held.settingsOpened ??= { value: 0, version: 1 }
   held.editing ??= { value: '', version: 1 }
+  held.setupChecks ??= { value: {}, version: 1 }
+  held.setupLog ??= { value: [], version: 1 }
+  held.isInstalling ??= { value: false, version: 1 }
   held.picks ??= { value: { shape: 'picks-1', value: { es: 'es-AR-ElenaNeural', active: 'es' } }, version: 1 }
   on('state.get', (_, e) => ({ value: held[e.key] }))
   on('state.set', (_, e) => { held[e.key] = { value: e.value, version: 2 }; return { value: { isSet: true, version: 2 } } })
@@ -94,7 +97,7 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   await ui.unmount()
 })
 
-function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }) {
+function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true) {
   const clock = mock.clock(on, { now: 0 })
   const kept: Record<string, unknown> = { ...store }
   const prompts: string[] = []
@@ -103,6 +106,8 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
   on('store.set', (_, e) => { kept[e.key] = e.value; return { value: undefined } })
   on('env.get', () => ({ value: 'C:/Users/test' }))
   on('fs.read', () => { throw new Error('missing') })
+  // What is installed beside the code: all of it, unless the test says nothing is.
+  on('fs.exists', () => ({ value: installed }))
   const written: Array<{ path: string; text: string }> = []
   on('fs.write', (_, e) => { written.push({ path: e.path.split('\\').join('/'), text: e.text }); return { value: undefined } })
   on('ui.log', () => ({ value: undefined }))
@@ -146,6 +151,12 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
   const copied: string[] = []
   const opened: string[] = []
   on('process.spawn', async function * (_, e) {
+    // The setup: install.ps1 says each step as it starts and ends.
+    if (e.argv.some(arg => arg.endsWith('install.ps1'))) {
+      yield { stream: 'stdout' as const, text: 'step python Creando el entorno\ninfo Using Python 3.12\nok python Python 3.12.16\n' }
+      yield { stream: 'stdout' as const, text: 'step groq Buscando la clave\nfail groq falta GROQ_API_KEY (opcional: solo la usa la pluma)\ndone con avisos\n' }
+      return { value: { code: 0, signal: null } }
+    }
     // The wand: polish.py reads the ask on stdin and answers JSON, in ASCII, as Python's json.dumps writes it.
     if (e.argv.some(arg => arg.endsWith('polish.py'))) {
       polish.sent.push(e.input ?? '')
@@ -817,5 +828,41 @@ test('the networks take two tables side by side where the width holds them, one 
   }
   expect(await tablesAt(180)).toEqual({ tables: 2, rows: 12 })
   expect(await tablesAt(110)).toEqual({ tables: 1, rows: 12 })
+  await ui.unmount()
+})
+
+test('the setup tab checks what is in place, and its button runs install.ps1 showing each step', { timeoutMs: 30000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:setup' })
+  await band.unmount()
+  const setup = await $.ui.mount(BAND)
+  expect((await setup.find({ type: 'Text', text: /^Entorno de Python 3.12$/ }))?.text).toBe('Entorno de Python 3.12')
+  await setup.press({ key: 'setup:run' })
+  await w.clock.advance(200)
+  await setup.unmount()
+  const after = await $.ui.mount(BAND)
+  // Done, it checks again: the environment is in place.
+  expect((await after.find({ type: 'Text', text: /^listo$/ }))?.text).toBe('listo')
+  expect((await after.find({ type: 'Text', text: /Using Python 3\.12/ }))?.text).toBe('   Using Python 3.12')
+  await after.unmount()
+  await ui.unmount()
+})
+
+test('a first start with nothing installed says so and opens the settings on the setup tab', { timeoutMs: 30000 }, async ($, on) => {
+  const toasts: string[] = []
+  const w = world(on, {}, '', { on: false }, '', { on: false }, { reply: '', sent: [] }, false)
+  on('ui.toast', (_, e) => { toasts.push(e.text); return { value: undefined } })
+  on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  expect(toasts).toEqual(['speedy-code: falta instalar las voces y el dictado. Abrí ⚙️ → Instalación.'])
+  const ui = await $.ui.mount(FOOTER)
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Instalar \/ reparar todo/ }))).toBeDefined()
+  await band.unmount()
   await ui.unmount()
 })

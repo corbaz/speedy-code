@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { Heard, Listening, Menu, Picks, Socials, Speech, Voice } from '../types'
+import type { Heard, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -63,9 +63,24 @@ const SOCIAL_NAME_WIDTH = 12
 const SOCIAL_FIELD_WIDTH = 28
 /** The gap between two tables of networks, and the least a link column may be. */
 const TABLE_GAP = 3
+/** How many of the setup's last lines the tab shows. */
+const SETUP_LOG_LINES = 6
 const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
-const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['socials', 'Redes sociales']]
+const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Instalación'], ['socials', 'Redes sociales']]
+
+/** The setup steps, by the name install.ps1 prints, and what each is for. */
+const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
+  ['uv', 'uv, el administrador de Python'],
+  ['python', 'Entorno de Python 3.12'],
+  ['packages', 'Voces y dictado (edge-tts, faster-whisper)'],
+  ['models', 'Modelos de Whisper (~1,8 GB)'],
+  ['mics', 'Micrófonos'],
+  ['voices', 'Voces de Edge (internet)'],
+  ['groq', 'Clave de Groq (la pluma, opcional)']
+]
+/** Where Hugging Face keeps the Whisper models, under the user's folder, unless HF_HOME says otherwise. */
+const WHISPER_MODELS = ['models--Systran--faster-whisper-base', 'models--mobiuslabsgmbh--faster-whisper-large-v3-turbo']
 
 
 /** The tabs, in the person's order: Spanish, English, French, Italian, Portuguese, Russian, Chinese, Arabic, then Hindi, Bengali and Urdu; each with a color of its own. */
@@ -131,6 +146,9 @@ const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as S
 const settingsTab = atom({ plugin: 'speedy-code', key: 'settingsTab' } as const, 'socials')
 const settingsOpened = atom({ plugin: 'speedy-code', key: 'settingsOpened' } as const, 0)
 const editing = atom({ plugin: 'speedy-code', key: 'editing' } as const, '')
+const setupChecks = atom({ plugin: 'speedy-code', key: 'setupChecks' } as const, {} as Record<string, SetupCheck>)
+const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as string[])
+const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 
 const regions = (() => {
@@ -255,6 +273,7 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
   if (which === 'settings') {
     await update($, settingsOpened, count => count + 1)
     await update($, editing, () => '')
+    void checkSetup($)
   }
   await update($, menu, () => which)
 }
@@ -599,6 +618,68 @@ async function dropIfEmpty ($: EngineInterface, key: string) {
   await $.store.set('socials', rest)
 }
 
+/** One setup step's state. */
+async function setCheck ($: EngineInterface, name: string, check: SetupCheck) {
+  await update($, setupChecks, all => ({ ...all, [name]: check }))
+}
+
+/**
+ * Checks what is in place without the network and without installing: the Python environment, its
+ * packages, the Whisper models, the microphones and the Groq key. uv and the Edge voices are
+ * checked by the setup itself.
+ */
+async function checkSetup ($: EngineInterface) {
+  const python = await homeFile($, PYTHON)
+  const hasPython = await $.fs.exists(python).catch(() => false)
+  await setCheck($, 'python', hasPython ? { state: 'ok', detail: 'listo' } : { state: 'fail', detail: 'falta' })
+  if (hasPython) {
+    const probe = await $.process.run([python, '-c', 'import edge_tts, faster_whisper, sounddevice, numpy']).catch(() => undefined)
+    await setCheck($, 'packages', probe?.exitCode === 0 ? { state: 'ok', detail: 'listos' } : { state: 'fail', detail: 'faltan' })
+  } else {
+    await setCheck($, 'packages', { state: 'fail', detail: 'faltan' })
+  }
+  const hfHome = (await $.env.get('HF_HOME')) || `${(await homeFile($, '.cache/huggingface'))}`
+  const present = await Promise.all(WHISPER_MODELS.map(model => $.fs.exists(`${hfHome.replace(/\\/g, '/')}/hub/${model}`).catch(() => false)))
+  const count = present.filter(Boolean).length
+  await setCheck($, 'models', count === WHISPER_MODELS.length ? { state: 'ok', detail: 'base y large-v3-turbo' } : { state: 'fail', detail: count ? 'falta uno' : 'faltan (se bajan solos en el primer dictado)' })
+  if (hasPython) await loadMics($)
+  const found = (await read($, mics)).length
+  await setCheck($, 'mics', found ? { state: 'ok', detail: `${found} conectado(s)` } : { state: 'fail', detail: hasPython ? 'ninguno conectado' : 'se buscan al instalar' })
+  await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
+}
+
+/** Runs install.ps1, each line it prints shown as it comes; then checks again. */
+async function runSetup ($: EngineInterface) {
+  if (await read($, isInstalling)) return
+  await update($, isInstalling, () => true)
+  await update($, setupLog, () => [])
+  let pending = ''
+  try {
+    const setup = $.process.spawn({
+      argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/setup/install.ps1`]
+    })
+    for await (const { stream, text } of setup) {
+      if (stream !== 'stdout') continue
+      pending += text
+      const lines = pending.split(/\r?\n/)
+      pending = lines.pop() ?? ''
+      for (const line of lines) {
+        const [word, name = '', ...rest] = line.split(' ')
+        const detail = rest.join(' ')
+        if (word === 'step') await setCheck($, name, { state: 'working', detail })
+        else if (word === 'ok' || word === 'fail') await setCheck($, name, { state: word, detail })
+        else if (word === 'info' && line.length > 5) await update($, setupLog, log => [...log, line.slice(5)].slice(-SETUP_LOG_LINES))
+      }
+    }
+  } catch (error) {
+    $.ui.toast(`speedy-code: no pude correr el instalador: ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    await update($, isInstalling, () => false)
+    void loadVoices($)
+    await checkSetup($)
+  }
+}
+
 /** Whether the play button acts: the narrator on, and something under way or to read again. */
 function isPlayable (enabled: boolean, now: Speech) {
   return enabled && (now !== 'idle' || lastAnswer !== '')
@@ -676,6 +757,32 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
       </Box>
     )
   }))
+  const checks = await read($, setupChecks)
+  const log = await read($, setupLog)
+  const installing = await read($, isInstalling)
+  const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
+  const setupTab = (
+    <Box flexDirection="column" marginTop={1}>
+      {SETUP_STEPS.map(([name, label]) => {
+        const check = checks[name] ?? { state: '', detail: '' }
+        const [glyph, tint] = mark[check.state]
+        return (
+          <Box key={`setup-row:${name}`} flexDirection="row">
+            <Text bold color={tint}>{` ${glyph} `}</Text>
+            <Box width={46}><Text>{label}</Text></Box>
+            <Text color={tint} dimColor={check.state === ''}>{check.detail}</Text>
+          </Box>
+        )
+      })}
+      <Box flexDirection="row" marginTop={1}>
+        <Button key="setup:run" plain onPress={() => { void runSetup($) }}>
+          <Text bold color="black" backgroundColor={installing ? '#ffd43b' : '#51cf66'}>{installing ? ' Instalando… ' : ' Instalar / reparar todo '}</Text>
+        </Button>
+        <Text dimColor>{'  instala lo que falta y deja como está lo que ya funciona'}</Text>
+      </Box>
+      {log.map((line, index) => <Text key={`setup-log:${index}`} dimColor>{`   ${line}`}</Text>)}
+    </Box>
+  )
   const header = (
     <Box flexDirection="row">
       <Box width={SOCIAL_PLUS_WIDTH + SOCIAL_BADGE_WIDTH} />
@@ -708,6 +815,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
         ))}
         {open === 'socials' ? <Text dimColor>click en un usuario para editarlo · Enter guarda · + suma otra cuenta</Text> : null}
       </Box>
+      {open === 'setup' ? setupTab : null}
       {open === 'socials'
         ? (
           <Box flexDirection="column">
@@ -891,6 +999,11 @@ export const register: Register = on => {
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
     void loadMics($)
+    // A first start, with nothing installed beside the code: the settings open on the setup tab.
+    if (!(await $.fs.exists(await homeFile($, PYTHON)).catch(() => false))) {
+      await update($, settingsTab, () => 'setup')
+      if (isInteractive) $.ui.toast('speedy-code: falta instalar las voces y el dictado. Abrí ⚙️ → Instalación.')
+    }
     const savedSocials = await $.store.get('socials')
     if (savedSocials && typeof savedSocials === 'object') await update($, socials, () => savedSocials as Socials)
     return next(e)
