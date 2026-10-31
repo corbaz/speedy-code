@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Status line: each part in a color of its own, gray labels, and eight-cell bars for the context
+  left and the 5-hour and weekly limits, filled in the color of their level. A session start
+  refreshes the copy Claude Code runs.
 - Model menu: the ◆ footer button picks a Claude model and an effort; Aplicar runs `/model` and
   `/effort`.
 - Dictation: NVIDIA's Nemotron 3.5 ASR Streaming, run by transcribe-cpp, replaces Whisper. The

@@ -98,7 +98,7 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   await ui.unmount()
 })
 
-function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true) {
+function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }) {
   const clock = mock.clock(on, { now: 0 })
   const kept: Record<string, unknown> = { ...store }
   const prompts: string[] = []
@@ -139,7 +139,9 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
     // The status line switch answers what is in use.
     if (e.argv.some(arg => arg.endsWith('switch.py'))) {
       switched.push(e.argv.at(-1) ?? '')
-      return { value: { exitCode: 0, stdout: `${e.argv.at(-1) === 'on' ? 'on' : 'off'}\r\n`, stderr: '' } }
+      if (e.argv.at(-1) === 'on') line.on = true
+      if (e.argv.at(-1) === 'off') line.on = false
+      return { value: { exitCode: 0, stdout: `${line.on ? 'on' : 'off'}\r\n`, stderr: '' } }
     }
     if (e.argv.includes('--list')) return { value: { exitCode: 0, stdout: `mic ${JBL}\r\nmic ${G432}\r\n`, stderr: '' } }
     return { value: { exitCode: 1, stdout: '', stderr: '' } }
@@ -923,6 +925,20 @@ test('a first start with nothing installed says so and opens the settings on the
   expect((await band.find({ type: 'Text', text: /Instalar \/ reparar todo/ }))).toBeDefined()
   await band.unmount()
   await ui.unmount()
+})
+
+test('a session start copies the status line again only when it is switched on', async ($, on) => {
+  const w = world(on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, '', { on: false }, { reply: '', sent: [] }, true, { on: true })
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await w.clock.advance(200)
+  expect(w.switched).toEqual(['status', 'on'])
+})
+
+test('a session start leaves a status line that is switched off alone', async ($, on) => {
+  const w = world(on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await w.clock.advance(200)
+  expect(w.switched).toEqual(['status'])
 })
 
 test('the setup tab switches the colored status line on, keeping the one before', { timeoutMs: 30000 }, async ($, on) => {

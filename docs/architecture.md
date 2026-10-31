@@ -127,7 +127,12 @@ times the settings opened, so each opening starts from what is saved.
   saved as UTF-8 with BOM, and set `[Console]::OutputEncoding` to UTF-8.
 - PowerShell 5.1 turns a native program's stderr into errors under `$ErrorActionPreference = 'Stop'`
   (uv writes its notes there): run such programs with it set to `Continue`, and judge by exit code.
-- PowerShell variables are case-insensitive: `$PARTS` and `$parts` are one variable.
+- PowerShell variables are case-insensitive: `$PARTS` and `$parts` are one variable. It bit the
+  status line twice: a color `$MODEL` was the model's name `$model`, and a parameter `$label` was
+  the color `$LABEL`. Its colors are named `$C_…` for that.
+- The status line Claude Code runs is a copy, at `~/.claude/speedy-code/statusline.ps1`. Each
+  session start copies it again when it is switched on, so a new version of the mod reaches it.
+  It keeps its UTF-8 BOM: PowerShell 5.1 reads a file without one as ANSI.
 - In the hooks module, every function that takes `$` is declared at the top of the file; the
   validator refuses one declared inside `register`.
 - A test that mocks `state.get` must seed every atom a drawing reads.

@@ -2,8 +2,11 @@
 # and weekly limits, in color. Claude Code runs it with the session's JSON on stdin; the setup copies
 # it to ~/.claude/speedy-code and ⚙️ → Instalación turns it on (the previous status line is kept).
 #
-# Colors carry the meaning: context left is green above 50%, yellow down to 20%, red below; a limit
-# used is green below 50%, yellow to 80%, red past it. Times are the machine's own time zone.
+# Every part has a color of its own, and its label is gray, so the eye finds each part by color.
+# Levels carry a meaning on top: context left is green above 50%, yellow down to 20%, red below; a
+# limit used is green below 50%, yellow to 80%, red past it; their bars fill in that color.
+# Times are the machine's own time zone. This file keeps its UTF-8 BOM: PowerShell 5.1 reads it
+# as ANSI without one, and the accents and glyphs break.
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -16,9 +19,15 @@ $data = $raw | ConvertFrom-Json
 
 $e = [char]27
 function Paint($text, $color) { "$e[$($color)m$text$e[0m" }
-$CYAN = '38;5;81'; $VIOLET = '38;5;177'; $ORANGE = '1;38;5;215'; $GRAY = '38;5;245'
-$YELLOW = '38;5;221'; $GREEN = '38;5;114'; $RED = '1;38;5;203'
-$bar = Paint ' | ' $GRAY
+
+# One color per part (256-color codes). C_ keeps them apart from the values: PowerShell's names
+# ignore case, so a color named $MODEL would be the same variable as the model's name, $model.
+$C_FOLDER = '1;38;5;81'; $C_BRANCH = '38;5;177'; $C_MODEL = '1;38;5;215'; $C_TIME = '38;5;117'
+$C_IN = '38;5;79'; $C_OUT = '38;5;211'; $C_CACHE = '38;5;147'; $C_COST = '1;38;5;220'
+$C_FIVE = '38;5;111'; $C_WEEK = '38;5;183'; $C_LABEL = '38;5;245'; $C_DIM = '38;5;240'
+# Levels.
+$C_GREEN = '38;5;114'; $C_YELLOW = '38;5;221'; $C_RED = '1;38;5;203'
+$bar = Paint ' │ ' $C_DIM
 
 $days = @('Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb')
 
@@ -48,8 +57,18 @@ function Format-Duration($ms) {
 }
 
 # Green while there is room, yellow as it runs low, red when it is nearly gone.
-function Left-Color($percent) { if ($percent -gt 50) { $GREEN } elseif ($percent -ge 20) { $YELLOW } else { $RED } }
-function Used-Color($percent) { if ($percent -lt 50) { $GREEN } elseif ($percent -lt 80) { $YELLOW } else { $RED } }
+function Left-Color($percent) { if ($percent -gt 50) { $C_GREEN } elseif ($percent -ge 20) { $C_YELLOW } else { $C_RED } }
+function Used-Color($percent) { if ($percent -lt 50) { $C_GREEN } elseif ($percent -lt 80) { $C_YELLOW } else { $C_RED } }
+
+# A bar of eight cells, as full as the percentage: the full ones in its color, the rest dim.
+function Meter($percent, $color) {
+  $full = [int][math]::Round([math]::Min(100, [math]::Max(0, $percent)) / 100 * 8)
+  (Paint ('▰' * $full) $color) + (Paint ('▱' * (8 - $full)) $C_DIM)
+}
+
+# `label value`: the label gray, the value in its color.
+# Its parameters are not $label or $color: PowerShell's names ignore case, and $label is $C_LABEL.
+function Part($name, $value, $tone) { (Paint $name $C_LABEL) + ' ' + (Paint $value $tone) }
 
 $cwd = $data.cwd
 if (-not $cwd) { $cwd = $data.workspace.current_dir }
@@ -57,25 +76,28 @@ $cwd = $cwd -replace [regex]::Escape($HOME), '~'
 $model = $data.model.display_name
 if (-not $model) { $model = $data.model }
 
-$left = Paint $cwd $CYAN
-if ($data.git.branch) { $left = "$left $(Paint "($($data.git.branch))" $VIOLET)" }
-$left = "$left $(Paint '»' $GRAY)"
+$left = Paint $cwd $C_FOLDER
+if ($data.git.branch) { $left = "$left $(Paint "⎇ $($data.git.branch)" $C_BRANCH)" }
 
 $usage = $data.context_window.current_usage
-$tokens = Paint "in:$(Format-Tokens $usage.input_tokens) out:$(Format-Tokens $usage.output_tokens) cache:$(Format-Tokens $usage.cache_read_input_tokens)" $GRAY
+$tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'out' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'cache' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
+
 $contextLeft = $data.context_window.remaining_percentage
 if (-not $contextLeft) { $contextLeft = 100 }
-$context = Paint "contexto:$([math]::Round($contextLeft))% libre" (Left-Color $contextLeft)
-$cost = Paint ('sesión:$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $YELLOW
+$leftColor = Left-Color $contextLeft
+$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextLeft $leftColor) + ' ' + (Paint "$([math]::Round($contextLeft))% libre" $leftColor)
 
-$right = (Paint $model $ORANGE) + $bar + (Paint (Format-Duration $data.cost.total_duration_ms) $GRAY) + $bar + $tokens + $bar + $context + $bar + $cost
+$cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-foreach ($window in @(@('five_hour', '5hs'), @('seven_day', 'semana'))) {
+$right = (Paint "◆ $model" $C_MODEL) + $bar + (Paint "⏱ $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+
+foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
   if ($limit -and $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
-    $right += $bar + (Paint "$($window[1]):$used% usado (reset $(Format-Reset $limit.resets_at))" (Used-Color $used))
+    $usedColor = Used-Color $used
+    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
   }
 }
 
-Write-Output "$left    $right"
+Write-Output "$left $(Paint '»' $C_DIM) $right"

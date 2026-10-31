@@ -1149,6 +1149,11 @@ export const register: Register = on => {
     }
     const savedSocials = await $.store.get('socials')
     if (savedSocials && typeof savedSocials === 'object') await update($, socials, () => savedSocials as Socials)
+    // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
+    // of the mod reaches it without switching it off and on.
+    void switchStatusLine($, 'status').then(async () => {
+      if ((await read($, statusLine)) === 'on') await switchStatusLine($, 'on')
+    })
     return next(e)
   })
 
