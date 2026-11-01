@@ -114,6 +114,9 @@ const MODELS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['claude-haiku-5-5', 'Haiku 5.5', 'el más rápido y barato', '#63e6be']
 ]
 const MODEL_COLOR = '#ffa94d'
+/** Where the warnings come: the context used, and a limit used. */
+const CONTEXT_WARN_PERCENT = 80
+const LIMIT_WARN_PERCENT = 90
 /** The levels `/effort` takes, as `claude --help` lists them, from the lightest to the deepest. */
 const EFFORTS: ReadonlyArray<readonly [string, string]> = [
   ['low', '#69db7c'], ['medium', '#a9e34b'], ['high', '#ffd43b'], ['xhigh', '#ffa94d'], ['max', '#ff6b6b']
@@ -1135,6 +1138,29 @@ export const register: Register = on => {
   isInteractive = true
   current = undefined
   lastAnswer = ''
+
+  // The warnings: once each, when the context or a limit crosses its line, and again only after it falls back.
+  // The context line is where Claude Code compacts (about 80% used); a limit warns at 90% used.
+  let warnedContext = false
+  const warnedLimits = new Set<string>()
+  on('session.measure', async ($, e, next) => {
+    const used = e.context.percent ?? 0
+    if (used >= CONTEXT_WARN_PERCENT && !warnedContext) {
+      warnedContext = true
+      $.ui.toast(`speedy-code: el contexto va al ${used}%. Claude Code compacta cerca de ahí: /compact ahora, o empezá una sesión nueva.`)
+    } else if (used < CONTEXT_WARN_PERCENT) {
+      warnedContext = false
+    }
+    for (const limit of e.rateLimits) {
+      if (limit.percentUsed >= LIMIT_WARN_PERCENT && !warnedLimits.has(limit.kind)) {
+        warnedLimits.add(limit.kind)
+        $.ui.toast(`speedy-code: el límite ${limit.kind} va al ${Math.round(limit.percentUsed)}%${limit.resetsAt ? ` y se reinicia ${limit.resetsAt}` : ''}.`)
+      } else if (limit.percentUsed < LIMIT_WARN_PERCENT) {
+        warnedLimits.delete(limit.kind)
+      }
+    }
+    return next(e)
+  })
 
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive

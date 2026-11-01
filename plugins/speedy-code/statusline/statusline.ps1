@@ -3,8 +3,9 @@
 # it to ~/.claude/speedy-code and ⚙️ → Instalación turns it on (the previous status line is kept).
 #
 # Every part has a color of its own, and its label is gray, so the eye finds each part by color.
-# Levels carry a meaning on top: context left is green above 50%, yellow down to 20%, red below; a
-# limit used is green below 50%, yellow to 80%, red past it; their bars fill in that color.
+# Levels carry a meaning on top: context left is green above 40%, yellow down to 20%, red at 20% or
+# less, where Claude Code compacts; a limit used is green below 75%, yellow to 90%, red from 90%, where
+# the warning comes; their bars fill in that color.
 # Times are the machine's own time zone. This file keeps its UTF-8 BOM: PowerShell 5.1 reads it
 # as ANSI without one, and the accents and glyphs break.
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
@@ -51,14 +52,17 @@ function Format-Tokens($n) {
 function Format-Duration($ms) {
   if (-not $ms) { return '0m' }
   $minutes = [int]($ms / 60000)
-  $hours = [int][math]::Floor($minutes / 60)
-  if ($hours -ge 1) { return "${hours}h$($minutes % 60)m" }
-  return "${minutes}m"
+  $days = [int][math]::Floor($minutes / 1440)
+  $hours = [int][math]::Floor(($minutes % 1440) / 60)
+  $mins = $minutes % 60
+  if ($days -ge 1) { return "${days}d ${hours}h ${mins}m" }
+  if ($hours -ge 1) { return "${hours}h ${mins}m" }
+  return "${mins}m"
 }
 
 # Green while there is room, yellow as it runs low, red when it is nearly gone.
-function Left-Color($percent) { if ($percent -gt 50) { $C_GREEN } elseif ($percent -ge 20) { $C_YELLOW } else { $C_RED } }
-function Used-Color($percent) { if ($percent -lt 50) { $C_GREEN } elseif ($percent -lt 80) { $C_YELLOW } else { $C_RED } }
+function Left-Color($percent) { if ($percent -gt 40) { $C_GREEN } elseif ($percent -gt 20) { $C_YELLOW } else { $C_RED } }
+function Used-Color($percent) { if ($percent -lt 75) { $C_GREEN } elseif ($percent -lt 90) { $C_YELLOW } else { $C_RED } }
 
 # A bar of eight cells, as full as the percentage: the full ones in its color, the rest dim.
 function Meter($percent, $color) {
@@ -85,7 +89,7 @@ $tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'o
 $contextLeft = $data.context_window.remaining_percentage
 if (-not $contextLeft) { $contextLeft = 100 }
 $leftColor = Left-Color $contextLeft
-$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextLeft $leftColor) + ' ' + (Paint "$([math]::Round($contextLeft))% libre" $leftColor)
+$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextLeft $leftColor) + ' ' + (Paint "$([math]::Round($contextLeft))% libre" $leftColor) + $(if ($contextLeft -le 20) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
@@ -97,7 +101,7 @@ foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $
   if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Used-Color $used
-    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
+    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge 90) { ' ' + (Paint '⚠' $C_RED) } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
   }
 }
 
