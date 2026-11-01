@@ -160,6 +160,7 @@ const editing = atom({ plugin: 'speedy-code', key: 'editing' } as const, '')
 const setupChecks = atom({ plugin: 'speedy-code', key: 'setupChecks' } as const, {} as Record<string, SetupCheck>)
 const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as string[])
 const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
+const modelNow = atom({ plugin: 'speedy-code', key: 'modelNow' } as const, '')
 const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
@@ -685,6 +686,18 @@ async function switchStatusLine ($: EngineInterface, action: 'on' | 'off' | 'sta
   if (action !== 'status' && (said === 'on' || said === 'off')) $.ui.toast(said === 'on' ? 'speedy-code: barra de estado a colores activada; aparece en un segundo.' : 'speedy-code: volvió tu barra de estado anterior.')
 }
 
+/**
+ * The model in use. `/model` typed in the terminal changes it without the mod seeing it, and the
+ * footer is not drawn again by itself: so the footer asks now and then, and redraws when it changed.
+ */
+async function followModel ($: EngineInterface) {
+  const now = await $.session.model().catch(() => '')
+  if (now && now !== (await read($, modelNow))) {
+    await update($, modelNow, () => now)
+    $.ui.invalidate('ui.render')
+  }
+}
+
 /** Runs install.ps1, each line it prints shown as it comes; then checks again. */
 async function runSetup ($: EngineInterface) {
   if (await read($, isInstalling)) return
@@ -1125,6 +1138,8 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive
+    // The model in use, followed as it changes: see followModel.
+    $.clock.every(1500, () => followModel($))
     await $.command.register({
       name: 'speedy',
       description: 'Lee en voz alta las respuestas · sin argumento: prende o apaga',
@@ -1211,7 +1226,7 @@ export const register: Register = on => {
     const linked = SOCIALS.flatMap(([id, , label, color]) => accountsOf(users, id)
       .filter(key => socialLink(id, users[key] ?? ''))
       .map(key => ({ key, label: accountLabel(label, key), color })))
-    const current = await $.session.model().catch(() => '')
+    const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
     const model = modelLabel(current)
     const beneath = await next(e)
     const { Box, Client, Text } = $.ui.resolve(e)

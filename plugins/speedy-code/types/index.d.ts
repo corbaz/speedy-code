@@ -61,6 +61,8 @@ declare module 'claude-code' {
       isInstalling: boolean
       /** Whether speedy-code's status line is the one in use; empty: not checked yet. */
       statusLine: '' | 'on' | 'off'
+      /** The model in use, as the footer last read it: `/model` in the terminal can change it. */
+      modelNow: string
       /** Whether the wand is cleaning the prompt up with Groq. */
       isPolishing: boolean
       /** The microphones connected, as the system names them. */

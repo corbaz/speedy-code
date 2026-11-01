@@ -93,7 +93,8 @@ $right = (Paint "◆ $model" $C_MODEL) + $bar + (Paint "⏱ $(Format-Duration $d
 
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
-  if ($limit -and $limit.used_percentage) {
+  # 0% is a limit too: PowerShell reads 0 as false, so test for the value's presence.
+  if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Used-Color $used
     $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)

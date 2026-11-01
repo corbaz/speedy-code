@@ -37,6 +37,7 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.setupLog ??= { value: [], version: 1 }
   held.isInstalling ??= { value: false, version: 1 }
   held.statusLine ??= { value: '', version: 1 }
+  held.modelNow ??= { value: '', version: 1 }
   held.picks ??= { value: { shape: 'picks-1', value: { es: 'es-AR-ElenaNeural', active: 'es' } }, version: 1 }
   on('state.get', (_, e) => ({ value: held[e.key] }))
   on('state.set', (_, e) => { held[e.key] = { value: e.value, version: 2 }; return { value: { isSet: true, version: 2 } } })
@@ -957,4 +958,19 @@ test('the setup tab switches the colored status line on, keeping the one before'
   expect((await after.find({ type: 'Text', text: /Volver a mi barra anterior/ }))).toBeDefined()
   await after.unmount()
   await ui.unmount()
+})
+
+test('the footer shows the model in use, and follows it when /model changes it in the terminal', { timeoutMs: 30000 }, async ($, on) => {
+  let model = 'claude-opus-5-5'
+  on('session.model', () => ({ value: model }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await w.clock.advance(100)
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Opus 5.5')
+  // /model haiku typed in the terminal: the footer asks again, and redraws with the new model.
+  model = 'claude-haiku-5-5'
+  await w.clock.advance(1600)
+  await ui.unmount()
+  const redrawn = await $.ui.mount(FOOTER)
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Haiku 5.5')
+  await redrawn.unmount()
 })
