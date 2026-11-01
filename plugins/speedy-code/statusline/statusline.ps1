@@ -73,10 +73,10 @@ function Format-Duration($ms) {
 function Context-Color($used) { if ($used -ge $levels.contextRed) { $C_RED } elseif ($used -ge $levels.contextYellow) { $C_YELLOW } else { $C_GREEN } }
 function Limit-Color($used) { if ($used -ge $levels.limitRed) { $C_RED } elseif ($used -ge $levels.limitYellow) { $C_YELLOW } else { $C_GREEN } }
 
-# A bar of eight cells, as full as the percentage: the full ones in its color, the rest dim.
+# A bar of four cells, as full as the percentage: the full ones in its color, the rest dim.
 function Meter($percent, $color) {
-  $full = [int][math]::Round([math]::Min(100, [math]::Max(0, $percent)) / 100 * 8)
-  (Paint ('▰' * $full) $color) + (Paint ('▱' * (8 - $full)) $C_DIM)
+  $full = [int][math]::Round([math]::Min(100, [math]::Max(0, $percent)) / 100 * 4)
+  (Paint ('▰' * $full) $color) + (Paint ('▱' * (4 - $full)) $C_DIM)
 }
 
 # `label value`: the label gray, the value in its color.
@@ -88,12 +88,14 @@ if (-not $cwd) { $cwd = $data.workspace.current_dir }
 $cwd = $cwd -replace [regex]::Escape($HOME), '~'
 $model = $data.model.display_name
 if (-not $model) { $model = $data.model }
+# The effort in force for this turn, as Claude Code reports it after any downgrade for the model.
+$effort = $data.effort.level
 
 $left = Paint $cwd $C_FOLDER
 if ($data.git.branch) { $left = "$left $(Paint "⎇ $($data.git.branch)" $C_BRANCH)" }
 
 $usage = $data.context_window.current_usage
-$tokens = (Part 'entrada' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'salida' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'caché' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
+$tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'out' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'caché' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
 
 $contextUsed = $data.context_window.used_percentage
 if ($null -eq $contextUsed) {
@@ -102,11 +104,11 @@ if ($null -eq $contextUsed) {
 }
 $contextUsed = [math]::Round([double]$contextUsed)
 $ctxColor = Context-Color $contextUsed
-$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed% usado" $ctxColor) + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
+$context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$right = (Paint "◆ $model" $C_MODEL) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+$right = (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint "· $effort" $C_LABEL) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
 
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
