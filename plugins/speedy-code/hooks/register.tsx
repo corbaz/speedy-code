@@ -710,6 +710,11 @@ async function followModel ($: EngineInterface) {
   }
 }
 
+/** The color of an effort level: its traffic-light color in EFFORTS, gray for one it does not list. */
+export function effortColor (level: string): string {
+  return EFFORTS.find(([name]) => name === level)?.[1] ?? '#adb5bd'
+}
+
 /** Keeps the status line's levels: in the plugin's store, and in the file the status line reads. */
 async function saveLevels ($: EngineInterface, next: BarLevels) {
   await update($, barLevels, () => next)
@@ -1280,6 +1285,18 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The effort in force rides on each model request: /effort typed in the terminal is seen here,
+  // and the footer redraws when it changed.
+  // turn.step streams, so its hook is an async generator that forwards the stream unchanged.
+  on('turn.step', async function* ($, e, next) {
+    if (typeof e.effort === 'string' && e.effort !== (await read($, effort))) {
+      await update($, effort, () => e.effort as string)
+      await $.store.set('effort', e.effort)
+      $.ui.invalidate('ui.render')
+    }
+    return yield* next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && e.reason === 'answer' && e.answer.trim()) {
@@ -1320,6 +1337,7 @@ export const register: Register = on => {
       .map(key => ({ key, label: accountLabel(label, key), color })))
     const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
     const model = modelLabel(current)
+    const level = await read($, effort)
     const beneath = await next(e)
     const { Box, Client, Text } = $.ui.resolve(e)
     // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
@@ -1344,7 +1362,9 @@ export const register: Register = on => {
         <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
         <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
         <Text> </Text>
-        <Client key="speedy:model" module="./control.tsx" props={{ label: `◆ ${model} ▾ `, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
+        <Client key="speedy:model" module="./control.tsx" props={{ label: level ? `◆ ${model} ` : `◆ ${model} ▾ `, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
+        {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
+        {level ? <Client key="speedy:effort" module="./control.tsx" props={{ label: `· ${level} ▾ `, color: effortColor(level), bold: true }} /> : null}
         <Client key="speedy:voice" module="./control.tsx" props={{ label: `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`, color: languageColor(active) }} />
         {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
         <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
@@ -1376,7 +1396,7 @@ export const register: Register = on => {
       if (link) await openLink($, link)
     } else if (e.element === 'speedy:settings') {
       await openMenu($, 'settings')
-    } else if (e.element === 'speedy:model') {
+    } else if (e.element === 'speedy:model' || e.element === 'speedy:effort') {
       await openMenu($, 'models')
     } else if (e.element === 'speedy:reload') {
       // Reloads every plugin, this one too: an edit to the mod takes effect at once.

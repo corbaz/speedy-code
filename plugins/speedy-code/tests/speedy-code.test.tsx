@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { accountsOf, ascii, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, effortColor, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -38,6 +38,7 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.isInstalling ??= { value: false, version: 1 }
   held.statusLine ??= { value: '', version: 1 }
   held.modelNow ??= { value: '', version: 1 }
+  held.effort ??= { value: '', version: 1 }
   held.picks ??= { value: { shape: 'picks-1', value: { es: 'es-AR-ElenaNeural', active: 'es' } }, version: 1 }
   on('state.get', (_, e) => ({ value: held[e.key] }))
   on('state.set', (_, e) => { held[e.key] = { value: e.value, version: 2 }; return { value: { isSet: true, version: 2 } } })
@@ -977,6 +978,27 @@ test('the footer shows the model in use, and follows it when /model changes it i
   await ui.unmount()
   const redrawn = await $.ui.mount(FOOTER)
   expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Haiku 5.5')
+  await redrawn.unmount()
+})
+
+test('the footer shows the effort in force beside the model, follows /effort, and opens the menu', { timeoutMs: 30000 }, async ($, on) => {
+  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
+  await ui.unmount()
+  // /effort max typed in the terminal: the next model request carries it.
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'max', messageCount: 1 })) { /* drained */ }
+  expect(w.kept.effort).toBe('max')
+  const redrawn = await $.ui.mount(FOOTER)
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ')
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:effort' }))?.text).toBe('· max ▾ ')
+  expect(effortColor('max')).toBe('#ff6b6b')
+  expect(effortColor('low')).toBe('#69db7c')
+  await redrawn.post({ isClicked: true }, { in: 'speedy:effort' })
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Text', text: /Modelo de Claude/ })).toBeDefined()
+  await band.unmount()
   await redrawn.unmount()
 })
 

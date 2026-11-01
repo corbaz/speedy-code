@@ -28,6 +28,8 @@ $C_IN = '38;5;79'; $C_OUT = '38;5;211'; $C_CACHE = '38;5;147'; $C_COST = '1;38;5
 $C_FIVE = '38;5;111'; $C_WEEK = '38;5;183'; $C_LABEL = '38;5;245'; $C_DIM = '38;5;240'
 # Levels.
 $C_GREEN = '38;5;114'; $C_YELLOW = '38;5;221'; $C_RED = '1;38;5;203'
+# Each effort level in a traffic-light color, from the cheapest (green) to the dearest (red).
+$EFFORT_COLORS = @{ low = '38;5;114'; medium = '38;5;149'; high = '38;5;221'; xhigh = '38;5;215'; max = '1;38;5;203' }
 # The levels set in ⚙️ → Barra de estado (written by the mod to this file); the defaults without it.
 $levels = @{ contextYellow = 60; contextRed = 80; limitYellow = 75; limitRed = 90 }
 $levelsFile = Join-Path $HOME '.claude\speedy-code\levels.json'
@@ -108,7 +110,7 @@ $context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' 
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$right = (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint "· $effort" $C_LABEL) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+$right = (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
 
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
