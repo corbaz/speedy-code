@@ -1054,7 +1054,8 @@ async function modelMenu ($: EngineInterface, e: Drawn) {
       <Text bold dimColor>ESFUERZO</Text>
       <Box flexDirection="row">
         {EFFORTS.map(([name, color]) => {
-          const isChosen = name === level
+          // Filled like the model: the level picked, or the one in force while nothing is picked.
+          const isChosen = name === (level || applied)
           return (
             <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
               <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
