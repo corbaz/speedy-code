@@ -19,6 +19,11 @@ export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models'
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>
 
+/** The status line's levels, in percent used: where yellow starts and where red starts, for the
+ * context and for a limit. */
+export type BarLevels = { contextYellow: number; contextRed: number; limitYellow: number; limitRed: number }
+export type LevelKey = keyof BarLevels
+
 /** One step of the setup: not checked yet, under way, in place, or missing, with what it found. */
 export type SetupCheck = { state: '' | 'working' | 'ok' | 'fail'; detail: string }
 
@@ -63,6 +68,8 @@ declare module 'claude-code' {
       statusLine: '' | 'on' | 'off'
       /** The model in use, as the footer last read it: `/model` in the terminal can change it. */
       modelNow: string
+      /** The status line's levels, as set in ⚙ → Barra de estado. */
+      barLevels: Shaped<BarLevels>
       /** Whether the wand is cleaning the prompt up with Groq. */
       isPolishing: boolean
       /** The microphones connected, as the system names them. */

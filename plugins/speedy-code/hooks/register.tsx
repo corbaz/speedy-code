@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { Heard, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, Heard, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -64,7 +64,7 @@ const TABLE_GAP = 3
 const SETUP_LOG_LINES = 6
 const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
-const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Instalación'], ['socials', 'Redes sociales']]
+const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Instalación'], ['bar', 'Barra de estado'], ['socials', 'Redes sociales']]
 
 /** The setup steps, by the name install.ps1 prints, and what each is for. */
 const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
@@ -114,9 +114,17 @@ const MODELS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['claude-haiku-5-5', 'Haiku 5.5', 'el más rápido y barato', '#63e6be']
 ]
 const MODEL_COLOR = '#ffa94d'
-/** Where the warnings come: the context used, and a limit used. */
-const CONTEXT_WARN_PERCENT = 80
-const LIMIT_WARN_PERCENT = 90
+/**
+ * The status line's levels, in percent used, as they start out: the context turns yellow at 60% and red
+ * at 80%, where Claude Code compacts (the sources put it between 80% and 95%); a limit turns yellow at 75%
+ * and red at 90%, where the warning appears (anecdotal, 80% to 90%). They are edited in ⚙️ → Barra de estado.
+ */
+const DEFAULT_LEVELS: BarLevels = { contextYellow: 60, contextRed: 80, limitYellow: 75, limitRed: 90 }
+const LEVEL_COLORS: Record<LevelKey, string> = { contextYellow: '#ffd43b', contextRed: '#ff6b6b', limitYellow: '#ffd43b', limitRed: '#ff6b6b' }
+/** The level that goes with each, in the other direction: yellow stays under its red, red over its yellow. */
+const PAIR: Record<LevelKey, LevelKey> = { contextYellow: 'contextRed', contextRed: 'contextYellow', limitYellow: 'limitRed', limitRed: 'limitYellow' }
+/** Where the levels are kept for the status line, which reads this file: under the user's own folder. */
+const LEVELS_FILE = '.claude/speedy-code/levels.json'
 /** The levels `/effort` takes, as `claude --help` lists them, from the lightest to the deepest. */
 const EFFORTS: ReadonlyArray<readonly [string, string]> = [
   ['low', '#69db7c'], ['medium', '#a9e34b'], ['high', '#ffd43b'], ['xhigh', '#ffa94d'], ['max', '#ff6b6b']
@@ -165,6 +173,7 @@ const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as
 const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
 const modelNow = atom({ plugin: 'speedy-code', key: 'modelNow' } as const, '')
 const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
+const barLevels = atom({ plugin: 'speedy-code', key: 'barLevels' } as const, DEFAULT_LEVELS, { shape: 'bar-1' })
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
@@ -701,6 +710,28 @@ async function followModel ($: EngineInterface) {
   }
 }
 
+/** Keeps the status line's levels: in the plugin's store, and in the file the status line reads. */
+async function saveLevels ($: EngineInterface, next: BarLevels) {
+  await update($, barLevels, () => next)
+  await $.store.set('barLevels', next)
+  await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(next, null, 2)}\n`)
+}
+
+/** One level up or down, by 5, within its bounds: yellow 5 under its red, red 5 over its yellow, at most 100. */
+async function adjustLevel ($: EngineInterface, key: LevelKey, delta: number) {
+  const levels = await read($, barLevels)
+  const isYellow = key.endsWith('Yellow')
+  const other = levels[PAIR[key]]
+  const low = isYellow ? 5 : other + 5
+  const high = isYellow ? other - 5 : 100
+  await saveLevels($, { ...levels, [key]: Math.min(high, Math.max(low, levels[key] + delta)) })
+}
+
+/** The status line's levels back to the defaults. */
+async function resetLevels ($: EngineInterface) {
+  await saveLevels($, DEFAULT_LEVELS)
+}
+
 /** Runs install.ps1, each line it prints shown as it comes; then checks again. */
 async function runSetup ($: EngineInterface) {
   if (await read($, isInstalling)) return
@@ -835,12 +866,41 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
         <Text dimColor>{'  instala lo que falta y deja como está lo que ya funciona'}</Text>
       </Box>
       {log.map((line, index) => <Text key={`setup-log:${index}`} dimColor>{`   ${line}`}</Text>)}
-      <Box flexDirection="row" marginTop={1}>
+    </Box>
+  )
+  // The status line's tab: its switch, and the levels where its colors change.
+  const levels = await read($, barLevels)
+  const level = (label: string, key: LevelKey, note: string) => (
+    <Box key={`level-row:${key}`} flexDirection="row">
+      <Box width={38}><Text bold>{label}</Text></Box>
+      <Button key={`lvl-down:${key}`} plain onPress={() => { void adjustLevel($, key, -5) }}>
+        <Text bold color="black" backgroundColor="#adb5bd">{' ‹ '}</Text>
+      </Button>
+      <Text bold color={LEVEL_COLORS[key]}>{` ${levels[key]}% `}</Text>
+      <Button key={`lvl-up:${key}`} plain onPress={() => { void adjustLevel($, key, 5) }}>
+        <Text bold color="black" backgroundColor="#adb5bd">{' › '}</Text>
+      </Button>
+      <Text dimColor>{`  ${note}`}</Text>
+    </Box>
+  )
+  const barTab = (
+    <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="row" marginBottom={1}>
         <Box width={49}><Text>{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
-        <Button key="setup:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
+        <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
           <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
         </Button>
         <Text dimColor>{bar === 'on' ? '  en uso' : '  la tuya queda guardada'}</Text>
+      </Box>
+      <Text dimColor>{'Verde por debajo del amarillo. ‹ › mueven de 5 en 5.'}</Text>
+      {level('Contexto usado · amarillo desde', 'contextYellow', 'empieza a pesar')}
+      {level('Contexto usado · rojo desde', 'contextRed', '⚠ compactar, y el aviso')}
+      {level('Límite usado · amarillo desde', 'limitYellow', 'empieza a pesar')}
+      {level('Límite usado · rojo desde', 'limitRed', '⚠ y el aviso')}
+      <Box flexDirection="row" marginTop={1}>
+        <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
+          <Text bold color="black" backgroundColor="#adb5bd">{' Restaurar los valores por defecto '}</Text>
+        </Button>
       </Box>
     </Box>
   )
@@ -877,6 +937,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
         {open === 'socials' ? <Text dimColor>click en un usuario para editarlo · Enter guarda · + suma otra cuenta</Text> : null}
       </Box>
       {open === 'setup' ? setupTab : null}
+      {open === 'bar' ? barTab : null}
       {open === 'socials'
         ? (
           <Box flexDirection="column">
@@ -1144,18 +1205,19 @@ export const register: Register = on => {
   let warnedContext = false
   const warnedLimits = new Set<string>()
   on('session.measure', async ($, e, next) => {
+    const levels = await read($, barLevels)
     const used = e.context.percent ?? 0
-    if (used >= CONTEXT_WARN_PERCENT && !warnedContext) {
+    if (used >= levels.contextRed && !warnedContext) {
       warnedContext = true
       $.ui.toast(`speedy-code: el contexto va al ${used}%. Claude Code compacta cerca de ahí: /compact ahora, o empezá una sesión nueva.`)
-    } else if (used < CONTEXT_WARN_PERCENT) {
+    } else if (used < levels.contextRed) {
       warnedContext = false
     }
     for (const limit of e.rateLimits) {
-      if (limit.percentUsed >= LIMIT_WARN_PERCENT && !warnedLimits.has(limit.kind)) {
+      if (limit.percentUsed >= levels.limitRed && !warnedLimits.has(limit.kind)) {
         warnedLimits.add(limit.kind)
         $.ui.toast(`speedy-code: el límite ${limit.kind} va al ${Math.round(limit.percentUsed)}%${limit.resetsAt ? ` y se reinicia ${limit.resetsAt}` : ''}.`)
-      } else if (limit.percentUsed < LIMIT_WARN_PERCENT) {
+      } else if (limit.percentUsed < levels.limitRed) {
         warnedLimits.delete(limit.kind)
       }
     }
@@ -1190,6 +1252,10 @@ export const register: Register = on => {
     }
     const savedSocials = await $.store.get('socials')
     if (savedSocials && typeof savedSocials === 'object') await update($, socials, () => savedSocials as Socials)
+    // The levels: the saved ones, else the defaults; the file the status line reads follows them.
+    const savedLevels = await $.store.get('barLevels')
+    if (savedLevels && typeof savedLevels === 'object') await update($, barLevels, () => savedLevels as BarLevels)
+    await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(await read($, barLevels), null, 2)}\n`)
     // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
     // of the mod reaches it without switching it off and on.
     void switchStatusLine($, 'status').then(async () => {

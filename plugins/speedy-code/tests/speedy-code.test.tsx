@@ -111,7 +111,12 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
   // What is installed beside the code: all of it, unless the test says nothing is.
   on('fs.exists', () => ({ value: installed }))
   const written: Array<{ path: string; text: string }> = []
-  on('fs.write', (_, e) => { written.push({ path: e.path.split('\\').join('/'), text: e.text }); return { value: undefined } })
+  const files: string[] = []
+  on('fs.write', (_, e) => {
+    if (e.path.endsWith('levels.json')) files.push(e.text)
+    else written.push({ path: e.path.split('\\').join('/'), text: e.text })
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   // edge-tts lists the voices of VOICES; PowerShell answers the clipboard.
   on('process.run', (_, e) => {
@@ -193,7 +198,7 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
     }
     return { value: { code: 0, signal: null } }
   })
-  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened, switched }
+  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened, switched, files }
 }
 
 const answer = ($: Engine, text: string) =>
@@ -947,11 +952,11 @@ test('the setup tab switches the colored status line on, keeping the one before'
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   await w.clock.advance(200)
   const band = await $.ui.mount(BAND)
-  await band.press({ key: 'settings:setup' })
+  await band.press({ key: 'settings:bar' })
   await band.unmount()
   const setup = await $.ui.mount(BAND)
   expect((await setup.find({ type: 'Text', text: /Usar la de speedy-code/ }))?.text).toBe(' Usar la de speedy-code ')
-  await setup.press({ key: 'setup:statusline' })
+  await setup.press({ key: 'bar:statusline' })
   await setup.unmount()
   expect(w.switched).toContain('on')
   const after = await $.ui.mount(BAND)
@@ -973,4 +978,28 @@ test('the footer shows the model in use, and follows it when /model changes it i
   const redrawn = await $.ui.mount(FOOTER)
   expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Haiku 5.5')
   await redrawn.unmount()
+})
+
+test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:bar' })
+  await band.unmount()
+  const bar = await $.ui.mount(BAND)
+  await bar.press({ key: 'lvl-up:contextRed' })
+  expect(w.kept.barLevels).toEqual({ contextYellow: 60, contextRed: 85, limitYellow: 75, limitRed: 90 })
+  expect(w.files.some(text => text.includes('"contextRed": 85'))).toBe(true)
+  // Yellow never reaches its red: with red at 85, yellow stops at 80, and at 5 at the bottom.
+  for (let i = 0; i < 3; i++) await bar.press({ key: 'lvl-up:contextYellow' })
+  expect((w.kept.barLevels as { contextYellow: number }).contextYellow).toBe(75)
+  for (let i = 0; i < 5; i++) await bar.press({ key: 'lvl-up:contextYellow' })
+  expect((w.kept.barLevels as { contextYellow: number }).contextYellow).toBe(80)
+  for (let i = 0; i < 20; i++) await bar.press({ key: 'lvl-down:contextYellow' })
+  expect((w.kept.barLevels as { contextYellow: number }).contextYellow).toBe(5)
+  await bar.press({ key: 'bar:reset' })
+  expect(w.kept.barLevels).toEqual({ contextYellow: 60, contextRed: 80, limitYellow: 75, limitRed: 90 })
+  await bar.unmount()
+  await ui.unmount()
 })

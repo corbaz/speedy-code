@@ -28,6 +28,15 @@ $C_IN = '38;5;79'; $C_OUT = '38;5;211'; $C_CACHE = '38;5;147'; $C_COST = '1;38;5
 $C_FIVE = '38;5;111'; $C_WEEK = '38;5;183'; $C_LABEL = '38;5;245'; $C_DIM = '38;5;240'
 # Levels.
 $C_GREEN = '38;5;114'; $C_YELLOW = '38;5;221'; $C_RED = '1;38;5;203'
+# The levels set in ⚙️ → Barra de estado (written by the mod to this file); the defaults without it.
+$levels = @{ contextYellow = 60; contextRed = 80; limitYellow = 75; limitRed = 90 }
+$levelsFile = Join-Path $HOME '.claude\speedy-code\levels.json'
+if (Test-Path -LiteralPath $levelsFile) {
+  try {
+    $saved = Get-Content -Raw -LiteralPath $levelsFile | ConvertFrom-Json
+    foreach ($key in @($levels.Keys)) { if ($null -ne $saved.$key) { $levels[$key] = [int]$saved.$key } }
+  } catch { }
+}
 $bar = Paint ' │ ' $C_DIM
 
 $days = @('Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb')
@@ -61,8 +70,8 @@ function Format-Duration($ms) {
 }
 
 # Green while there is room, yellow as it runs low, red when it is nearly gone.
-function Left-Color($percent) { if ($percent -gt 40) { $C_GREEN } elseif ($percent -gt 20) { $C_YELLOW } else { $C_RED } }
-function Used-Color($percent) { if ($percent -lt 75) { $C_GREEN } elseif ($percent -lt 90) { $C_YELLOW } else { $C_RED } }
+function Context-Color($used) { if ($used -ge $levels.contextRed) { $C_RED } elseif ($used -ge $levels.contextYellow) { $C_YELLOW } else { $C_GREEN } }
+function Limit-Color($used) { if ($used -ge $levels.limitRed) { $C_RED } elseif ($used -ge $levels.limitYellow) { $C_YELLOW } else { $C_GREEN } }
 
 # A bar of eight cells, as full as the percentage: the full ones in its color, the rest dim.
 function Meter($percent, $color) {
@@ -84,24 +93,28 @@ $left = Paint $cwd $C_FOLDER
 if ($data.git.branch) { $left = "$left $(Paint "⎇ $($data.git.branch)" $C_BRANCH)" }
 
 $usage = $data.context_window.current_usage
-$tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'out' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'cache' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
+$tokens = (Part 'entrada' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'salida' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'caché' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
 
-$contextLeft = $data.context_window.remaining_percentage
-if (-not $contextLeft) { $contextLeft = 100 }
-$leftColor = Left-Color $contextLeft
-$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextLeft $leftColor) + ' ' + (Paint "$([math]::Round($contextLeft))% libre" $leftColor) + $(if ($contextLeft -le 20) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
+$contextUsed = $data.context_window.used_percentage
+if ($null -eq $contextUsed) {
+  $remaining = $data.context_window.remaining_percentage
+  $contextUsed = if ($null -eq $remaining) { 0 } else { 100 - [double]$remaining }
+}
+$contextUsed = [math]::Round([double]$contextUsed)
+$ctxColor = Context-Color $contextUsed
+$context = (Paint 'contexto' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed% usado" $ctxColor) + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$right = (Paint "◆ $model" $C_MODEL) + $bar + (Paint "⏱ $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+$right = (Paint "◆ $model" $C_MODEL) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
 
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
   # 0% is a limit too: PowerShell reads 0 as false, so test for the value's presence.
   if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
-    $usedColor = Used-Color $used
-    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge 90) { ' ' + (Paint '⚠' $C_RED) } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
+    $usedColor = Limit-Color $used
+    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
   }
 }
 
