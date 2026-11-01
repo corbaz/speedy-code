@@ -106,7 +106,7 @@ if ($null -eq $contextUsed) {
 }
 $contextUsed = [math]::Round([double]$contextUsed)
 $ctxColor = Context-Color $contextUsed
-$context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠ compactar' $C_RED) } else { '' })
+$context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠  compactar' $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
@@ -118,7 +118,7 @@ foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $
   if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Limit-Color $used
-    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
+    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) + ' ' } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
   }
 }
 

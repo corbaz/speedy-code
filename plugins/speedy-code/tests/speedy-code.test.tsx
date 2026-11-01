@@ -697,7 +697,7 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:model' })
   const band = await $.ui.mount(BAND)
-  expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude ')
+  expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude (Opus 5.5) ')
   const names = (await band.findAll({ type: 'Text', text: /^ [●○] \S+ [\d.]+ +$/ })).map(text => text.text.trim())
   expect(names).toEqual(['○ Fable 5.1', '● Opus 5.5', '○ Sonnet 5.5', '○ Haiku 5.5'])
   // A click only picks: nothing runs until Aplicar.

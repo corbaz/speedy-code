@@ -1447,7 +1447,11 @@ export const register: Register = on => {
       if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
       const { Box, Client, Text } = $.ui.resolve(e)
       const chosen = await read($, picks)
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? 'Modelo de Claude' : 'Configuración'} `
+      // The model menu's title says what is in use now: the model, and the effort when it is known.
+      const inUse = shown === 'models'
+        ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
+        : ''
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : 'Configuración'} `
       const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
