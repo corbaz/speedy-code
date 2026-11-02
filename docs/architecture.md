@@ -123,7 +123,7 @@ times the settings opened, so each opening starts from what is saved.
 
 ## Status line
 
-`statusline/statusline.ps1` reads the JSON Claude Code sends on stdin: `model`, `effort.level`,
+`statusline/statusline.ps1` reads the JSON Claude Code sends on stdin: `model`, `effort.level`, `version`,
 `cost`, `context_window` (`used_percentage`, `context_window_size`, `current_usage`) and
 `rate_limits`. The tokens the context holds are `input + cache_creation + cache_read` of the last
 request. The yellow and red levels come from `~/.claude/speedy-code/levels.json`, which the

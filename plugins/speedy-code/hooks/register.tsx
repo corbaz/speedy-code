@@ -64,7 +64,8 @@ const TABLE_GAP = 3
 const SETUP_LOG_LINES = 6
 const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
-const SETTINGS_TABS: ReadonlyArray<readonly [string, string]> = [['setup', 'Instalación'], ['bar', 'Barra de estado'], ['socials', 'Redes sociales']]
+/** The settings tabs, each in a color of its own: the one open is filled with it. */
+const SETTINGS_TABS: ReadonlyArray<readonly [string, string, string]> = [['setup', 'Instalación', '#51cf66'], ['bar', 'Barra de estado', '#4dabf7'], ['socials', 'Redes sociales', '#f783ac']]
 
 /** The setup steps, by the name install.ps1 prints, and what each is for. */
 const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
@@ -890,7 +891,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         return (
           <Box key={`setup-row:${name}`} flexDirection="row">
             <Text bold color={tint}>{` ${glyph} `}</Text>
-            <Box width={46}><Text>{label}</Text></Box>
+            <Box width={46}><Text color={check.state === 'fail' ? tint : undefined}>{label}</Text></Box>
             <Text color={tint} dimColor={check.state === ''}>{check.detail}</Text>
           </Box>
         )
@@ -908,34 +909,34 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const levels = await read($, barLevels)
   const level = (label: string, key: LevelKey, note: string) => (
     <Box key={`level-row:${key}`} flexDirection="row">
-      <Box width={38}><Text bold>{label}</Text></Box>
+      <Box width={38}><Text bold color={LEVEL_COLORS[key]}>{label}</Text></Box>
       <Button key={`lvl-down:${key}`} plain onPress={() => { void adjustLevel($, key, -5) }}>
-        <Text bold color="black" backgroundColor="#adb5bd">{' ‹ '}</Text>
+        <Text bold color="black" backgroundColor={LEVEL_COLORS[key]}>{' − '}</Text>
       </Button>
-      <Text bold color={LEVEL_COLORS[key]}>{` ${levels[key]}% `}</Text>
+      <Box width={6} justifyContent="center"><Text bold color={LEVEL_COLORS[key]}>{`${levels[key]}%`}</Text></Box>
       <Button key={`lvl-up:${key}`} plain onPress={() => { void adjustLevel($, key, 5) }}>
-        <Text bold color="black" backgroundColor="#adb5bd">{' › '}</Text>
+        <Text bold color="black" backgroundColor={LEVEL_COLORS[key]}>{' + '}</Text>
       </Button>
-      <Text dimColor>{`  ${note}`}</Text>
+      <Text color={LEVEL_COLORS[key]}>{`  ${note}`}</Text>
     </Box>
   )
   const barTab = (
     <Box flexDirection="column" marginTop={1}>
       <Box flexDirection="row" marginBottom={1}>
-        <Box width={49}><Text>{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
+        <Box width={49}><Text bold color="#4dabf7">{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
         <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
           <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
         </Button>
         <Text dimColor>{bar === 'on' ? '  en uso' : '  la tuya queda guardada'}</Text>
       </Box>
-      <Text dimColor>{'Verde por debajo del amarillo. ‹ › mueven de 5 en 5.'}</Text>
+      <Text><Text color="#51cf66">{'Verde por debajo del amarillo.'}</Text><Text dimColor>{' − y + mueven de 5 en 5.'}</Text></Text>
       {level('Contexto usado · amarillo desde', 'contextYellow', 'empieza a pesar')}
-      {level('Contexto usado · rojo desde', 'contextRed', '⚠ compactar, y el aviso')}
+      {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
       {level('Límite usado · amarillo desde', 'limitYellow', 'empieza a pesar')}
-      {level('Límite usado · rojo desde', 'limitRed', '⚠ y el aviso')}
+      {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
       <Box flexDirection="row" marginTop={1}>
         <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
-          <Text bold color="black" backgroundColor="#adb5bd">{' Restaurar los valores por defecto '}</Text>
+          <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
         </Button>
       </Box>
     </Box>
@@ -985,10 +986,10 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
-        {SETTINGS_TABS.map(([id, label]) => (
+        {SETTINGS_TABS.map(([id, label, tint]) => (
           <Box key={`settings-cell:${id}`} marginRight={2}>
             <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
-              <Text bold color={id === open ? 'black' : '#adb5bd'} backgroundColor={id === open ? '#adb5bd' : undefined}>{` ${label} `}</Text>
+              <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${label} `}</Text>
             </Button>
           </Box>
         ))}

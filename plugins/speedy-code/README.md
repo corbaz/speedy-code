@@ -55,10 +55,11 @@ their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model 
 ## Status line
 
 ```
-C:/cli » ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40
+C:/cli » ◆ Opus 5.5 · medium · CC v2.1.316 │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40
 ```
 
-- **◆ model · effort:** the effort the turn runs at, in the footer's traffic-light colors.
+- **◆ model · effort · CC:** the effort the turn runs at, in the footer's traffic-light colors, and
+  the version of Claude Code running the session.
 - **⏱:** how long the session has run, in days, hours and minutes.
 - **in / out / caché:** the tokens of the last request: new input, the answer, and input read from
   the prompt cache (cheap and fast).
@@ -85,7 +86,7 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 - **Instalación:** checks what is in place and installs or repairs it with one button.
 - **Barra de estado:** switches speedy-code's status line on ("Usar la de speedy-code"); the one
   you had is kept and comes back with "Volver a mi barra anterior". It also sets the levels where
-  the context and the limits turn yellow and red, in steps of 5; "Restaurar los valores por defecto" brings the defaults
+  the context and the limits turn yellow and red, with − and + in steps of 5; "Restaurar los valores por defecto" brings the defaults
   back.
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,
   Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network and −

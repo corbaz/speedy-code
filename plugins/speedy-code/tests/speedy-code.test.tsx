@@ -810,7 +810,7 @@ test('the gear opens the settings, where a user name typed is kept', { timeoutMs
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Configuración/ }))?.text).toBe(' Configuración ')
-  expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' Redes sociales ')
+  expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' ▸ Redes sociales ')
   // A click on the user name makes it a field, keyed by the opening: this is the first.
   await band.press({ key: 'edit:github' })
   await band.unmount()
@@ -1104,6 +1104,9 @@ test('the status line levels: the steppers move them by 5, keep yellow under red
   await band.press({ key: 'settings:bar' })
   await band.unmount()
   const bar = await $.ui.mount(BAND)
+  // The steppers read − and +.
+  expect((await bar.findAll({ type: 'Text', text: ' − ' })).length).toBeGreaterThanOrEqual(4)
+  expect((await bar.findAll({ type: 'Text', text: /^ [‹›] $/ })).length).toBe(0)
   await bar.press({ key: 'lvl-up:contextRed' })
   expect(w.kept.barLevels).toEqual({ contextYellow: 60, contextRed: 85, limitYellow: 75, limitRed: 90 })
   expect(w.files.some(text => text.includes('"contextRed": 85'))).toBe(true)
