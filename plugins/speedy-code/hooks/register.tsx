@@ -769,7 +769,15 @@ async function followModel ($: EngineInterface) {
  * A footer group's rank when the width is short: 0 is always drawn; then 1 first, 2 next, and so on.
  * The tools, the model, the voice and ✕ always stay; the networks go first.
  */
-const FOOTER_RANKS: Record<string, number> = { tools: 0, model: 0, voice: 0, exit: 0, settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5 }
+const FOOTER_RANKS: Record<string, number> = {
+  copy: 0, paste: 0, image: 0, polish: 0, send: 0, clear: 0, model: 0, voice: 0, exit: 0,
+  settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5
+}
+/**
+ * The groups always drawn that give way, in this order, when even their short forms do not fit: they
+ * go to the ⋯ panel, so ⋯ and ✕ are always on screen. Paste, send and the model never go.
+ */
+const FOOTER_SHED = ['voice', 'clear', 'image', 'copy', 'polish']
 /** The ⋯ button's width, drawn when something does not fit. */
 const MORE_WIDTH = 4
 /** The groups the footer last left out for want of room: the ⋯ panel draws them. */
@@ -805,6 +813,14 @@ export function footerFit (groups: ReadonlyArray<{ name: string, width: number, 
     if (used > room && group?.compactWidth !== undefined) {
       used -= group.width - group.compactWidth
       compact.add(name)
+    }
+  }
+  for (const name of FOOTER_SHED) {
+    const group = always.find(one => one.name === name)
+    if (used > room && group) {
+      used -= compact.has(name) && group.compactWidth !== undefined ? group.compactWidth : group.width
+      shown.delete(name)
+      compact.delete(name)
     }
   }
   for (const group of groups.filter(one => !shown.has(one.name)).sort((x, y) => rank(x.name) - rank(y.name))) {
@@ -856,12 +872,14 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   const modelShort = ` ◆ ${model.split(' ')[0] ?? model} ▾ `
   const voiceText = ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾ `
   const voiceShort = ` 🗣  ${active.toUpperCase()} ▾ `
-  const tools = [
-    ['speedy:copy', ' 📋 ', '#adb5bd'], ['speedy:paste', ' 📥 ', '#adb5bd'], ['speedy:image', ' 🖼️ ', '#adb5bd'],
-    // An emoji takes no color: the glyph tells it is at work.
-    ['speedy:polish', polishing ? ' ⏳ ' : ' 🖋️ ', '#da77f2'], ['speedy:send', ' ⏎ ', '#51cf66'], ['speedy:clear', ' 🗑️ ', '#adb5bd']
-  ] as const
   const named = [
+    { group: 'copy', key: 'speedy:copy', footer: ' 📋 ', panel: ' 📋 copiar ', color: '#adb5bd' },
+    { group: 'paste', key: 'speedy:paste', footer: ' 📥 ', panel: ' 📥 pegar ', color: '#adb5bd' },
+    { group: 'image', key: 'speedy:image', footer: ' 🖼️ ', panel: ' 🖼️ imagen ', color: '#adb5bd' },
+    // An emoji takes no color: the glyph tells it is at work.
+    { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
+    { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
+    { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
     { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 leer selección ', color: enabled ? '#ffd43b' : DISABLED },
@@ -876,7 +894,8 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       name,
       width: members.reduce((sum, one) => sum + cells(one.footer), 0),
       node: <Box key={`group:${name}`} flexDirection="row" flexShrink={0}>{members.map(one => control(one.key, one.footer, one.color))}</Box>,
-      panel: members.map(one => <Box key={`panel:${one.key}`} marginRight={2} flexShrink={0}>{control(one.key, one.panel, one.color)}</Box>)
+      labels: members.map(one => cells(one.panel)),
+      panel: members.map(one => control(one.key, one.panel, one.color))
     }
   }
   return [
@@ -889,19 +908,10 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
           <Text dimColor>│ </Text>
         </Box>
       ),
-      panel: linked.map(({ key, label, color }) => <Box key={`panel:${key}`} marginRight={1} flexShrink={0}>{control(`speedy:social:${key}`, ` ${label} `, color, true)}</Box>)
+      panel: linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true)),
+      labels: linked.map(({ label }) => label.length + 2)
     },
-    {
-      name: 'tools',
-      width: tools.reduce((sum, [, label]) => sum + cells(label), 1),
-      node: (
-        <Box key="group:tools" flexDirection="row" flexShrink={0}>
-          {tools.map(([key, label, color]) => control(key, label, color, key === 'speedy:send'))}
-          <Text> </Text>
-        </Box>
-      ),
-      panel: []
-    },
+    ...['copy', 'paste', 'image', 'polish', 'send', 'clear'].map(namedGroup),
     {
       name: 'model',
       width: cells(modelText) + (level ? cells(effortText) : 0),
@@ -914,7 +924,8 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
         </Box>
       ),
       compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{control('speedy:model', modelShort, modelColor, true)}</Box>,
-      panel: []
+      panel: [],
+      labels: []
     },
     {
       name: 'voice',
@@ -922,13 +933,14 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       compactWidth: cells(voiceShort),
       node: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceText, languageColor(active))}</Box>,
       compactNode: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceShort, languageColor(active))}</Box>,
-      panel: []
+      panel: [control('speedy:voice', ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `, languageColor(active))],
+      labels: [cells(` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `)]
     },
     namedGroup('narrator'),
     namedGroup('mic'),
     namedGroup('reload'),
     namedGroup('settings'),
-    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [] }
+    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
   ]
 }
 
@@ -984,56 +996,48 @@ async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
       {value}
     </Box>
   )
-  const session = (
-    <Box flexDirection="column" width={36} flexShrink={0}>
-      {heading('SESIÓN')}
-      {usage
-        ? [
-            row('ctx', 'contexto', <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${meter(percent)} ${percent}%  ${shortTokens(usage.context.tokens ?? 0)} / ${shortTokens(usage.context.window)}`}</Text>),
-            row('time', 'tiempo', <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>),
-            row('cost', 'costo', <Text bold color="#ffd43b">{usage.cost ? `$${usage.cost.usd.toFixed(2)}` : '—'}</Text>)
-          ]
-        : <Text dimColor>  sin datos todavía</Text>}
+  const figures = usage
+    ? [
+        row('ctx', 'contexto', <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${meter(percent)} ${String(percent).padStart(3)}%   ${shortTokens(usage.context.tokens ?? 0)} / ${shortTokens(usage.context.window)}`}</Text>),
+        row('time', 'tiempo', <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>),
+        row('cost', 'costo', <Text bold color="#ffd43b">{usage.cost ? `$${usage.cost.usd.toFixed(2)}` : '—'}</Text>)
+      ]
+    : []
+  const limitRows = (usage?.rateLimits ?? []).map(limit => row(`limit:${limit.kind}`, limitNames[limit.kind] ?? limit.kind, (
+    <Text>
+      <Text bold color={tone(limit.percentUsed, levels.limitYellow, levels.limitRed)}>{`${meter(limit.percentUsed)} ${String(Math.round(limit.percentUsed)).padStart(3)}%`}</Text>
+      <Text dimColor>{limit.resetsAt ? `   ↻ ${resetWhen(limit.resetsAt)}` : ''}</Text>
+    </Text>
+  )))
+  // Wide: the session and the limits side by side, each under its heading. Narrow: one section, so
+  // the panel stays short enough to be seen whole.
+  const isWide = width >= 84
+  const top = isWide
+    ? (
+      <Box flexDirection="row" columnGap={4}>
+        <Box flexDirection="column" width={38} flexShrink={0}>{heading('SESIÓN')}{figures}</Box>
+        <Box flexDirection="column" flexShrink={0}>{heading('LÍMITES')}{limitRows}</Box>
+      </Box>
+      )
+    : <Box flexDirection="column">{heading('SESIÓN')}{figures}{limitRows}</Box>
+  // The networks and the controls in a grid: every cell as wide as the widest, so the rows line up.
+  const grid = (key: string, title: string, items: ReadonlyArray<ReturnType<typeof Text>>, cell: number) => (
+    <Box key={key} flexDirection="column" marginTop={1}>
+      {heading(title)}
+      <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>
+        {items.map((item, index) => <Box key={`${key}:${index}`} width={cell} flexShrink={0}>{item}</Box>)}
+      </Box>
     </Box>
   )
-  const limits = (
-    <Box flexDirection="column" width={36} flexShrink={0}>
-      {heading('LÍMITES')}
-      {usage && usage.rateLimits.length > 0
-        ? usage.rateLimits.map(limit => row(`limit:${limit.kind}`, limitNames[limit.kind] ?? limit.kind, (
-          <Text>
-            <Text bold color={tone(limit.percentUsed, levels.limitYellow, levels.limitRed)}>{`${meter(limit.percentUsed)} ${String(Math.round(limit.percentUsed)).padStart(3)}%`}</Text>
-            <Text dimColor>{limit.resetsAt ? `   ↻ ${resetWhen(limit.resetsAt)}` : ''}</Text>
-          </Text>
-        )))
-        : <Text dimColor>  sin datos todavía</Text>}
-    </Box>
-  )
-  const networks = hidden.find(group => group.name === 'socials')
+  const networks = hidden.find(group => group.name === 'socials')?.panel ?? []
   const controls = hidden.filter(group => group.name !== 'socials').flatMap(group => group.panel)
+  const controlCell = Math.max(0, ...hidden.filter(group => group.name !== 'socials').flatMap(group => group.labels)) + 2
+  const networkCell = Math.max(0, ...(hidden.find(group => group.name === 'socials')?.labels ?? [])) + 1
   return (
     <Box flexDirection="column">
-      <Box flexDirection={width >= 80 ? 'row' : 'column'} columnGap={4} rowGap={1}>
-        {session}
-        {limits}
-      </Box>
-      {networks
-        ? (
-          <Box flexDirection="column" marginTop={1}>
-            {heading('REDES')}
-            <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>{networks.panel}</Box>
-          </Box>
-          )
-        : null}
-      {controls.length > 0
-        ? (
-          <Box flexDirection="column" marginTop={1}>
-            {heading('CONTROLES')}
-            <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>{controls}</Box>
-          </Box>
-          )
-        : null}
-      {hidden.length === 0 ? <Box marginTop={1}><Text dimColor>Todo entra en el pie.</Text></Box> : null}
+      {top}
+      {networks.length > 0 ? grid('networks', 'REDES', networks, networkCell) : null}
+      {controls.length > 0 ? grid('controls', 'CONTROLES', controls, controlCell) : null}
     </Box>
   )
 }
@@ -1201,7 +1205,6 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         <Button key="setup:run" plain onPress={() => { void runSetup($) }}>
           <Text bold color="black" backgroundColor={installing ? '#ffd43b' : '#51cf66'}>{installing ? ' Instalando… ' : ' Instalar / reparar todo '}</Text>
         </Button>
-        <Text dimColor>{'  instala lo que falta y deja como está lo que ya funciona'}</Text>
       </Box>
       {log.map((line, index) => <Text key={`setup-log:${index}`} dimColor>{`   ${line}`}</Text>)}
     </Box>
@@ -1228,12 +1231,10 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
           <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
         </Button>
-        <Text dimColor>{bar === 'on' ? '  en uso' : '  la tuya queda guardada'}</Text>
       </Box>
-      <Text><Text color="#51cf66">{'Verde por debajo del amarillo.'}</Text><Text dimColor>{' − y + mueven de 5 en 5.'}</Text></Text>
-      {level('Contexto usado · amarillo desde', 'contextYellow', 'empieza a pesar')}
+      {level('Contexto usado · amarillo desde', 'contextYellow', '')}
       {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
-      {level('Límite usado · amarillo desde', 'limitYellow', 'empieza a pesar')}
+      {level('Límite usado · amarillo desde', 'limitYellow', '')}
       {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
       <Box flexDirection="row" marginTop={1}>
         <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
@@ -1286,15 +1287,14 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
 
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row">
+      <Box flexDirection="row" flexWrap="wrap">
         {SETTINGS_TABS.map(([id, label, tint]) => (
-          <Box key={`settings-cell:${id}`} marginRight={2}>
+          <Box key={`settings-cell:${id}`} marginRight={2} flexShrink={0}>
             <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
               <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${label} `}</Text>
             </Button>
           </Box>
         ))}
-        {open === 'socials' ? <Text dimColor>click en un usuario para editarlo · Enter guarda · + suma otra cuenta · − la borra</Text> : null}
         {open === 'socials' ? pager : null}
       </Box>
       {open === 'setup' ? setupTab : null}
@@ -1422,7 +1422,6 @@ async function modelMenu ($: EngineInterface, e: Drawn) {
           )
         })}
       </Box>
-      <Text dimColor>{level ? '' : '  sin elegir: el esfuerzo queda como está'}</Text>
       <Box flexDirection="row" justifyContent="center">
         <Button key="models:apply" plain onPress={() => { void applyModel($) }}>
           <Text bold color="black" backgroundColor={MODEL_COLOR}>{'  Aplicar  '}</Text>
@@ -1814,7 +1813,6 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Text>
           <Text bold color={MIC_COLORS[now === 'off' ? 'loading' : now]}>{state}</Text>
-          {list.length === 0 && now === 'on' ? <Text dimColor>  hablá, lo que diga aparece acá</Text> : null}
         </Text>
         {list.map(one => <Text key={`heard:${one.number}`} italic dimColor>{`  ${one.text}`}</Text>)}
       </Box>

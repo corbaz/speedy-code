@@ -1112,20 +1112,24 @@ test('cells counts an emoji as two and a variation selector as none', () => {
   expect(cells(' ⚙️ ')).toBe(4)
 })
 
-test('footerFit keeps every group when they fit; short of room, the model and then the voice go short, and the rest by rank', () => {
+test('footerFit: all when they fit; short of room the model and the voice go short, then the voice and some tools give way, and the rest go by rank', () => {
   const groups = [
-    { name: 'socials', width: 30 }, { name: 'tools', width: 24 }, { name: 'model', width: 24, compactWidth: 10 }, { name: 'voice', width: 18, compactWidth: 9 },
+    { name: 'socials', width: 30 }, { name: 'copy', width: 4 }, { name: 'paste', width: 4 }, { name: 'image', width: 4 }, { name: 'polish', width: 4 },
+    { name: 'send', width: 3 }, { name: 'clear', width: 4 }, { name: 'model', width: 24, compactWidth: 10 }, { name: 'voice', width: 18, compactWidth: 9 },
     { name: 'narrator', width: 11 }, { name: 'mic', width: 6 }, { name: 'reload', width: 4 }, { name: 'settings', width: 4 }, { name: 'exit', width: 3 }
   ]
+  const always = ['clear', 'copy', 'exit', 'image', 'model', 'paste', 'polish', 'send', 'voice']
   const at = (room: number) => { const fit = footerFit(groups, room); return { shown: [...fit.shown].sort(), compact: [...fit.compact].sort() } }
-  expect(at(200).shown.length).toBe(9)
-  expect(at(200).compact).toEqual([])
-  // Whole, the essentials and the ⋯ take 73: settings (4) fits in 80, reload (4) does not, and the mic waits behind it.
-  expect(at(80)).toEqual({ shown: ['exit', 'model', 'settings', 'tools', 'voice'], compact: [] })
-  // In 65 the model goes short (59), and settings still fits.
-  expect(at(65)).toEqual({ shown: ['exit', 'model', 'settings', 'tools', 'voice'], compact: ['model'] })
-  // In 50 the voice goes short too (50), and nothing else fits.
-  expect(at(50)).toEqual({ shown: ['exit', 'model', 'tools', 'voice'], compact: ['model', 'voice'] })
+  expect(at(200).shown.length).toBe(14)
+  // Whole, the always-drawn groups and the ⋯ take 72: settings (4) fits in 78, reload (4) does not.
+  expect(at(78)).toEqual({ shown: [...always, 'settings'].sort(), compact: [] })
+  // In 64 the model goes short (58), and settings still fits.
+  expect(at(64)).toEqual({ shown: [...always, 'settings'].sort(), compact: ['model'] })
+  // In 50 the voice goes short too (49).
+  expect(at(50)).toEqual({ shown: always, compact: ['model', 'voice'] })
+  // In 44 the voice gives way (40); in 36 the bin too (36): ⋯ and ✕ always stay.
+  expect(at(44)).toEqual({ shown: always.filter(name => name !== 'voice'), compact: ['model'] })
+  expect(at(36)).toEqual({ shown: always.filter(name => name !== 'voice' && name !== 'clear'), compact: ['model'] })
 })
 
 test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ opens the rest with the figures', { timeoutMs: 30000 }, async ($, on) => {
@@ -1144,19 +1148,37 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   expect((await band.find({ type: 'Text', text: / Más / }))?.text).toBe(' Más ')
   // The hidden controls, the same Clients; and the figures, whole.
   for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
-  expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱ 17%  172.4k / 1M')
+  expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱  17%   172.4k / 1M')
   expect((await band.find({ type: 'Text', text: /^1h 0m$/ }))?.text).toBe('1h 0m')
   expect((await band.find({ type: 'Text', text: /^\$85\.88$/ }))?.text).toBe('$85.88')
   expect((await band.find({ type: 'Text', text: /86%/ }))?.text).toBe('▰▰▰▱  86%')
   // The hidden controls carry their names in the panel.
   expect((await band.find({ type: 'Text', in: 'speedy:reload' }))?.text).toBe(' 🔄 recargar ')
   await band.unmount()
-  // ⋯ again closes it.
   await narrow.post({ isClicked: true }, { in: 'speedy:more' })
+  await narrow.unmount()
+  // Very narrow: the voice and the bin give way to the panel; ⋯ and ✕ stay.
+  const tiny = await $.ui.mount({ ...FOOTER, viewport: { columns: 44, rows: 30 } })
+  for (const key of ['speedy:paste', 'speedy:send', 'speedy:model', 'speedy:more', 'speedy:exit']) expect(await has(tiny, key)).toBe(true)
+  for (const key of ['speedy:voice', 'speedy:clear']) expect(await has(tiny, key)).toBe(false)
+  await tiny.post({ isClicked: true }, { in: 'speedy:more' })
+  const panel = await $.ui.mount(BAND)
+  expect((await panel.find({ type: 'Text', in: 'speedy:clear' }))?.text).toBe(' 🗑️ borrar ')
+  expect(await has(panel, 'speedy:voice')).toBe(true)
+  await panel.unmount()
+  await tiny.post({ isClicked: true }, { in: 'speedy:more' })
+  await tiny.unmount()
+  const again = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
+  await again.post({ isClicked: true }, { in: 'speedy:more' })
+  const reopened = await $.ui.mount(BAND)
+  expect(await reopened.find({ type: 'Text', text: / Más / })).toBeDefined()
+  await reopened.unmount()
+  // ⋯ again closes it.
+  await again.post({ isClicked: true }, { in: 'speedy:more' })
   const closed = await $.ui.mount(BAND)
   expect(await closed.find({ type: 'Text', text: / Más / })).toBeUndefined()
   await closed.unmount()
-  await narrow.unmount()
+  await again.unmount()
 })
 
 test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
