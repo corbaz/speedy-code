@@ -207,6 +207,23 @@ function nameOf (id: string) {
   return { name, tag: tags.join(' ') }
 }
 
+/**
+ * One voice per name, country and gender: `AndrewNeural` and `AndrewMultilingualNeural` sound the
+ * same, and listing both repeats the name. The one in use stays; else the multilingual one, which
+ * also reads text in another language. An expressive voice is a different style and stays apart.
+ */
+export function distinctVoices (list: readonly Voice[], current: string) {
+  const kept = new Map<string, Voice>()
+  for (const v of list) {
+    const key = `${v.name}|${v.country}|${v.gender}|${v.tag.includes('expresiva')}`
+    const was = kept.get(key)
+    const isBetter = !was || (was.value !== current &&
+      (v.value === current || (v.tag.includes('multi') && !was.tag.includes('multi'))))
+    if (isBetter) kept.set(key, v)
+  }
+  return [...kept.values()]
+}
+
 /** `es-AR-TomasNeural` → `Argentina`. */
 function countryOf (id: string) {
   const code = id.split('-')[1] ?? ''
@@ -1319,9 +1336,13 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Box flexDirection="row" marginBottom={1}>
         {SETTINGS_TABS.map(([id, label, tint, short]) => (
           <Box key={`settings-cell:${id}`} marginRight={narrow ? 1 : 2} flexShrink={0}>
-            <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
-              <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${narrow ? short : label} `}</Text>
-            </Button>
+            {id === open && 'Client' in elements
+              ? <elements.Client key={`speedy:chosen:settings:${id}`} module="./control.tsx" width={cells(` ▸ ${narrow ? short : label} `)} props={{ label: ` ▸ ${narrow ? short : label} `, color: 'black', bold: true, backgroundColor: tint }} />
+              : (
+                <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
+                  <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${narrow ? short : label} `}</Text>
+                </Button>
+                )}
           </Box>
         ))}
         {open === 'socials' ? pager : null}
@@ -1345,12 +1366,17 @@ async function micMenu ($: EngineInterface, e: Drawn) {
   // The microphone picked; none picked, or not connected now: the system's default (empty).
   const picked = await read($, mic)
   const chosenMic = connected.includes(picked) ? picked : ''
-  const { Box, Button, Text } = $.ui.resolve(e)
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
   return (
     <Box flexDirection="column">
       {connected.length === 0 ? <Text dimColor>Buscando micrófonos…</Text> : null}
       {(connected.length === 0 ? [] : ['', ...connected]).map(name => {
         const isChosen = name === chosenMic
+        const label = ` ${isChosen ? '●' : '○'} ${name ? micName(name) : 'Predeterminado de Windows'} `
+        if (isChosen && 'Client' in elements) {
+          return <elements.Client key={`speedy:chosen:mic:${name}`} module="./control.tsx" width={cells(label)} props={{ label, color: 'black', bold: true, backgroundColor: '#ff8787' }} />
+        }
         return (
           <Button key={`mic:${name}`} plain onPress={() => { void pickMic($, name) }}>
             <Text bold={isChosen} color={isChosen ? 'black' : '#ff8787'} backgroundColor={isChosen ? '#ff8787' : undefined}>
@@ -1418,7 +1444,9 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
   const current = modelOf(await $.session.model().catch(() => ''))?.[0] ?? ''
   const [picked, level, applied] = [await read($, modelPick), await read($, effortPick), await read($, effort)]
   const chosenModel = picked || current
-  const { Box, Button, Text } = $.ui.resolve(e)
+  // The one chosen is a Client: a Button inverts under the pointer, and its fill would go.
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
   const width = Math.max(...MODELS.map(([, name]) => name.length)) + 4
   // Narrow: the use goes on the line below its model, so neither is cut.
   const isNarrow = room - 4 < width + Math.max(...MODELS.map(([, , use]) => use.length)) + 2
@@ -1430,11 +1458,15 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
         return (
           // A Button holds text alone: the row is a Box, and the name and its use each pick the model.
           <Box key={`model-row:${id}`} flexDirection={isNarrow ? 'column' : 'row'}>
-            <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
-              <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
-                {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
-              </Text>
-            </Button>
+            {isChosen && 'Client' in elements
+              ? <elements.Client key={`speedy:chosen:model:${id}`} module="./control.tsx" width={width + 2} props={{ label: ` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `, color: 'black', bold: true, backgroundColor: color }} />
+              : (
+                <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
+                  <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
+                    {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
+                  </Text>
+                </Button>
+                )}
             {/* Narrow, the use goes below, indented on every line it wraps to. */}
             <Box paddingLeft={isNarrow ? 4 : 2} flexShrink={1}>
               <Button key={`model-use:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
@@ -1453,11 +1485,15 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
           return (
             // A cell between levels, so two filled ones (the one in force and the one picked) never touch.
             <Box key={`effort-cell:${name}`} marginRight={1} flexShrink={0}>
-              <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
-                <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
-                  {`${name === applied ? '●' : '○'} ${name} `}
-                </Text>
-              </Button>
+              {isChosen && 'Client' in elements
+                ? <elements.Client key={`speedy:chosen:effort:${name}`} module="./control.tsx" width={cells(`${name === applied ? '●' : '○'} ${name} `)} props={{ label: `${name === applied ? '●' : '○'} ${name} `, color: 'black', bold: true, backgroundColor: color }} />
+                : (
+                  <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
+                    <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
+                      {`${name === applied ? '●' : '○'} ${name} `}
+                    </Text>
+                  </Button>
+                  )}
             </Box>
           )
         })}
@@ -1483,7 +1519,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
   const active = chosen.active ?? DEFAULT_LANG
   const current = chosen[lang] ?? ''
   const all = await read($, voices)
-  const known = all.filter(v => v.lang === lang)
+  const known = distinctVoices(all.filter(v => v.lang === lang), current)
   const accent = languageColor(lang)
   const elements = $.ui.resolve(e)
   const { Box, Button, Text } = elements
@@ -1557,6 +1593,10 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
       <Box key={`column:${side}`} flexDirection="column" width={VOICE_WIDTH}>
         {part.map(v => {
           const isCurrent = v.value === current
+          if (isCurrent && 'Client' in elements) {
+            const label = ` ● ${fit(v.name, NAME_WIDTH)} ${fit(v.country, COUNTRY_WIDTH)}`
+            return <elements.Client key={`speedy:chosen:voice:${v.value}`} module="./control.tsx" width={cells(label)} props={{ label, color: 'white', bold: true, backgroundColor: '#2b8a3e' }} />
+          }
           return (
             <Button key={v.value} plain onPress={() => { void pick(v) }}>
               <Text backgroundColor={isCurrent ? '#2b8a3e' : undefined}>
@@ -1579,11 +1619,15 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
           const mark = active === code ? '▶' : ''
           return (
             <Box key={`cell:${code}`} width={TAB_WIDTH}>
-              <Button key={`tab:${code}`} plain onPress={() => { void update($, tab, () => code).then(() => update($, page, () => 0)) }}>
-                <Text bold color={isOpen ? 'black' : tint} backgroundColor={isOpen ? tint : undefined}>
-                  {fit(` ${label} ${mark}`, TAB_WIDTH - 1)}
-                </Text>
-              </Button>
+              {isOpen && 'Client' in elements
+                ? <elements.Client key={`speedy:chosen:lang:${code}`} module="./control.tsx" width={TAB_WIDTH - 1} props={{ label: fit(` ${label} ${mark}`, TAB_WIDTH - 1), color: 'black', bold: true, backgroundColor: tint }} />
+                : (
+                  <Button key={`tab:${code}`} plain onPress={() => { void update($, tab, () => code).then(() => update($, page, () => 0)) }}>
+                    <Text bold color={isOpen ? 'black' : tint} backgroundColor={isOpen ? tint : undefined}>
+                      {fit(` ${label} ${mark}`, TAB_WIDTH - 1)}
+                    </Text>
+                  </Button>
+                  )}
             </Box>
           )
         })}
@@ -1772,6 +1816,21 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:compact') {
       await closeMenu($, 'more')
       await $.command.run({ command: 'compact' }).catch(() => { $.ui.toast('speedy-code: no pude compactar; escribí /compact.') })
+    } else if (e.element.startsWith('speedy:chosen:')) {
+      // A chosen option, drawn as a Client so its fill stays under the pointer: what its Button did.
+      const [kind, ...rest] = e.element.slice('speedy:chosen:'.length).split(':')
+      const value = rest.join(':')
+      if (kind === 'effort') await update($, effortPick, now => now === value ? '' : value)
+      else if (kind === 'mic') await pickMic($, value)
+      else if (kind === 'lang') await update($, page, () => 0)
+      else if (kind === 'voice') {
+        const chosenVoice = (await read($, voices)).find(v => v.value === value)
+        if (chosenVoice) {
+          await savePicks($, { ...(await read($, picks)), [chosenVoice.lang]: chosenVoice.value, active: chosenVoice.lang })
+          $.ui.toast(`El narrador ahora habla en ${languageName(chosenVoice.lang)}, con ${chosenVoice.name} · ${chosenVoice.country}`)
+          await closeMenu($, 'voices')
+        }
+      }
     } else if (e.element.startsWith('speedy:gender:')) {
       const chosenGender = e.element.slice('speedy:gender:'.length) === 'Male' ? 'Male' : 'Female'
       await update($, gender, () => chosenGender)

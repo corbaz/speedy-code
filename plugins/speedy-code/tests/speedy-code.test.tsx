@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, cells, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, cells, distinctVoices, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -77,7 +77,8 @@ test('the pane draws the tabs and the voices of the open language', async ($, on
     tab: { value: 'es', version: 1 },
   })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Español/ }))?.text).toContain('▶')
+  // The open tab keeps its fill under the pointer: a Client, read by its key.
+  expect((await ui.find({ type: 'Text', in: 'speedy:chosen:lang:es' }))?.text).toContain('Español ▶')
   expect((await ui.find({ type: 'Text', in: 'speedy:gender:Female' }))?.text).toContain('2')
   // A multilingual voice carries the star alone: the cell stays narrow.
   // No ✦ for a multilingual voice: it said nothing worth the room.
@@ -499,8 +500,8 @@ test('the microphone menu lists the default and every microphone; the one picked
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
   await w.clock.advance(200)
   const menu = await $.ui.mount({ ...PANE, requestId: 'speedy-code-mic', surface: 'terminal' })
+  expect((await menu.find({ type: 'Text', in: 'speedy:chosen:mic:' }))?.text).toBe(' ● Predeterminado de Windows ')
   expect((await menu.findAll({ type: 'Text' })).map(text => text.text)).toEqual([
-    ' ● Predeterminado de Windows ',
     ' ○ JBL Tune 520BT ',
     ' ○ G432 Gaming Headset ',
   ])
@@ -595,7 +596,7 @@ test('where its pane has no room, the voice menu shows above the prompt, and its
   expect((await band.find({ type: 'Text', text: /Voz:/ }))?.text).toMatch(/^ Voz: Elena \(Español - (Argentina|AR)\) $/)
   expect((await band.find({ type: 'Text', in: 'speedy:gender:Female' }))?.text).toContain('2')
   // No hotkeys: a tab is its label alone, no "1: " drawn before it.
-  expect((await band.find({ type: 'Text', text: /Español/ }))?.text?.trim()).toBe('Español ▶')
+  expect((await band.find({ type: 'Text', in: 'speedy:chosen:lang:es' }))?.text?.trim()).toBe('Español ▶')
   // The close control has no background under the pointer: a Client, clicked as the terminal reports it.
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'speedy:menu-close' })
   await band.unmount()
@@ -674,13 +675,13 @@ test('the switch lists one gender at a time: women first, men once picked', { ti
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', in: 'speedy:gender:Female' }))?.text).toBe(' ♀ Mujeres  2 ')
   expect((await band.find({ type: 'Text', in: 'speedy:gender:Male' }))?.text).toBe(' ♂ Hombres  1 ')
-  expect(await band.find({ type: 'Text', text: /^Elena +$/ })).toBeDefined()
+  expect((await band.find({ type: 'Text', in: 'speedy:chosen:voice:es-AR-ElenaNeural' }))?.text).toContain('Elena')
   expect(await band.find({ type: 'Text', text: /^Gonzalo +$/ })).toBeUndefined()
   await band.post({ isClicked: true }, { in: 'speedy:gender:Male' })
   await band.unmount()
   const men = await $.ui.mount(BAND)
   expect(await men.find({ type: 'Text', text: /^Gonzalo +$/ })).toBeDefined()
-  expect(await men.find({ type: 'Text', text: /^Elena +$/ })).toBeUndefined()
+  expect(await men.find({ key: 'speedy:chosen:voice:es-AR-ElenaNeural' })).toBeUndefined()
   await men.unmount()
   await ui.unmount()
 })
@@ -714,7 +715,9 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude (Opus 5.5) ')
   const names = (await band.findAll({ type: 'Text', text: /^ [●○] \S+ [\d.]+ +$/ })).map(text => text.text.trim())
-  expect(names).toEqual(['○ Fable 5.1', '● Opus 5.5', '○ Sonnet 5.5', '○ Haiku 5.5'])
+  expect(names).toEqual(['○ Fable 5.1', '○ Sonnet 5.5', '○ Haiku 5.5'])
+  // The model in use keeps its fill under the pointer: a Client.
+  expect((await band.find({ type: 'Text', in: 'speedy:chosen:model:claude-opus-5-5' }))?.text?.trim()).toBe('● Opus 5.5')
   // A click only picks: nothing runs until Aplicar.
   await band.press({ key: 'model:claude-sonnet-5-5' })
   await band.press({ key: 'effort:high' })
@@ -757,11 +760,12 @@ test('the language tabs come in the order asked for', { timeoutMs: 30000 }, asyn
   await w.clock.advance(200)
   await ui.post({ isClicked: true }, { in: 'speedy:voice' })
   const band = await $.ui.mount(BAND)
-  const names = ['Español', 'Inglés', 'Francés', 'Italiano', 'Portugués', 'Ruso', 'Chino', 'Árabe', 'Hindi', 'Bengalí', 'Urdu']
-  const drawn = (await band.findAll({ type: 'Text' }))
-    .map(text => text.text?.trim().replace(/ [▶●]$/, '') ?? '')
-    .filter(text => names.includes(text))
-  expect(drawn).toEqual(names)
+  const codes = ['es', 'en', 'fr', 'it', 'pt', 'ru', 'zh', 'ar', 'hi', 'bn', 'ur']
+  const drawn = (await band.findAll({ type: 'Box' }))
+    .map(box => String(box.key ?? ''))
+    .filter(key => key.startsWith('cell:'))
+    .map(key => key.slice('cell:'.length))
+  expect(drawn).toEqual(codes)
   await band.unmount()
   await ui.unmount()
 })
@@ -824,7 +828,7 @@ test('the gear opens the settings, where a user name typed is kept', { timeoutMs
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Configuración/ }))?.text).toBe(' Configuración ')
-  expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' ▸ Redes sociales ')
+  expect((await band.find({ type: 'Text', in: 'speedy:chosen:settings:socials' }))?.text).toBe(' ▸ Redes sociales ')
   // A click on the user name makes it a field, keyed by the opening: this is the first.
   await band.press({ key: 'edit:github' })
   await band.unmount()
@@ -1209,13 +1213,39 @@ test('🗜️ in the ⋯ panel runs /compact and closes the panel', { timeoutMs:
 test('narrow, the column titles of the networks fit inside the frame', { timeoutMs: 30000 }, async ($, on) => {
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo' } })
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
-  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
-  await band.press({ key: 'settings:socials' })
-  await band.unmount()
+  // The networks tab is the one open.
   const again = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
   // Inside a 50-column frame there are 46 cells: the band of titles takes them, not one more.
   expect((await again.find({ type: 'Text', text: /^ Red +Usuario/ }))?.text.length).toBe(46)
   await again.unmount()
+  await ui.unmount()
+})
+
+test('distinctVoices keeps one voice per name: the one in use, else the multilingual twin', () => {
+  const twins = [
+    { value: 'en-US-AndrewNeural', lang: 'en', name: 'Andrew', tag: '', country: 'EE. UU.', gender: 'Male' },
+    { value: 'en-US-AndrewMultilingualNeural', lang: 'en', name: 'Andrew', tag: '✦ multi', country: 'EE. UU.', gender: 'Male' },
+    { value: 'en-GB-RyanNeural', lang: 'en', name: 'Ryan', tag: '', country: 'Reino Unido', gender: 'Male' },
+  ] as const
+  expect(distinctVoices(twins, '').map(v => v.value)).toEqual(['en-US-AndrewMultilingualNeural', 'en-GB-RyanNeural'])
+  expect(distinctVoices(twins, 'en-US-AndrewNeural').map(v => v.value)).toEqual(['en-US-AndrewNeural', 'en-GB-RyanNeural'])
+})
+
+test('a click on the effort chosen, which keeps its fill under the pointer, takes the pick back', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: Array<[string, string]> = []
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('command.run', (_, e) => { commands.push([e.command, e.args]); return { text: '' } })
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:model' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'effort:high' })
+  await band.unmount()
+  const picked = await $.ui.mount(BAND)
+  expect((await picked.find({ type: 'Text', in: 'speedy:chosen:effort:high' }))?.text).toBe('○ high ')
+  await picked.post({ isClicked: true }, { in: 'speedy:chosen:effort:high' })
+  await picked.press({ key: 'models:apply' })
+  expect(commands).toEqual([])
+  await picked.unmount()
   await ui.unmount()
 })
 
