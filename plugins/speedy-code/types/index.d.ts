@@ -80,7 +80,7 @@ declare module 'claude-code' {
       modelPick: string
       /** The effort picked in the model menu, not applied yet; empty: left as it is. */
       effortPick: string
-      /** The effort last applied from the model menu, kept across sessions; empty: never set. */
+      /** The effort in force, as the session's last model request carried it or the menu applied it; empty: unknown. */
       effort: string
     }
   }

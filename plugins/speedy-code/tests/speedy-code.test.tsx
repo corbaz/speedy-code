@@ -706,7 +706,6 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   expect(commands).toEqual([])
   await band.press({ key: 'models:apply' })
   expect(commands).toEqual([['model', 'claude-sonnet-5-5'], ['effort', 'high']])
-  expect(w.kept.effort).toBe('high')
   await band.unmount()
   // Applied, the menu closes.
   const after = await $.ui.mount(BAND)
@@ -984,12 +983,11 @@ test('the footer shows the model in use, and follows it when /model changes it i
 test('the footer shows the effort in force beside the model, follows /effort, and opens the menu', { timeoutMs: 30000 }, async ($, on) => {
   on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
   await ui.unmount()
   // /effort max typed in the terminal: the next model request carries it.
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'max', messageCount: 1 })) { /* drained */ }
-  expect(w.kept.effort).toBe('max')
   const redrawn = await $.ui.mount(FOOTER)
   expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ')
   expect((await redrawn.find({ type: 'Text', in: 'speedy:effort' }))?.text).toBe('· max ▾ ')
@@ -1000,6 +998,44 @@ test('the footer shows the effort in force beside the model, follows /effort, an
   expect(await band.find({ type: 'Text', text: /Modelo de Claude/ })).toBeDefined()
   await band.unmount()
   await redrawn.unmount()
+})
+
+test('the effort in force ignores subagents, clears on a request without one, and on a new model', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: string[] = []
+  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.unmount()
+  const step = async (extra: { effort?: 'low' | 'max', agentId?: string }) => {
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1, ...extra })) { /* drained */ }
+  }
+  const shown = async () => {
+    const footer = await $.ui.mount(FOOTER)
+    const model = (await footer.find({ type: 'Text', in: 'speedy:model' }))?.text
+    // find throws when the effort control is not drawn
+    const level = await footer.find({ type: 'Text', in: 'speedy:effort' }).then(found => found?.text, () => '')
+    await footer.unmount()
+    return `${model}|${level}`
+  }
+  await step({ effort: 'max' })
+  // A subagent on low does not change what the session runs at.
+  await step({ effort: 'low', agentId: 'a1' })
+  expect(await shown()).toBe('◆ Opus 5.5 |· max ▾ ')
+  // A request with no effort (a model without one) clears it: the model alone, with its ▾.
+  await step({})
+  expect(await shown()).toBe('◆ Opus 5.5 ▾ |')
+  // A new model from the menu starts from its own effort, unknown until its first request.
+  await step({ effort: 'max' })
+  const footer = await $.ui.mount(FOOTER)
+  await footer.post({ isClicked: true }, { in: 'speedy:model' })
+  await footer.unmount()
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'model:claude-sonnet-5-5' })
+  await band.press({ key: 'models:apply' })
+  await band.unmount()
+  expect(commands).toEqual(['model'])
+  expect(await shown()).toBe('◆ Opus 5.5 ▾ |')
 })
 
 test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {

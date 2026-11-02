@@ -1009,6 +1009,8 @@ async function applyModel ($: EngineInterface) {
       return
     }
     done.push(modelOf(id)?.[1] ?? id)
+    // A new model starts from its own effort: unknown here until its first request says it.
+    await update($, effort, () => '')
   }
   if (level) {
     const ran = await $.command.run({ command: 'effort', args: level }).then(() => true, () => false)
@@ -1017,7 +1019,6 @@ async function applyModel ($: EngineInterface) {
       return
     }
     await update($, effort, () => level)
-    await $.store.set('effort', level)
     done.push(`esfuerzo ${level}`)
   }
   $.ui.toast(done.length ? `speedy-code: ahora con ${done.join(' · ')}` : 'speedy-code: sin cambios.')
@@ -1248,8 +1249,6 @@ export const register: Register = on => {
     void loadVoices($)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
-    const savedEffort = await $.store.get('effort')
-    if (typeof savedEffort === 'string') await update($, effort, () => savedEffort)
     void loadMics($)
     // A first start, with nothing installed beside the code: the settings open on the setup tab.
     if (!(await $.fs.exists(await homeFile($, PYTHON)).catch(() => false))) {
@@ -1287,13 +1286,16 @@ export const register: Register = on => {
   })
 
   // The effort in force rides on each model request: /effort typed in the terminal is seen here,
-  // and the footer redraws when it changed.
+  // and the footer redraws when it changed. A subagent's requests carry its own effort, not the
+  // session's, so they are left out; a request with none (a model without effort) clears it.
   // turn.step streams, so its hook is an async generator that forwards the stream unchanged.
   on('turn.step', async function* ($, e, next) {
-    if (typeof e.effort === 'string' && e.effort !== (await read($, effort))) {
-      await update($, effort, () => e.effort as string)
-      await $.store.set('effort', e.effort)
-      $.ui.invalidate('ui.render')
+    if (e.agentId === undefined && typeof e.effort !== 'number') {
+      const now = e.effort ?? ''
+      if (now !== (await read($, effort))) {
+        await update($, effort, () => now)
+        $.ui.invalidate('ui.render')
+      }
     }
     return yield* next(e)
   })

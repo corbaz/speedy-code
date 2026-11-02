@@ -55,8 +55,10 @@ function Format-Reset($epoch) {
 
 function Format-Tokens($n) {
   if (-not $n) { return '0' }
-  if ($n -ge 1000000) { return ('{0:N1}M' -f ($n / 1000000)) -replace '[.,]0M$', 'M' }
-  if ($n -ge 1000) { return ('{0:N1}k' -f ($n / 1000)) -replace '[.,]0k$', 'k' }
+  $invariant = [Globalization.CultureInfo]::InvariantCulture
+  # Past 999.95k the k rounds to 1000.0: that is already a million.
+  if ($n -ge 999950) { return [string]::Format($invariant, '{0:0.#}M', $n / 1000000) }
+  if ($n -ge 1000) { return [string]::Format($invariant, '{0:0.#}k', $n / 1000) }
   return "$n"
 }
 
@@ -99,19 +101,19 @@ if ($data.git.branch) { $left = "$left $(Paint "⎇ $($data.git.branch)" $C_BRAN
 $usage = $data.context_window.current_usage
 $tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'out' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'caché' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
 
+# The tokens the context holds now: what the last request sent, cached or not; and the window's size.
+$size = [double]$data.context_window.context_window_size
+$held = [double]$usage.input_tokens + [double]$usage.cache_creation_input_tokens + [double]$usage.cache_read_input_tokens
+# The share used: as Claude Code says it, else from what is left, else from the tokens and the size.
 $contextUsed = $data.context_window.used_percentage
 if ($null -eq $contextUsed) {
   $remaining = $data.context_window.remaining_percentage
-  $contextUsed = if ($null -eq $remaining) { 0 } else { 100 - [double]$remaining }
+  $contextUsed = if ($null -ne $remaining) { 100 - [double]$remaining } elseif ($size) { $held / $size * 100 } else { 0 }
 }
 $contextUsed = [math]::Round([double]$contextUsed)
 $ctxColor = Context-Color $contextUsed
-# The tokens the context holds now: what the last request sent, cached or not. Without that, the
-# share of the window's size; without the size either, the percentage goes alone.
-$size = [double]$data.context_window.context_window_size
-$held = [double]$usage.input_tokens + [double]$usage.cache_creation_input_tokens + [double]$usage.cache_read_input_tokens
-if (-not $held -and $size) { $held = $size * $contextUsed / 100 }
-$amount = if ($held -and $size) { ' ' + (Paint "$(Format-Tokens $held)/$(Format-Tokens $size)" $C_LABEL) } else { '' }
+# The amount needs the size; with no request yet it is 0 of it. Without the size, the percentage goes alone.
+$amount = if ($size) { ' ' + (Paint "$(Format-Tokens $held)/$(Format-Tokens $size)" $ctxColor) } else { '' }
 $context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $amount + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠  compactar' $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
