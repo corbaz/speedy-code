@@ -1216,7 +1216,8 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         return (
           <Box key={`setup-row:${name}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow ? 1 : 0}>
             <Box flexDirection="row">
-              <Text bold color={tint}>{` ${glyph} `}</Text>
+              {/* A column of its own: ✔ is drawn two cells wide where it is counted as one. */}
+              <Box width={4} flexShrink={0}><Text bold color={tint}>{` ${glyph}`}</Text></Box>
               <Box width={narrow ? inside - 4 : 46}><Text bold color={check.state === 'fail' ? tint : '#74c0fc'}>{label}</Text></Box>
             </Box>
             <Box paddingLeft={narrow ? 4 : 0}><Text color={tint} dimColor={check.state === ''}>{check.detail}</Text></Box>
@@ -1450,11 +1451,14 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
           // Filled like the model: the level picked, or the one in force while nothing is picked.
           const isChosen = name === (level || applied)
           return (
-            <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
-              <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
-                {`${name === applied ? '●' : '○'} ${name} `}
-              </Text>
-            </Button>
+            // A cell between levels, so two filled ones (the one in force and the one picked) never touch.
+            <Box key={`effort-cell:${name}`} marginRight={1} flexShrink={0}>
+              <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
+                <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
+                  {`${name === applied ? '●' : '○'} ${name} `}
+                </Text>
+              </Button>
+            </Box>
           )
         })}
       </Box>
