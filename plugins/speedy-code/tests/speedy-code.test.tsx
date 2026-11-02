@@ -1205,6 +1205,19 @@ test('🗜️ in the ⋯ panel runs /compact and closes the panel', { timeoutMs:
   await narrow.unmount()
 })
 
+test('narrow, the column titles of the networks fit inside the frame', { timeoutMs: 30000 }, async ($, on) => {
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
+  await band.press({ key: 'settings:socials' })
+  await band.unmount()
+  const again = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 50 } })
+  // Inside a 50-column frame there are 46 cells: the band of titles takes them, not one more.
+  expect((await again.find({ type: 'Text', text: /^ Red +Usuario/ }))?.text.length).toBe(46)
+  await again.unmount()
+  await ui.unmount()
+})
+
 test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })

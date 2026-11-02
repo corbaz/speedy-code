@@ -1143,7 +1143,8 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
 
   // Fit the band: Claude Code caps it at half the terminal. Where the width holds two tables of
   // the networks side by side, half as many rows; the link column takes what is left, cut with …
-  const inside = Math.max(60, width - 4)
+  // The room inside the frame's border and padding: never more, or rows spill past the border.
+  const inside = Math.max(20, width - 4)
   const fixed = SOCIAL_PLUS_WIDTH + SOCIAL_BADGE_WIDTH + SOCIAL_NAME_WIDTH + SOCIAL_FIELD_WIDTH
   const halfLink = Math.floor((inside - TABLE_GAP) / 2) - fixed
   const tableCount = halfLink >= MIN_LINK_WIDTH ? 2 : 1
@@ -1216,7 +1217,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
           <Box key={`setup-row:${name}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow ? 1 : 0}>
             <Box flexDirection="row">
               <Text bold color={tint}>{` ${glyph} `}</Text>
-              <Box width={narrow ? inside - 4 : 46}><Text color={check.state === 'fail' ? tint : undefined}>{label}</Text></Box>
+              <Box width={narrow ? inside - 4 : 46}><Text bold color={check.state === 'fail' ? tint : '#74c0fc'}>{label}</Text></Box>
             </Box>
             <Box paddingLeft={narrow ? 4 : 0}><Text color={tint} dimColor={check.state === ''}>{check.detail}</Text></Box>
           </Box>
@@ -1412,12 +1413,14 @@ async function applyModel ($: EngineInterface) {
  * only picks; Aplicar runs `/model` and `/effort`. The model in use and the effort last applied
  * are marked with a dot; what is picked, filled with its color.
  */
-async function modelMenu ($: EngineInterface, e: Drawn) {
+async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
   const current = modelOf(await $.session.model().catch(() => ''))?.[0] ?? ''
   const [picked, level, applied] = [await read($, modelPick), await read($, effortPick), await read($, effort)]
   const chosenModel = picked || current
   const { Box, Button, Text } = $.ui.resolve(e)
   const width = Math.max(...MODELS.map(([, name]) => name.length)) + 4
+  // Narrow: the use goes on the line below its model, so neither is cut.
+  const isNarrow = room - 4 < width + Math.max(...MODELS.map(([, , use]) => use.length)) + 2
   return (
     <Box flexDirection="column">
       <Text bold dimColor>MODELO</Text>
@@ -1429,7 +1432,7 @@ async function modelMenu ($: EngineInterface, e: Drawn) {
               <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
                 {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
               </Text>
-              <Text dimColor={!isChosen} color={isChosen ? color : undefined}>{`  ${use}`}</Text>
+              <Text dimColor={!isChosen} color={isChosen ? color : undefined}>{`${isNarrow ? '\n    ' : '  '}${use}`}</Text>
             </Text>
           </Button>
         )
@@ -1487,7 +1490,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
   const list = known.filter(v => v.gender === shown)
 
   // The cells: inside the frame's border and padding, as many tabs and voice columns as fit.
-  const inside = Math.max(VOICE_WIDTH, width - 4)
+  const inside = Math.max(20, width - 4)
   const tabsPerRow = Math.max(1, Math.floor(inside / TAB_WIDTH))
   const tabRows = Math.ceil(LANGUAGES.length / tabsPerRow)
   const columns = Math.min(4, Math.max(1, Math.floor((inside + COLUMN_GAP) / (VOICE_WIDTH + COLUMN_GAP))))
@@ -1504,12 +1507,12 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
   const turn = (to: number) => { void update($, page, () => Math.min(Math.max(to, 0), pages - 1)) }
 
   const genderSwitch = (
-    <Box flexDirection="row" marginTop={1} marginBottom={1}>
+    <Box flexDirection="row" flexWrap="wrap" marginTop={1} marginBottom={1}>
       {([['Female', '♀ Mujeres', FEMALE], ['Male', '♂ Hombres', MALE]] as const).map(([value, label, tint]) => {
         const isOn = value === shown
         const count = known.filter(v => v.gender === value).length
         return (
-          <Box key={`gender-cell:${value}`} marginRight={2}>
+          <Box key={`gender-cell:${value}`} marginRight={2} flexShrink={0}>
             <Button key={`gender:${value}`} plain onPress={() => { void update($, gender, () => value).then(() => update($, page, () => 0)) }}>
               <Text bold color={isOn ? 'black' : tint} backgroundColor={isOn ? tint : undefined}>{` ${label}  ${count} `}</Text>
             </Button>
@@ -1518,7 +1521,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
       })}
       {pages > 1
         ? (
-          <Box flexDirection="row">
+          <Box flexDirection="row" flexShrink={0} marginRight={2}>
             <Button key="page:previous" plain onPress={() => turn(at - 1)}>
               <Text bold color={at > 0 ? color : DISABLED}>{' ◀ '}</Text>
             </Button>
@@ -1529,7 +1532,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
           </Box>
           )
         : null}
-      <Text color="#ffd43b">{'   ✦ multilingüe'}</Text>
+      <Box flexShrink={0}><Text color="#ffd43b">{'✦ multilingüe'}</Text></Box>
     </Box>
   )
 
@@ -1823,7 +1826,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : shown === 'more' ? await moreMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">
