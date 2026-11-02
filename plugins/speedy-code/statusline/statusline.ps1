@@ -32,13 +32,21 @@ $C_GREEN = '38;5;114'; $C_YELLOW = '38;5;221'; $C_RED = '1;38;5;203'
 $EFFORT_COLORS = @{ low = '38;5;114'; medium = '38;5;149'; high = '38;5;221'; xhigh = '38;5;215'; max = '1;38;5;203' }
 # The levels set in ⚙️ → Barra de estado (written by the mod to this file); the defaults without it.
 $levels = @{ contextYellow = 60; contextRed = 80; limitYellow = 75; limitRed = 90 }
+# The parts by priority, also set there: where the width is short, the first ones go in, each in its place.
+$priority = @('core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder')
 $levelsFile = Join-Path $HOME '.claude\speedy-code\levels.json'
 if (Test-Path -LiteralPath $levelsFile) {
   try {
     $saved = Get-Content -Raw -LiteralPath $levelsFile | ConvertFrom-Json
     foreach ($key in @($levels.Keys)) { if ($null -ne $saved.$key) { $levels[$key] = [int]$saved.$key } }
+    if ($saved.priority) {
+      # The parts it knows in its order, once each; any it lacks after them, in the default order.
+      $known = @(@($saved.priority) | Where-Object { $priority -contains $_ } | Select-Object -Unique)
+      $priority = @($known) + @($priority | Where-Object { $known -notcontains $_ })
+    }
   } catch { }
 }
+function Rank-Of($key) { [array]::IndexOf($priority, $key) + 1 }
 $bar = Paint ' │ ' $C_DIM
 
 $days = @('Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb')
@@ -126,13 +134,12 @@ $time = Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME
 # Each part in the order it is drawn, with its rank when the width is short (1 goes first) and,
 # for the limits, a short form without the reset time.
 $parts = [System.Collections.ArrayList]::new()
-[void]$parts.Add(@{ Rank = 8; Full = $left })
-[void]$parts.Add(@{ Rank = 1; Full = $core })
-[void]$parts.Add(@{ Rank = 5; Full = $time })
-[void]$parts.Add(@{ Rank = 7; Full = $tokens })
-[void]$parts.Add(@{ Rank = 4; Full = $context })
-[void]$parts.Add(@{ Rank = 6; Full = $cost })
-$rank = 2
+[void]$parts.Add(@{ Rank = (Rank-Of 'folder'); Full = $left })
+[void]$parts.Add(@{ Rank = (Rank-Of 'core'); Full = $core })
+[void]$parts.Add(@{ Rank = (Rank-Of 'time'); Full = $time })
+[void]$parts.Add(@{ Rank = (Rank-Of 'tokens'); Full = $tokens })
+[void]$parts.Add(@{ Rank = (Rank-Of 'context'); Full = $context })
+[void]$parts.Add(@{ Rank = (Rank-Of 'cost'); Full = $cost })
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
   # 0% is a limit too: PowerShell reads 0 as false, so test for the value's presence.
@@ -140,15 +147,15 @@ foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Limit-Color $used
     $short = (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) + ' ' } else { '' })
-    [void]$parts.Add(@{ Rank = $rank; Full = $short + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL); Short = $short })
+    [void]$parts.Add(@{ Rank = (Rank-Of $window[0]); Full = $short + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL); Short = $short })
   }
-  $rank++
 }
 
 # The width Claude Code gives the line: COLUMNS, less a margin. Without it, everything goes.
 # First the parts in rank order, each in its short form, until one does not fit: a lower rank never
 # takes the place of a higher one. The model always goes. Then, with the room left, the limits get
-# their reset time back in rank order. Nothing is cut in the middle with "…".
+# their reset time back in rank order. Nothing is cut in the middle with "…". The first by priority
+# always goes, whatever it is.
 function Visible($text) { ($text -replace "$e\[[0-9;]*m", '').Length }
 $room = if ([int]$env:COLUMNS -gt 0) { [int]$env:COLUMNS - 4 } else { [int]::MaxValue }
 $ranked = @($parts | Sort-Object { $_.Rank })
@@ -156,7 +163,7 @@ $taken = 0
 foreach ($part in $ranked) {
   $form = if ($part.Short) { $part.Short } else { $part.Full }
   $gap = if ($taken) { 3 } else { 0 }
-  if ($part.Rank -ne 1 -and $taken + $gap + (Visible $form) -gt $room) { break }
+  if ($taken -gt 0 -and $taken + $gap + (Visible $form) -gt $room) { break }
   $part.Shown = $form
   $taken += $gap + (Visible $form)
 }

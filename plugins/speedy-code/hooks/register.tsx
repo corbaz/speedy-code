@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, Heard, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Heard, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -124,9 +124,21 @@ const MODEL_COLOR = '#ffa94d'
  * and red at 90%, where the warning appears (anecdotal, 80% to 90%). They are edited in ⚙️ → Barra de estado.
  */
 const DEFAULT_LEVELS: BarLevels = { contextYellow: 60, contextRed: 80, limitYellow: 75, limitRed: 90 }
+const PRIORITY_COLOR = '#74c0fc'
 const LEVEL_COLORS: Record<LevelKey, string> = { contextYellow: '#ffd43b', contextRed: '#ff6b6b', limitYellow: '#ffd43b', limitRed: '#ff6b6b' }
 /** The level that goes with each, in the other direction: yellow stays under its red, red over its yellow. */
 const PAIR: Record<LevelKey, LevelKey> = { contextYellow: 'contextRed', contextRed: 'contextYellow', limitYellow: 'limitRed', limitRed: 'limitYellow' }
+/**
+ * The status line's parts in their default priority, and how the settings name them: where the width is
+ * short, the first ones go in. Each keeps its place on the line whatever its priority.
+ */
+const BAR_PARTS: ReadonlyArray<readonly [BarPart, string]> = [
+  ['core', 'Versión, modelo y esfuerzo'], ['five_hour', 'Límite de 5 horas'], ['seven_day', 'Límite semanal'],
+  ['context', 'Contexto'], ['time', 'Tiempo de sesión'], ['cost', 'Costo de sesión'],
+  ['tokens', 'Tokens in, out y caché'], ['folder', 'Carpeta y rama']
+]
+const DEFAULT_ORDER: BarPart[] = BAR_PARTS.map(([key]) => key)
+
 /** Where the levels are kept for the status line, which reads this file: under the user's own folder. */
 const LEVELS_FILE = '.claude/speedy-code/levels.json'
 /** The levels `/effort` takes, as `claude --help` lists them, from the lightest to the deepest. */
@@ -179,6 +191,7 @@ const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as cons
 const modelNow = atom({ plugin: 'speedy-code', key: 'modelNow' } as const, '')
 const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
 const barLevels = atom({ plugin: 'speedy-code', key: 'barLevels' } as const, DEFAULT_LEVELS, { shape: 'bar-1' })
+const barOrder = atom({ plugin: 'speedy-code', key: 'barOrder' } as const, DEFAULT_ORDER, { shape: 'order-1' })
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
@@ -1079,11 +1092,44 @@ export function effortColor (level: string): string {
   return EFFORTS.find(([name]) => name === level)?.[1] ?? '#adb5bd'
 }
 
+/**
+ * A priority list as saved, made whole: the parts it knows in its order, once each, then any it lacks in
+ * the default order. An old or hand-edited list never drops a part from the status line.
+ */
+export function barOrderOf (saved: unknown): BarPart[] {
+  const known = Array.isArray(saved) ? saved.filter((key): key is BarPart => DEFAULT_ORDER.includes(key as BarPart)) : []
+  const order = [...new Set(known)]
+  return [...order, ...DEFAULT_ORDER.filter(key => !order.includes(key))]
+}
+
+/** Writes the file the status line reads: the levels, and the parts by priority. */
+async function writeBarFile ($: EngineInterface) {
+  const content = { ...(await read($, barLevels)), priority: await read($, barOrder) }
+  await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(content, null, 2)}\n`)
+}
+
 /** Keeps the status line's levels: in the plugin's store, and in the file the status line reads. */
 async function saveLevels ($: EngineInterface, next: BarLevels) {
   await update($, barLevels, () => next)
   await $.store.set('barLevels', next)
-  await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(next, null, 2)}\n`)
+  await writeBarFile($)
+}
+
+/** Keeps the status line's priority: in the plugin's store, and in the file the status line reads. */
+async function saveOrder ($: EngineInterface, next: BarPart[]) {
+  await update($, barOrder, () => next)
+  await $.store.set('barOrder', next)
+  await writeBarFile($)
+}
+
+/** One part a place up (-1) or down (+1) in the priority, swapping with the one there. */
+async function movePart ($: EngineInterface, key: BarPart, delta: -1 | 1) {
+  const order = [...(await read($, barOrder))]
+  const at = order.indexOf(key)
+  const to = at + delta
+  if (at < 0 || to < 0 || to >= order.length) return
+  ;[order[at], order[to]] = [order[to] as BarPart, key]
+  await saveOrder($, order)
 }
 
 /** One level up or down, by 5, within its bounds: yellow 5 under its red, red 5 over its yellow, at most 100. */
@@ -1096,8 +1142,10 @@ async function adjustLevel ($: EngineInterface, key: LevelKey, delta: number) {
   await saveLevels($, { ...levels, [key]: Math.min(high, Math.max(low, levels[key] + delta)) })
 }
 
-/** The status line's levels back to the defaults. */
+/** The status line's levels and priority back to the defaults. */
 async function resetLevels ($: EngineInterface) {
+  await update($, barOrder, () => DEFAULT_ORDER)
+  await $.store.set('barOrder', DEFAULT_ORDER)
   await saveLevels($, DEFAULT_LEVELS)
 }
 
@@ -1261,9 +1309,30 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Button key={`lvl-up:${key}`} plain onPress={() => { void adjustLevel($, key, 5) }}>
         <Text bold color="black" backgroundColor={LEVEL_COLORS[key]}>{' + '}</Text>
       </Button>
-      {narrow || !note ? null : <Text color={LEVEL_COLORS[key]}>{`  ${note}`}</Text>}
+      {narrow || isSideBySide || !note ? null : <Text color={LEVEL_COLORS[key]}>{`  ${note}`}</Text>}
     </Box>
   )
+  // The priority: a row per part, its number, its name and the arrows that move it.
+  const order = await read($, barOrder)
+  const nameWidth = Math.min(26, Math.max(10, inside - 12))
+  const arrow = (key: BarPart, glyph: string, delta: -1 | 1, isOn: boolean) => (isOn
+    ? (
+      <Button key={`order-${delta < 0 ? 'up' : 'down'}:${key}`} plain onPress={() => { void movePart($, key, delta) }}>
+        <Text bold color="black" backgroundColor={PRIORITY_COLOR}>{` ${glyph} `}</Text>
+      </Button>
+      )
+    : <Text key={`order-${delta < 0 ? 'up' : 'down'}-off:${key}`} color={DISABLED}>{` ${glyph} `}</Text>)
+  const priorityRow = (key: BarPart, index: number) => (
+    <Box key={`order-row:${key}`} flexDirection="row">
+      <Box width={3} flexShrink={0}><Text bold color={PRIORITY_COLOR}>{`${index + 1}`.padStart(2)}</Text></Box>
+      <Box width={nameWidth + 1} flexShrink={0}><Text>{fit(BAR_PARTS.find(([part]) => part === key)?.[1] ?? key, nameWidth)}</Text></Box>
+      {arrow(key, '▲', -1, index > 0)}
+      <Text> </Text>
+      {arrow(key, '▼', 1, index < order.length - 1)}
+    </Box>
+  )
+  // The levels row takes 22 or 38 cells, then 3 + 6 + 3 for its stepper; the priority row 3 + name + 7.
+  const isSideBySide = !narrow && inside >= 38 + 12 + 4 + 3 + nameWidth + 1 + 7
   const barTab = (
     <Box flexDirection="column">
       <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
@@ -1279,10 +1348,19 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
           </Button>
         </Box>
       </Box>
-      {level('Contexto usado · amarillo desde', 'contextYellow', '')}
-      {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
-      {level('Límite usado · amarillo desde', 'limitYellow', '')}
-      {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
+      <Box flexDirection={isSideBySide ? 'row' : 'column'}>
+        <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>
+          <Text bold dimColor>COLORES</Text>
+          {level('Contexto usado · amarillo desde', 'contextYellow', '')}
+          {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
+          {level('Límite usado · amarillo desde', 'limitYellow', '')}
+          {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
+        </Box>
+        <Box flexDirection="column" flexShrink={0} marginTop={isSideBySide ? 0 : 1}>
+          <Text bold dimColor>PRIORIDAD AL ACHICARSE</Text>
+          {order.map((key, index) => priorityRow(key, index))}
+        </Box>
+      </Box>
       <Box flexDirection="row" marginTop={1}>
         <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
           <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
@@ -1704,8 +1782,10 @@ export const register: Register = on => {
     if (savedSocials && typeof savedSocials === 'object') await update($, socials, () => savedSocials as Socials)
     // The levels: the saved ones, else the defaults; the file the status line reads follows them.
     const savedLevels = await $.store.get('barLevels')
+    const savedOrder = await $.store.get('barOrder')
     if (savedLevels && typeof savedLevels === 'object') await update($, barLevels, () => savedLevels as BarLevels)
-    await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(await read($, barLevels), null, 2)}\n`)
+    await update($, barOrder, () => barOrderOf(savedOrder))
+    await writeBarFile($)
     // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
     // of the mod reaches it without switching it off and on.
     void switchStatusLine($, 'status').then(async () => {

@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, cells, distinctVoices, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -1264,6 +1264,35 @@ test('a click on the effort chosen, which keeps its fill under the pointer, take
   await picked.press({ key: 'models:apply' })
   expect(commands).toEqual([])
   await picked.unmount()
+  await ui.unmount()
+})
+
+test('barOrderOf keeps the parts it knows in their order, once each, and adds the ones it lacks', () => {
+  const all = ['core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder']
+  expect(barOrderOf(undefined)).toEqual(all)
+  expect(barOrderOf(['context', 'nope', 'context', 'core'])).toEqual(['context', 'core', 'five_hour', 'seven_day', 'time', 'cost', 'tokens', 'folder'])
+})
+
+test('the status line priority: the arrows move a part, and the order is kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:bar' })
+  await band.unmount()
+  const bar = await $.ui.mount(BAND)
+  // The first cannot go up, nor the last down.
+  expect(await bar.find({ key: 'order-up:core' })).toBeUndefined()
+  expect(await bar.find({ key: 'order-down:folder' })).toBeUndefined()
+  await bar.press({ key: 'order-up:context' })
+  const moved = ['core', 'five_hour', 'context', 'seven_day', 'time', 'cost', 'tokens', 'folder']
+  expect(w.kept.barOrder).toEqual(moved)
+  expect(w.files.some(text => text.includes('"priority"') && text.includes('"context",\n    "seven_day"'))).toBe(true)
+  await bar.unmount()
+  // Restoring the defaults puts the order back too.
+  const again = await $.ui.mount(BAND)
+  await again.press({ key: 'bar:reset' })
+  expect(w.kept.barOrder).toEqual(['core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder'])
+  await again.unmount()
   await ui.unmount()
 })
 

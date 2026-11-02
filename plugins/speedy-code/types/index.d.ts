@@ -24,6 +24,9 @@ export type Socials = Record<string, string>
 export type BarLevels = { contextYellow: number; contextRed: number; limitYellow: number; limitRed: number }
 export type LevelKey = keyof BarLevels
 
+/** A part of the status line, named as the priority list in levels.json names it. */
+export type BarPart = 'core' | 'five_hour' | 'seven_day' | 'context' | 'time' | 'cost' | 'tokens' | 'folder'
+
 /** One step of the setup: not checked yet, under way, in place, or missing, with what it found. */
 export type SetupCheck = { state: '' | 'working' | 'ok' | 'fail'; detail: string }
 
@@ -72,6 +75,8 @@ declare module 'claude-code' {
       modelNow: string
       /** The status line's levels, as set in ⚙ → Barra de estado. */
       barLevels: Shaped<BarLevels>
+      /** The status line's parts by priority: where the width is short, the first ones go in, each in its place. */
+      barOrder: Shaped<BarPart[]>
       /** Whether the wand is cleaning the prompt up with Groq. */
       isPolishing: boolean
       /** The microphones connected, as the system names them. */

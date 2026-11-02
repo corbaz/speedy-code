@@ -83,7 +83,8 @@ C:/cli » v2.1.316 ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 ca
 
 In a narrow terminal it keeps what matters most, each part whole: the version, model and effort
 always, then the 5-hour limit, the weekly one, the context, the time, the cost, the tokens and the
-folder; the limits drop their reset time before a part is left out.
+folder; the limits drop their reset time before a part is left out. That priority is set in
+⚙️ → Barra de estado; a part keeps its place on the line whatever its priority.
 
 The levels are the defaults; ⚙️ → Barra de estado changes them. Crossing a red level also shows a
 notice once.
@@ -101,8 +102,9 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 - **Instalación:** checks what is in place and installs or repairs it with one button.
 - **Barra de estado:** switches speedy-code's status line on ("Usar barra speedy-code"); the one
   you had is kept and comes back with "Restaurar mi barra". It also sets the levels where
-  the context and the limits turn yellow and red, with − and + in steps of 5; "Restaurar los valores por defecto" brings the defaults
-  back.
+  the context and the limits turn yellow and red, with − and + in steps of 5, and the priority of
+  each part where the width is short, with ▲ and ▼. "Restaurar los valores por defecto" brings
+  the defaults back, the priority too.
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,
   Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network and −
   removes an added one (a network always keeps its first). Click a user name to edit it, Enter keeps
