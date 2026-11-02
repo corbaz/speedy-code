@@ -120,7 +120,7 @@ $context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' 
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$right = (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' }) + $(if ($version) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint 'CC' $C_LABEL) + ' ' + (Paint "v$version" $C_TIME) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+$right = $(if ($version) { (Paint "v$version" $C_TIME) + ' ' } else { '' }) + (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
 
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])

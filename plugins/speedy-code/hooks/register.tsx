@@ -32,6 +32,7 @@ Return the same message, improved:
 - Fix grammar, spelling, punctuation and syntax.
 - Fix words the transcription most likely misheard, using the context: technical terms above all (pitest -> pytest, empoint -> endpoint, log de React -> hook de React, use effect -> useEffect).
 - Put spoken thoughts in a clear, logical order; drop fillers, repetitions and false starts.
+- Keep every marker like [[1]] exactly as it is, where it belongs in the message: it stands for an attached image or text.
 - Keep the person's language, voice and register (rioplatense Spanish stays rioplatense) and keep English technical terms in English.
 - Keep every request, detail, name, path, number and piece of code. Add nothing, answer nothing, explain nothing.
 
@@ -562,6 +563,32 @@ async function sendPrompt ($: EngineInterface) {
   if (result?.stdout.trim() !== 'sent') $.ui.toast('speedy-code: no pude enviar; apretá Enter.')
 }
 
+/**
+ * A pasted image or text is held in the draft by its chip, `[Image #1]` or `[Pasted text #2 +40 lines]`:
+ * a draft written back without it drops the attachment. So the chips go to Groq as `[[1]]` markers it
+ * is told to keep, and come back as they were.
+ */
+const CHIP = /\[(?:Image|Pasted text|Pasted image)[^\]]*?#\d+[^\]]*\]/g
+
+/** The draft with each chip swapped for a `[[n]]` marker, and the chips, in order. */
+export function shieldChips (draft: string) {
+  const chips: string[] = []
+  const text = draft.replace(CHIP, chip => `[[${chips.push(chip)}]]`)
+  return { text, chips }
+}
+
+/** The chips back in place of their markers; one the model dropped is put back at the end. */
+export function restoreChips (polished: string, chips: readonly string[]) {
+  let text = polished
+  const lost: string[] = []
+  chips.forEach((chip, index) => {
+    const marker = `[[${index + 1}]]`
+    if (text.includes(marker)) text = text.split(marker).join(chip)
+    else lost.push(chip)
+  })
+  return lost.length ? `${text} ${lost.join(' ')}` : text
+}
+
 /** The wand: sends the whole prompt to Groq and puts back what it returns, cleaned up. */
 async function polish ($: EngineInterface) {
   if (await read($, isPolishing)) return
@@ -571,17 +598,18 @@ async function polish ($: EngineInterface) {
     return
   }
   await update($, isPolishing, () => true)
+  const shielded = shieldChips(draft)
   try {
     // Groq is asked by polish.py, in ASCII both ways: the HTTP client here decoded Groq's UTF-8 as
     // another encoding and broke every accent.
     const polisher = $.process.spawn({
       argv: [await homeFile($, PYTHON), '-X', 'utf8', `${$.plugin.root}/hooks/polish.py`],
-      input: ascii(JSON.stringify({ model: POLISH_MODEL, system: POLISH_SYSTEM, text: draft }))
+      input: ascii(JSON.stringify({ model: POLISH_MODEL, system: POLISH_SYSTEM, text: shielded.text }))
     })
     let out = ''
     for await (const { stream, text } of polisher) if (stream === 'stdout') out += text
     const answer = JSON.parse(out.trim() || '{}') as { text?: string; error?: string }
-    const polished = answer.text?.trim() ?? ''
+    const polished = restoreChips(answer.text?.trim() ?? '', shielded.chips).trim()
     if (!polished) {
       $.ui.toast(`speedy-code: ${answer.error ?? 'Groq no devolvió texto.'}`)
       return

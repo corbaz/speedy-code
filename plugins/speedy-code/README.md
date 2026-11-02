@@ -55,11 +55,11 @@ their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model 
 ## Status line
 
 ```
-C:/cli » ◆ Opus 5.5 · medium · CC v2.1.316 │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40
+C:/cli » v2.1.316 ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40
 ```
 
-- **◆ model · effort · CC:** the effort the turn runs at, in the footer's traffic-light colors, and
-  the version of Claude Code running the session.
+- **v… ◆ model · effort:** the version of Claude Code running the session, the model, and the
+  effort the turn runs at, in the footer's traffic-light colors.
 - **⏱:** how long the session has run, in days, hours and minutes.
 - **in / out / caché:** the tokens of the last request: new input, the answer, and input read from
   the prompt cache (cheap and fast).

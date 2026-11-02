@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { accountsOf, ascii, effortColor, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, effortColor, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -46,6 +46,16 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
   return held
 }
+
+test('the pen keeps pasted images and texts: their chips travel as markers and come back', () => {
+  const shielded = shieldChips('mirá [Image #1] y arreglá [Pasted text #2 +40 lines] porfa')
+  expect(shielded.text).toBe('mirá [[1]] y arreglá [[2]] porfa')
+  expect(shielded.chips).toEqual(['[Image #1]', '[Pasted text #2 +40 lines]'])
+  expect(restoreChips('Mirá [[1]] y arreglá [[2]], por favor.', shielded.chips)).toBe('Mirá [Image #1] y arreglá [Pasted text #2 +40 lines], por favor.')
+  // A marker the model dropped: its chip goes back at the end, so the attachment stays.
+  expect(restoreChips('Mirá y arreglá [[2]].', shielded.chips)).toBe('Mirá y arreglá [Pasted text #2 +40 lines]. [Image #1]')
+  expect(shieldChips('sin adjuntos').chips).toEqual([])
+})
 
 test('plain drops what a voice cannot say', () => {
   expect(plain('# Title\n\n**Bold** and `code` [link](https://x.y)\n\n```ts\nconst a = 1\n```\n- item')).toBe('Title\n\nBold and code link\nitem')

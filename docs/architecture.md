@@ -104,6 +104,12 @@ mod's own `$.http.fetch` decoded Groq's UTF-8 as another encoding ("mágica" cam
 the mod and the script talk in pure ASCII (`\uXXXX`), so nothing on the way can break an accent. If
 the draft changed while Groq answered, nothing is overwritten.
 
+## Attachments and the pen
+
+A pasted image or text lives in the draft as its chip, `[Image #1]` or `[Pasted text #2 +40 lines]`;
+a draft written back without the chip loses the attachment. The pen sends each chip to Groq as a
+`[[n]]` marker it is told to keep, and puts the chips back; one the model dropped goes at the end.
+
 ## Image paste and send
 
 No mod API attaches an image to the draft, and a prompt a mod submits drops pasted images and `@`
