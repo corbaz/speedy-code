@@ -99,8 +99,8 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 ## Settings (⚙️)
 
 - **Instalación:** checks what is in place and installs or repairs it with one button.
-- **Barra de estado:** switches speedy-code's status line on ("Usar la de speedy-code"); the one
-  you had is kept and comes back with "Volver a mi barra anterior". It also sets the levels where
+- **Barra de estado:** switches speedy-code's status line on ("Usar barra speedy-code"); the one
+  you had is kept and comes back with "Restaurar mi barra". It also sets the levels where
   the context and the limits turn yellow and red, with − and + in steps of 5; "Restaurar los valores por defecto" brings the defaults
   back.
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,

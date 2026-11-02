@@ -66,7 +66,9 @@ const SETUP_LOG_LINES = 6
 const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
 /** The settings tabs, each in a color of its own: the one open is filled with it. */
-const SETTINGS_TABS: ReadonlyArray<readonly [string, string, string]> = [['setup', 'Instalación', '#51cf66'], ['bar', 'Barra de estado', '#4dabf7'], ['socials', 'Redes sociales', '#f783ac']]
+const SETTINGS_TABS: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['setup', 'Instalación', '#51cf66', 'Instalar'], ['bar', 'Barra de estado', '#4dabf7', 'Barra'], ['socials', 'Redes sociales', '#f783ac', 'Redes']
+]
 
 /** The setup steps, by the name install.ps1 prints, and what each is for. */
 const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
@@ -1206,7 +1208,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const bar = await read($, statusLine)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
   const setupTab = (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
       {SETUP_STEPS.map(([name, label]) => {
         const check = checks[name] ?? { state: '', detail: '' }
         const [glyph, tint] = mark[check.state]
@@ -1244,12 +1246,19 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
     </Box>
   )
   const barTab = (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
       <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
-        <Box width={narrow ? inside : 49}><Text bold color="#4dabf7">{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
-        <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
-          <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
-        </Button>
+        <Box width={narrow ? inside : 34} flexShrink={0}>
+          <Text>
+            <Text bold color="#4dabf7">{' ▤  Barra speedy-code '}</Text>
+            <Text bold color={bar === 'on' ? '#51cf66' : '#868e96'}>{bar === 'on' ? '● activa' : '○ inactiva'}</Text>
+          </Text>
+        </Box>
+        <Box marginTop={narrow ? 1 : 0} flexShrink={0}>
+          <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
+            <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Restaurar mi barra ' : ' Usar barra speedy-code '}</Text>
+          </Button>
+        </Box>
       </Box>
       {level('Contexto usado · amarillo desde', 'contextYellow', '')}
       {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
@@ -1262,13 +1271,11 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       </Box>
     </Box>
   )
+  // The column titles on a band of the tab's color, as wide as the table.
   const header = (
-    <Box flexDirection="row">
-      <Box width={SOCIAL_PLUS_WIDTH + SOCIAL_BADGE_WIDTH} />
-      {narrow ? null : <Box width={SOCIAL_NAME_WIDTH}><Text dimColor bold>Red</Text></Box>}
-      <Box width={fieldWidth}><Text dimColor bold>Usuario</Text></Box>
-      {narrow ? null : <Text dimColor bold>Link</Text>}
-    </Box>
+    <Text bold color="black" backgroundColor="#f783ac">
+      {fit(' Red', SOCIAL_PLUS_WIDTH + SOCIAL_BADGE_WIDTH + (narrow ? 0 : SOCIAL_NAME_WIDTH)) + (narrow ? fit('Usuario', fieldWidth) : fit('Usuario', fieldWidth) + fit('Link', linkWidth))}
+    </Text>
   )
   // The rows a table holds: the band's height less the frame's three, the tabs line and the header.
   // More than that, and the accounts go in pages; the page with the field being edited is shown.
@@ -1306,11 +1313,12 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
 
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" flexWrap="wrap">
-        {SETTINGS_TABS.map(([id, label, tint]) => (
-          <Box key={`settings-cell:${id}`} marginRight={2} flexShrink={0}>
+      {/* The tabs and the pager on one line, short names where narrow, set off from what follows. */}
+      <Box flexDirection="row" marginBottom={1}>
+        {SETTINGS_TABS.map(([id, label, tint, short]) => (
+          <Box key={`settings-cell:${id}`} marginRight={narrow ? 1 : 2} flexShrink={0}>
             <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
-              <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${label} `}</Text>
+              <Text bold color={id === open ? 'black' : tint} backgroundColor={id === open ? tint : undefined}>{` ${id === open ? '▸ ' : ''}${narrow ? short : label} `}</Text>
             </Button>
           </Box>
         ))}
