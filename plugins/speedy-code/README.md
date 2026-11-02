@@ -44,10 +44,33 @@ columns as the width holds and paged so the menu always fits. ✦ marks a multil
 
 ## Model and effort
 
-The footer's ◆ button shows the model in use. Click it for the newest Claude models (Fable 5.1,
-Opus 5.5, Sonnet 5.5, Haiku 5.5), each with what it is for, and the effort levels (`low` to
-`max`). Pick a model, an effort or both, then **Aplicar**: it runs `/model <id>` and then
-`/effort <level>`, as if you typed them. The dot marks the model in use and the effort last applied.
+The footer shows the model in use and, beside it, the effort in force, in a traffic-light color:
+`low` green, `medium` lime, `high` yellow, `xhigh` orange, `max` red. Both follow `/model` and
+`/effort` typed in the terminal. Click either for the newest Claude models (Fable 5.1, Opus 5.5,
+Sonnet 5.5, Haiku 5.5), each with what it is for, and the effort levels. The menu's title says what
+is in use (`Modelo de Claude (Opus 5.5 · medium)`); the model and effort in use are filled with
+their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model <id>` and then
+`/effort <level>`, as if you typed them.
+
+## Status line
+
+```
+C:/cli » ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40
+```
+
+- **◆ model · effort:** the effort the turn runs at, in the footer's traffic-light colors.
+- **⏱:** how long the session has run, in days, hours and minutes.
+- **in / out / caché:** the tokens of the last request: new input, the answer, and input read from
+  the prompt cache (cheap and fast).
+- **ctx:** the share of the context window **used**, and the tokens it holds out of its size (`0/200k`
+  before the first request). It turns yellow at 60% and red at 80%, where `⚠  compactar` asks for
+  `/compact`.
+- **sesión:** what the session has cost.
+- **5hs / semana:** the share of each usage limit used, and when it resets. Yellow at 75%, red and
+  `⚠` at 90%.
+
+The levels are the defaults; ⚙️ → Barra de estado changes them. Crossing a red level also shows a
+notice once.
 
 ## Dictation
 
@@ -60,9 +83,10 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 ## Settings (⚙️)
 
 - **Instalación:** checks what is in place and installs or repairs it with one button.
-  It also switches on speedy-code's status line: folder, branch, model, time, tokens, context left,
-  cost and the 5-hour and weekly limits, colored by how much is left; the status line you had is kept
-  and comes back with "Volver a mi barra anterior".
+- **Barra de estado:** switches speedy-code's status line on ("Usar la de speedy-code"); the one
+  you had is kept and comes back with "Volver a mi barra anterior". It also sets the levels where
+  the context and the limits turn yellow and red, in steps of 5; "Restaurar los valores por defecto" brings the defaults
+  back.
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,
   Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network. Click a
   user name to edit it, Enter keeps it. Discord takes the numeric user ID.

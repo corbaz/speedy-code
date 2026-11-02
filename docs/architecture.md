@@ -121,6 +121,23 @@ A user name is text at rest and a field only while edited: an `Input` drawn at r
 show the value it was given, and its Enter label took a second line. Fields are keyed by how many
 times the settings opened, so each opening starts from what is saved.
 
+## Status line
+
+`statusline/statusline.ps1` reads the JSON Claude Code sends on stdin: `model`, `effort.level`,
+`cost`, `context_window` (`used_percentage`, `context_window_size`, `current_usage`) and
+`rate_limits`. The tokens the context holds are `input + cache_creation + cache_read` of the last
+request. The yellow and red levels come from `~/.claude/speedy-code/levels.json`, which the
+⚙️ → Barra de estado tab writes; a missing or broken file falls back to the defaults (context 60/80,
+limits 75/90). The status line is plain text: it takes no clicks, so the footer is where the model
+and effort are changed.
+
+## Model and effort in the footer
+
+`/model` and `/effort` typed in the terminal are not events a mod sees. The model is polled every
+1.5 s (`$.session.model()`). The effort rides on each model request: a `turn.step` hook reads
+`e.effort`, keeps it, and redraws the footer. `turn.step` streams, so its hook must be an
+`async function*` that ends with `return yield* next(e)`; a plain async hook fails validation.
+
 ## Gotchas when editing these files
 
 - PowerShell 5.1 reads a script without a BOM in the system code page: `.ps1` files with accents are
@@ -136,3 +153,8 @@ times the settings opened, so each opening starts from what is saved.
 - In the hooks module, every function that takes `$` is declared at the top of the file; the
   validator refuses one declared inside `register`.
 - A test that mocks `state.get` must seed every atom a drawing reads.
+- A test hook on a streaming event (`turn.step`) is registered before the first `$` call, and
+  returns the event's result (`{ turnId, index, answer, toolUses }`); `ui.find` with `in:` throws
+  when the keyed element is not drawn, it does not return undefined.
+- `⚠` is drawn two columns wide by most terminals but counted as one: leave two spaces after it, or
+  it covers the next glyph.

@@ -2,11 +2,14 @@
 
 ## Unreleased
 
-- Status line: each part in a color of its own, gray labels, and eight-cell bars for the context
-  left and the 5-hour and weekly limits, filled in the color of their level. A session start
-  refreshes the copy Claude Code runs.
+- Status line: each part in a color of its own, short labels (`ctx:`, `in`, `out`), four-cell
+  bars for the context used and the 5-hour and weekly limits, filled in a traffic-light color. The
+  context shows its tokens out of the window size; the time goes in days, hours and minutes; the
+  effort follows the model. Yellow and red levels are editable in ⚙️ → Barra de estado, and crossing
+  a red one shows a notice once. A session start refreshes the copy Claude Code runs.
 - Model menu: the ◆ footer button picks a Claude model and an effort; Aplicar runs `/model` and
-  `/effort`.
+  `/effort`. The footer shows the effort in force in a traffic-light color and follows `/model` and
+  `/effort` typed in the terminal; the menu's title and fills mark what is in use.
 - Dictation: NVIDIA's Nemotron 3.5 ASR Streaming, run by transcribe-cpp, replaces Whisper. The
   words go into the prompt as they are said, it loads in half a second, and it is still local.
   One model of about 750 MB instead of two of 1.8 GB.
