@@ -785,27 +785,42 @@ export function cells (text: string) {
   }, 0)
 }
 
+/** What footerFit decided: the groups drawn, and those drawn in their short form. */
+export type FooterFit = { shown: Set<string>, compact: Set<string> }
+
 /**
- * The footer groups drawn in `room` cells: all of them when they fit. If not, those ranked 0 and the
- * ⋯, then the rest in rank order until one does not fit: a lower rank never takes a higher one's place.
+ * The footer groups drawn in `room` cells: all of them, whole, when they fit. If not, those ranked 0
+ * and the ⋯, the model and then the voice in their short form while that is still too wide, then the
+ * rest in rank order until one does not fit: a lower rank never takes a higher one's place.
  */
-export function footerFit (groups: ReadonlyArray<{ name: string, width: number }>, room: number) {
+export function footerFit (groups: ReadonlyArray<{ name: string, width: number, compactWidth?: number }>, room: number): FooterFit {
   const rank = (name: string) => FOOTER_RANKS[name] ?? 9
-  if (groups.reduce((sum, group) => sum + group.width, 0) <= room) return new Set(groups.map(group => group.name))
-  const shown = new Set(groups.filter(group => rank(group.name) === 0).map(group => group.name))
-  let used = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + group.width, MORE_WIDTH)
-  for (const group of groups.filter(one => !shown.has(one.name)).sort((a, b) => rank(a.name) - rank(b.name))) {
+  const compact = new Set<string>()
+  if (groups.reduce((sum, group) => sum + group.width, 0) <= room) return { shown: new Set(groups.map(group => group.name)), compact }
+  const always = groups.filter(group => rank(group.name) === 0)
+  const shown = new Set(always.map(group => group.name))
+  let used = always.reduce((sum, group) => sum + group.width, MORE_WIDTH)
+  for (const name of ['model', 'voice']) {
+    const group = always.find(one => one.name === name)
+    if (used > room && group?.compactWidth !== undefined) {
+      used -= group.width - group.compactWidth
+      compact.add(name)
+    }
+  }
+  for (const group of groups.filter(one => !shown.has(one.name)).sort((x, y) => rank(x.name) - rank(y.name))) {
     if (used + group.width > room) break
     shown.add(group.name)
     used += group.width
   }
-  return shown
+  return { shown, compact }
 }
 
 /**
  * The footer's controls, in groups that come and go together, in the order they are drawn, each with
- * the cells it takes. The footer draws those that fit; the ⋯ panel, the rest. The same Clients in
- * both places, so a click does the same thing wherever it comes from.
+ * the cells it takes. The footer draws those that fit (`node`, or `compactNode` when short of room);
+ * the ⋯ panel draws the rest (`panel`), named. The same Client keys in both places, so a click does
+ * the same thing wherever it comes from. Every Client is given its width: a terminal draws an emoji in
+ * two cells where the layout may count one, and the next control would be drawn over it.
  */
 async function footerGroups ($: EngineInterface, e: Drawn) {
   const elements = $.ui.resolve(e)
@@ -823,86 +838,97 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     .map(key => ({ key, label: accountLabel(label, key), color })))
   const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
   const model = modelLabel(current)
+  const modelColor = modelOf(current)?.[3] ?? MODEL_COLOR
   const level = await read($, effort)
   // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
   // so play and pause take the same room. U+FE0E asks for the text form.
-  const play = { idle: ['⏵', '#51cf66'], thinking: ['⧗', '#748ffc'], playing: ['⏸︎', '#ffd43b'], paused: ['⏵', '#51cf66'] }[now]
+  const play = ({ idle: ['⏵', '#51cf66'], thinking: ['⧗', '#748ffc'], playing: ['⏸︎', '#ffd43b'], paused: ['⏵', '#51cf66'] } as const)[now]
   // Always drawn, so nothing in the footer moves: disabled, in gray, while the narrator is off and
   // before the first answer, when there is nothing to read again.
   const canPlay = isPlayable(enabled, now)
-  const modelText = level ? `◆ ${model} ` : `◆ ${model} ▾ `
+  // A Client drawing `label` in `color`, as wide as the label is on a terminal.
+  const control = (key: string, label: string, color: string, bold = false) => (
+    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold }} />
+  )
+  const modelText = level ? ` ◆ ${model} ` : ` ◆ ${model} ▾ `
   const effortText = `· ${level} ▾ `
-  const voiceText = `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`
+  // Short: the model's family alone (`Opus`), no effort; the status line still shows both.
+  const modelShort = ` ◆ ${model.split(' ')[0] ?? model} ▾ `
+  const voiceText = ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾ `
+  const voiceShort = ` 🗣  ${active.toUpperCase()} ▾ `
+  const tools = [
+    ['speedy:copy', ' 📋 ', '#adb5bd'], ['speedy:paste', ' 📥 ', '#adb5bd'], ['speedy:image', ' 🖼️ ', '#adb5bd'],
+    // An emoji takes no color: the glyph tells it is at work.
+    ['speedy:polish', polishing ? ' ⏳ ' : ' 🖋️ ', '#da77f2'], ['speedy:send', ' ⏎ ', '#51cf66'], ['speedy:clear', ' 🗑️ ', '#adb5bd']
+  ] as const
+  const named = [
+    { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
+    { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
+    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 leer selección ', color: enabled ? '#ffd43b' : DISABLED },
+    { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen] },
+    { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off },
+    { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd' },
+    { group: 'settings', key: 'speedy:settings', footer: ' ⚙️ ', panel: ' ⚙️ configuración ', color: '#adb5bd' }
+  ]
+  const namedGroup = (name: string) => {
+    const members = named.filter(one => one.group === name)
+    return {
+      name,
+      width: members.reduce((sum, one) => sum + cells(one.footer), 0),
+      node: <Box key={`group:${name}`} flexDirection="row" flexShrink={0}>{members.map(one => control(one.key, one.footer, one.color))}</Box>,
+      panel: members.map(one => <Box key={`panel:${one.key}`} marginRight={2} flexShrink={0}>{control(one.key, one.panel, one.color)}</Box>)
+    }
+  }
   return [
     {
       name: 'socials',
       width: linked.length > 0 ? linked.reduce((sum, one) => sum + one.label.length + 2, 2) : 0,
       node: (
-        <Box key="group:socials" flexDirection="row">
-          {linked.map(({ key, label, color }) => (
-            <Client key={`speedy:social:${key}`} module="./control.tsx" width={label.length + 2} props={{ label: ` ${label} `, color, bold: true }} />
-          ))}
+        <Box key="group:socials" flexDirection="row" flexShrink={0}>
+          {linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true))}
           <Text dimColor>│ </Text>
         </Box>
-      )
+      ),
+      panel: linked.map(({ key, label, color }) => <Box key={`panel:${key}`} marginRight={1} flexShrink={0}>{control(`speedy:social:${key}`, ` ${label} `, color, true)}</Box>)
     },
     {
       name: 'tools',
-      width: CONTROL_WIDTH * 5 + 3 + 1,
+      width: tools.reduce((sum, [, label]) => sum + cells(label), 1),
       node: (
-        <Box key="group:tools" flexDirection="row">
-          <Client key="speedy:copy" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📋 ', color: '#adb5bd' }} />
-          <Client key="speedy:paste" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📥 ', color: '#adb5bd' }} />
-          <Client key="speedy:image" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🖼️ ', color: '#adb5bd' }} />
-          {/* An emoji takes no color: the glyph tells it is at work. */}
-          <Client key="speedy:polish" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: polishing ? ' ⏳ ' : ' 🖋️ ', color: '#da77f2' }} />
-          <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
-          <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
+        <Box key="group:tools" flexDirection="row" flexShrink={0}>
+          {tools.map(([key, label, color]) => control(key, label, color, key === 'speedy:send'))}
           <Text> </Text>
         </Box>
-      )
+      ),
+      panel: []
     },
     {
       name: 'model',
       width: cells(modelText) + (level ? cells(effortText) : 0),
+      compactWidth: cells(modelShort),
       node: (
-        <Box key="group:model" flexDirection="row">
-          <Client key="speedy:model" module="./control.tsx" props={{ label: modelText, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
+        <Box key="group:model" flexDirection="row" flexShrink={0}>
+          {control('speedy:model', modelText, modelColor, true)}
           {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
-          {level ? <Client key="speedy:effort" module="./control.tsx" props={{ label: effortText, color: effortColor(level), bold: true }} /> : null}
+          {level ? control('speedy:effort', effortText, effortColor(level), true) : null}
         </Box>
-      )
+      ),
+      compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{control('speedy:model', modelShort, modelColor, true)}</Box>,
+      panel: []
     },
     {
       name: 'voice',
       width: cells(voiceText),
-      node: <Client key="speedy:voice" module="./control.tsx" props={{ label: voiceText, color: languageColor(active) }} />
+      compactWidth: cells(voiceShort),
+      node: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceText, languageColor(active))}</Box>,
+      compactNode: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceShort, languageColor(active))}</Box>,
+      panel: []
     },
-    {
-      name: 'narrator',
-      width: CONTROL_WIDTH * 2 + PLAY_WIDTH,
-      node: (
-        <Box key="group:narrator" flexDirection="row">
-          {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
-          <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
-          <Client key="speedy:play" module="./control.tsx" width={PLAY_WIDTH} props={{ label: ` ${play[0]} `, color: canPlay ? play[1] : DISABLED, bold: canPlay }} />
-          <Client key="speedy:clip" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📎 ', color: enabled ? '#ffd43b' : DISABLED }} />
-        </Box>
-      )
-    },
-    {
-      name: 'mic',
-      width: CONTROL_WIDTH + 2,
-      node: (
-        <Box key="group:mic" flexDirection="row">
-          <Client key="speedy:mic" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${MIC_GLYPHS[listen]}`, color: MIC_COLORS[listen], bold: listen !== 'off' }} />
-          <Client key="speedy:mics" module="./control.tsx" width={2} props={{ label: '▾ ', color: MIC_COLORS.off }} />
-        </Box>
-      )
-    },
-    { name: 'reload', width: CONTROL_WIDTH, node: <Client key="speedy:reload" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🔄 ', color: '#adb5bd' }} /> },
-    { name: 'settings', width: CONTROL_WIDTH, node: <Client key="speedy:settings" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' ⚙️ ', color: '#adb5bd' }} /> },
-    { name: 'exit', width: 3, node: <Client key="speedy:exit" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} /> }
+    namedGroup('narrator'),
+    namedGroup('mic'),
+    namedGroup('reload'),
+    namedGroup('settings'),
+    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [] }
   ]
 }
 
@@ -934,44 +960,80 @@ function resetWhen (iso: string | undefined) {
 }
 
 /**
- * The ⋯ panel: the status line's figures, whole, as the session reports them, and the footer
- * controls that did not fit, drawn as in the footer. A control that opens something replaces the
- * panel; one that switches keeps it open, showing the change.
+ * The ⋯ panel: the session's figures, whole, in two sections (side by side where the width holds
+ * them), then the networks and the controls the footer left out, each named. They are the footer's own
+ * Clients: a control that opens something replaces the panel; one that switches keeps it open.
  */
-async function moreMenu ($: EngineInterface, e: Drawn) {
+async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
   const { Box, Text } = $.ui.resolve(e)
   const usage = await $.session.usage().catch(() => undefined)
   const levels = await read($, barLevels)
   const hidden = (await footerGroups($, e)).filter(group => group.width > 0 && hiddenGroups.includes(group.name))
   const tone = (value: number, yellow: number, red: number) => value >= red ? '#ff6b6b' : value >= yellow ? '#ffd43b' : '#51cf66'
+  const meter = (value: number) => {
+    const full = Math.round(Math.min(100, Math.max(0, value)) / 25)
+    return '▰'.repeat(full) + '▱'.repeat(4 - full)
+  }
   const percent = Math.round(usage?.context.percent ?? 0)
-  const limitNames: Record<string, string> = { five_hour: '5hs', seven_day: 'semana' }
+  const limitNames: Record<string, string> = { five_hour: '5 horas', seven_day: 'semana' }
+  const LABEL = 11
+  const heading = (text: string) => <Text bold dimColor>{text}</Text>
+  const row = (key: string, label: string, value: ReturnType<typeof Text>) => (
+    <Box key={key} flexDirection="row">
+      <Box width={LABEL}><Text dimColor>{`  ${label}`}</Text></Box>
+      {value}
+    </Box>
+  )
+  const session = (
+    <Box flexDirection="column" width={36} flexShrink={0}>
+      {heading('SESIÓN')}
+      {usage
+        ? [
+            row('ctx', 'contexto', <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${meter(percent)} ${percent}%  ${shortTokens(usage.context.tokens ?? 0)} / ${shortTokens(usage.context.window)}`}</Text>),
+            row('time', 'tiempo', <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>),
+            row('cost', 'costo', <Text bold color="#ffd43b">{usage.cost ? `$${usage.cost.usd.toFixed(2)}` : '—'}</Text>)
+          ]
+        : <Text dimColor>  sin datos todavía</Text>}
+    </Box>
+  )
+  const limits = (
+    <Box flexDirection="column" width={36} flexShrink={0}>
+      {heading('LÍMITES')}
+      {usage && usage.rateLimits.length > 0
+        ? usage.rateLimits.map(limit => row(`limit:${limit.kind}`, limitNames[limit.kind] ?? limit.kind, (
+          <Text>
+            <Text bold color={tone(limit.percentUsed, levels.limitYellow, levels.limitRed)}>{`${meter(limit.percentUsed)} ${String(Math.round(limit.percentUsed)).padStart(3)}%`}</Text>
+            <Text dimColor>{limit.resetsAt ? `   ↻ ${resetWhen(limit.resetsAt)}` : ''}</Text>
+          </Text>
+        )))
+        : <Text dimColor>  sin datos todavía</Text>}
+    </Box>
+  )
+  const networks = hidden.find(group => group.name === 'socials')
+  const controls = hidden.filter(group => group.name !== 'socials').flatMap(group => group.panel)
   return (
     <Box flexDirection="column">
-      {usage
+      <Box flexDirection={width >= 80 ? 'row' : 'column'} columnGap={4} rowGap={1}>
+        {session}
+        {limits}
+      </Box>
+      {networks
         ? (
-          <Box flexDirection="column">
-            <Text>
-              <Text dimColor>{'ctx: '}</Text>
-              <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${percent}% ${shortTokens(usage.context.tokens ?? 0)}/${shortTokens(usage.context.window)}`}</Text>
-              <Text dimColor>{'   ⏱  '}</Text>
-              <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>
-              {usage.cost ? <Text dimColor>{'   sesión '}</Text> : null}
-              {usage.cost ? <Text bold color="#ffd43b">{`$${usage.cost.usd.toFixed(2)}`}</Text> : null}
-            </Text>
-            {usage.rateLimits.map(limit => (
-              <Text key={`limit:${limit.kind}`}>
-                <Text color={limit.kind === 'seven_day' ? '#d0bfff' : '#91a7ff'}>{`${limitNames[limit.kind] ?? limit.kind} `}</Text>
-                <Text bold color={tone(limit.percentUsed, levels.limitYellow, levels.limitRed)}>{`${Math.round(limit.percentUsed)}%`}</Text>
-                <Text dimColor>{limit.resetsAt ? `  ↻ ${resetWhen(limit.resetsAt)}` : ''}</Text>
-              </Text>
-            ))}
+          <Box flexDirection="column" marginTop={1}>
+            {heading('REDES')}
+            <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>{networks.panel}</Box>
           </Box>
           )
-        : <Text dimColor>sin datos de la sesión todavía</Text>}
-      <Box flexDirection="row" flexWrap="wrap" marginTop={1}>
-        {hidden.length > 0 ? hidden.map(group => group.node) : <Text dimColor>todo entra en el pie</Text>}
-      </Box>
+        : null}
+      {controls.length > 0
+        ? (
+          <Box flexDirection="column" marginTop={1}>
+            {heading('CONTROLES')}
+            <Box flexDirection="row" flexWrap="wrap" paddingLeft={1}>{controls}</Box>
+          </Box>
+          )
+        : null}
+      {hidden.length === 0 ? <Box marginTop={1}><Text dimColor>Todo entra en el pie.</Text></Box> : null}
     </Box>
   )
 }
@@ -1627,14 +1689,17 @@ export const register: Register = on => {
     const beneath = await next(e)
     const { Box, Client, Text } = $.ui.resolve(e)
     // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
-    const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - cells(e.props.modes.join(' & ')) - 5
-    const shown = footerFit(groups, room)
+    const modes = e.props.modes.join(' & ')
+    const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
+    const { shown, compact } = footerFit(groups, room)
     hiddenGroups = groups.filter(group => !shown.has(group.name)).map(group => group.name)
+    const drawn = (group: (typeof groups)[number]) => compact.has(group.name) && 'compactNode' in group ? group.compactNode : group.node
     return (
-      <Box flexDirection="row">
+      <Box flexDirection="row" flexWrap="nowrap">
         {beneath}
-        <Text dimColor> · </Text>
-        {groups.filter(group => shown.has(group.name) && group.name !== 'exit').map(group => group.node)}
+        {/* The dot sets the controls off the mode labels: with none, there is nothing to set off. */}
+        {e.props.modes.length > 0 ? <Text dimColor> · </Text> : null}
+        {groups.filter(group => shown.has(group.name) && group.name !== 'exit').map(drawn)}
         {/* What did not fit waits behind ⋯, in a panel above the prompt. */}
         {hiddenGroups.length > 0 ? <Client key="speedy:more" module="./control.tsx" width={MORE_WIDTH} props={{ label: ' ⋯ ', color: '#adb5bd', bold: true }} /> : null}
         {groups.find(group => group.name === 'exit')?.node}
@@ -1727,7 +1792,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : shown === 'more' ? await moreMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : shown === 'more' ? await moreMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

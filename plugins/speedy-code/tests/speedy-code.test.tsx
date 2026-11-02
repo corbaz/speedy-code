@@ -467,13 +467,13 @@ test('clicked again, the microphone is asked to stop, and it goes back to gray',
   await w.clock.advance(200)
   expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#ff6b6b')
   // An emoji takes no color: the glyph itself is red while it records.
-  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔴')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔴 ')
   await ui.post({ isClicked: true }, { in: 'speedy:mic' })
   const file = w.listened[0]?.at(-2)?.split('\\').join('/') ?? ''
   expect(w.written.filter(one => one.path === file).map(one => one.text)).toEqual(['listen', 'stop'])
   // Blue while the last phrases are written.
   expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#748ffc')
-  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔵')
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.text).toBe(' 🔵 ')
   mic.on = false
   await w.clock.advance(200)
   expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#adb5bd')
@@ -705,7 +705,7 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('command.run', (_, e) => { commands.push([e.command, e.args]); return { text: '' } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:model' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude (Opus 5.5) ')
@@ -1052,12 +1052,12 @@ test('the footer shows the effort in force beside the model, follows /effort, an
   on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ▾ ')
   await ui.unmount()
   // /effort max typed in the terminal: the next model request carries it.
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'max', messageCount: 1 })) { /* drained */ }
   const redrawn = await $.ui.mount(FOOTER)
-  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe('◆ Opus 5.5 ')
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ')
   expect((await redrawn.find({ type: 'Text', in: 'speedy:effort' }))?.text).toBe('· max ▾ ')
   expect(effortColor('max')).toBe('#ff6b6b')
   expect(effortColor('low')).toBe('#69db7c')
@@ -1089,10 +1089,10 @@ test('the effort in force ignores subagents, clears on a request without one, an
   await step({ effort: 'max' })
   // A subagent on low does not change what the session runs at.
   await step({ effort: 'low', agentId: 'a1' })
-  expect(await shown()).toBe('◆ Opus 5.5 |· max ▾ ')
+  expect(await shown()).toBe(' ◆ Opus 5.5 |· max ▾ ')
   // A request with no effort (a model without one) clears it: the model alone, with its ▾.
   await step({})
-  expect(await shown()).toBe('◆ Opus 5.5 ▾ |')
+  expect(await shown()).toBe(' ◆ Opus 5.5 ▾ |')
   // A new model from the menu starts from its own effort, unknown until its first request.
   await step({ effort: 'max' })
   const footer = await $.ui.mount(FOOTER)
@@ -1103,7 +1103,7 @@ test('the effort in force ignores subagents, clears on a request without one, an
   await band.press({ key: 'models:apply' })
   await band.unmount()
   expect(commands).toEqual(['model'])
-  expect(await shown()).toBe('◆ Opus 5.5 ▾ |')
+  expect(await shown()).toBe(' ◆ Opus 5.5 ▾ |')
 })
 
 test('cells counts an emoji as two and a variation selector as none', () => {
@@ -1112,15 +1112,20 @@ test('cells counts an emoji as two and a variation selector as none', () => {
   expect(cells(' ⚙️ ')).toBe(4)
 })
 
-test('footerFit keeps every group when they fit, and by rank when not, never a lower rank before a higher', () => {
+test('footerFit keeps every group when they fit; short of room, the model and then the voice go short, and the rest by rank', () => {
   const groups = [
-    { name: 'socials', width: 30 }, { name: 'tools', width: 24 }, { name: 'model', width: 13 }, { name: 'voice', width: 16 },
+    { name: 'socials', width: 30 }, { name: 'tools', width: 24 }, { name: 'model', width: 24, compactWidth: 10 }, { name: 'voice', width: 18, compactWidth: 9 },
     { name: 'narrator', width: 11 }, { name: 'mic', width: 6 }, { name: 'reload', width: 4 }, { name: 'settings', width: 4 }, { name: 'exit', width: 3 }
   ]
-  expect([...footerFit(groups, 200)].length).toBe(9)
-  // 24 + 13 + 16 + 3 and the ⋯ (4) is 60: settings (4) fits, reload (4) does not, and the mic (6) waits behind it.
-  expect([...footerFit(groups, 65)].sort()).toEqual(['exit', 'model', 'settings', 'tools', 'voice'])
-  expect([...footerFit(groups, 61)].sort()).toEqual(['exit', 'model', 'tools', 'voice'])
+  const at = (room: number) => { const fit = footerFit(groups, room); return { shown: [...fit.shown].sort(), compact: [...fit.compact].sort() } }
+  expect(at(200).shown.length).toBe(9)
+  expect(at(200).compact).toEqual([])
+  // Whole, the essentials and the ⋯ take 73: settings (4) fits in 80, reload (4) does not, and the mic waits behind it.
+  expect(at(80)).toEqual({ shown: ['exit', 'model', 'settings', 'tools', 'voice'], compact: [] })
+  // In 65 the model goes short (59), and settings still fits.
+  expect(at(65)).toEqual({ shown: ['exit', 'model', 'settings', 'tools', 'voice'], compact: ['model'] })
+  // In 50 the voice goes short too (50), and nothing else fits.
+  expect(at(50)).toEqual({ shown: ['exit', 'model', 'tools', 'voice'], compact: ['model', 'voice'] })
 })
 
 test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ opens the rest with the figures', { timeoutMs: 30000 }, async ($, on) => {
@@ -1139,9 +1144,12 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   expect((await band.find({ type: 'Text', text: / Más / }))?.text).toBe(' Más ')
   // The hidden controls, the same Clients; and the figures, whole.
   for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
-  expect((await band.find({ type: 'Text', text: /^ctx: / }))?.text).toBe('ctx: 17% 172.4k/1M   ⏱  1h 0m   sesión $85.88')
-  expect((await band.find({ type: 'Text', text: /^5hs / }))?.text).toBe('5hs 7%')
-  expect((await band.find({ type: 'Text', text: /^semana / }))?.text).toBe('semana 86%')
+  expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱ 17%  172.4k / 1M')
+  expect((await band.find({ type: 'Text', text: /^1h 0m$/ }))?.text).toBe('1h 0m')
+  expect((await band.find({ type: 'Text', text: /^\$85\.88$/ }))?.text).toBe('$85.88')
+  expect((await band.find({ type: 'Text', text: /86%/ }))?.text).toBe('▰▰▰▱  86%')
+  // The hidden controls carry their names in the panel.
+  expect((await band.find({ type: 'Text', in: 'speedy:reload' }))?.text).toBe(' 🔄 recargar ')
   await band.unmount()
   // ⋯ again closes it.
   await narrow.post({ isClicked: true }, { in: 'speedy:more' })

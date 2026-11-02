@@ -44,10 +44,11 @@ columns as the width holds and paged so the menu always fits. ✦ marks a multil
 
 ## A narrow terminal
 
-The footer keeps the tools (📋 📥 🖼️ 🖋️ ⏎ 🗑️), the model, the voice and ✕. What does not fit goes in
-this order: the networks first, then the narrator's controls, the microphone, 🔄 and ⚙️; a ⋯ appears.
-Click ⋯ for a panel above the prompt with the status line's figures, whole, and the controls left
-out, which work as in the footer. ⋯ again, Esc or its ✕ closes it.
+The footer keeps the tools (📋 📥 🖼️ 🖋️ ⏎ 🗑️), the model, the voice and ✕; short of room, the model
+goes short (`◆ Opus ▾`) and then the voice (`🗣 ES ▾`). What does not fit goes in this order: the
+networks first, then the narrator's controls, the microphone, 🔄 and ⚙️; a ⋯ appears. Click ⋯ for a
+panel above the prompt: the session (context, time, cost) and the limits, then the networks and the
+controls left out, each named (`🔄 recargar`), working as in the footer. ⋯ again, Esc or its ✕ closes it.
 
 ## Model and effort
 
