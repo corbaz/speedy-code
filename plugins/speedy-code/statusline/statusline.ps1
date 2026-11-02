@@ -1,5 +1,5 @@
-﻿# speedy-code's status line: folder, branch, model, time, tokens, context left, cost and the 5-hour
-# and weekly limits, in color. Claude Code runs it with the session's JSON on stdin; the setup copies
+﻿# speedy-code's status line: folder, branch, version, model, effort, time, tokens, context used, cost
+# and the 5-hour and weekly limits, in color. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on stdin; the setup copies
 # it to ~/.claude/speedy-code and ⚙️ → Instalación turns it on (the previous status line is kept).
 #
 # Every part has a color of its own, and its label is gray, so the eye finds each part by color.
@@ -120,16 +120,52 @@ $context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' 
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$right = $(if ($version) { (Paint "v$version" $C_TIME) + ' ' } else { '' }) + (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' }) + $bar + (Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME) + $bar + $tokens + $bar + $context + $bar + $cost
+$core = $(if ($version) { (Paint "v$version" $C_TIME) + ' ' } else { '' }) + (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' })
+$time = Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME
 
+# Each part in the order it is drawn, with its rank when the width is short (1 goes first) and,
+# for the limits, a short form without the reset time.
+$parts = [System.Collections.ArrayList]::new()
+[void]$parts.Add(@{ Rank = 8; Full = $left })
+[void]$parts.Add(@{ Rank = 1; Full = $core })
+[void]$parts.Add(@{ Rank = 5; Full = $time })
+[void]$parts.Add(@{ Rank = 7; Full = $tokens })
+[void]$parts.Add(@{ Rank = 4; Full = $context })
+[void]$parts.Add(@{ Rank = 6; Full = $cost })
+$rank = 2
 foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $C_WEEK))) {
   $limit = $data.rate_limits.($window[0])
   # 0% is a limit too: PowerShell reads 0 as false, so test for the value's presence.
   if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Limit-Color $used
-    $right += $bar + (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) + ' ' } else { '' }) + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL)
+    $short = (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) + ' ' } else { '' })
+    [void]$parts.Add(@{ Rank = $rank; Full = $short + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL); Short = $short })
   }
+  $rank++
 }
 
-Write-Output "$left $(Paint '»' $C_DIM) $right"
+# The width Claude Code gives the line: COLUMNS, less a margin. Without it, everything goes.
+# First the parts in rank order, each in its short form, until one does not fit: a lower rank never
+# takes the place of a higher one. The model always goes. Then, with the room left, the limits get
+# their reset time back in rank order. Nothing is cut in the middle with "…".
+function Visible($text) { ($text -replace "$e\[[0-9;]*m", '').Length }
+$room = if ([int]$env:COLUMNS -gt 0) { [int]$env:COLUMNS - 4 } else { [int]::MaxValue }
+$ranked = @($parts | Sort-Object { $_.Rank })
+$taken = 0
+foreach ($part in $ranked) {
+  $form = if ($part.Short) { $part.Short } else { $part.Full }
+  $gap = if ($taken) { 3 } else { 0 }
+  if ($part.Rank -ne 1 -and $taken + $gap + (Visible $form) -gt $room) { break }
+  $part.Shown = $form
+  $taken += $gap + (Visible $form)
+}
+foreach ($part in $ranked) {
+  if (-not $part.Shown -or -not $part.Short) { continue }
+  $more = (Visible $part.Full) - (Visible $part.Short)
+  if ($taken + $more -le $room) { $part.Shown = $part.Full; $taken += $more }
+}
+$shown = @($parts | Where-Object { $_.Shown } | ForEach-Object { $_.Shown })
+# The folder is set off by », the rest by │.
+$line = if ($parts[0].Shown) { $parts[0].Shown + ' ' + (Paint '»' $C_DIM) + ' ' + (($shown | Select-Object -Skip 1) -join $bar) } else { $shown -join $bar }
+Write-Output $line

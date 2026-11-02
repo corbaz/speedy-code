@@ -42,6 +42,13 @@ closes it, as its ✕ does.
 Árabe, Hindi, Bengalí, Urdu), a switch between women's and men's voices, the voices in as many
 columns as the width holds and paged so the menu always fits. ✦ marks a multilingual voice.
 
+## A narrow terminal
+
+The footer keeps the tools (📋 📥 🖼️ 🖋️ ⏎ 🗑️), the model, the voice and ✕. What does not fit goes in
+this order: the networks first, then the narrator's controls, the microphone, 🔄 and ⚙️; a ⋯ appears.
+Click ⋯ for a panel above the prompt with the status line's figures, whole, and the controls left
+out, which work as in the footer. ⋯ again, Esc or its ✕ closes it.
+
 ## Model and effort
 
 The footer shows the model in use and, beside it, the effort in force, in a traffic-light color:
@@ -69,6 +76,10 @@ C:/cli » v2.1.316 ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 ca
 - **sesión:** what the session has cost.
 - **5hs / semana:** the share of each usage limit used, and when it resets. Yellow at 75%, red and
   `⚠` at 90%.
+
+In a narrow terminal it keeps what matters most, each part whole: the version, model and effort
+always, then the 5-hour limit, the weekly one, the context, the time, the cost, the tokens and the
+folder; the limits drop their reset time before a part is left out.
 
 The levels are the defaults; ⚙️ → Barra de estado changes them. Crossing a red level also shows a
 notice once.

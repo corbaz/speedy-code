@@ -14,7 +14,7 @@ export type Listening = 'off' | 'loading' | 'on'
 export type Heard = { number: number; text: string }
 
 /** A menu shown above the prompt: none, the voices, the microphones, the settings, or the Claude models. */
-export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models'
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more'
 
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>

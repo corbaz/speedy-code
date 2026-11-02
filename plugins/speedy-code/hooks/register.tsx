@@ -765,6 +765,217 @@ async function followModel ($: EngineInterface) {
   }
 }
 
+/**
+ * A footer group's rank when the width is short: 0 is always drawn; then 1 first, 2 next, and so on.
+ * The tools, the model, the voice and ✕ always stay; the networks go first.
+ */
+const FOOTER_RANKS: Record<string, number> = { tools: 0, model: 0, voice: 0, exit: 0, settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5 }
+/** The ⋯ button's width, drawn when something does not fit. */
+const MORE_WIDTH = 4
+/** The groups the footer last left out for want of room: the ⋯ panel draws them. */
+let hiddenGroups: readonly string[] = []
+
+/** The cells a label takes on a terminal: an emoji two, a variation selector or joiner none, the rest one. */
+export function cells (text: string) {
+  const points = [...text]
+  return points.reduce((total, point, index) => {
+    const code = point.codePointAt(0) ?? 0
+    if (code === 0xfe0e || code === 0xfe0f || code === 0x200d) return total
+    return total + (code >= 0x1f000 || points[index + 1] === '\ufe0f' ? 2 : 1)
+  }, 0)
+}
+
+/**
+ * The footer groups drawn in `room` cells: all of them when they fit. If not, those ranked 0 and the
+ * ⋯, then the rest in rank order until one does not fit: a lower rank never takes a higher one's place.
+ */
+export function footerFit (groups: ReadonlyArray<{ name: string, width: number }>, room: number) {
+  const rank = (name: string) => FOOTER_RANKS[name] ?? 9
+  if (groups.reduce((sum, group) => sum + group.width, 0) <= room) return new Set(groups.map(group => group.name))
+  const shown = new Set(groups.filter(group => rank(group.name) === 0).map(group => group.name))
+  let used = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + group.width, MORE_WIDTH)
+  for (const group of groups.filter(one => !shown.has(one.name)).sort((a, b) => rank(a.name) - rank(b.name))) {
+    if (used + group.width > room) break
+    shown.add(group.name)
+    used += group.width
+  }
+  return shown
+}
+
+/**
+ * The footer's controls, in groups that come and go together, in the order they are drawn, each with
+ * the cells it takes. The footer draws those that fit; the ⋯ panel, the rest. The same Clients in
+ * both places, so a click does the same thing wherever it comes from.
+ */
+async function footerGroups ($: EngineInterface, e: Drawn) {
+  const elements = $.ui.resolve(e)
+  // Only the terminal and the desktop draw a Client.
+  if (!('Client' in elements)) return []
+  const { Box, Client, Text } = elements
+  const chosen = await read($, picks)
+  const active = chosen.active ?? DEFAULT_LANG
+  const voice = chosen[active] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
+  const [enabled, now, listen, polishing] = [await read($, isEnabled), await read($, speech), await read($, listening), await read($, isPolishing)]
+  // The networks with a user name set, in SOCIALS' order.
+  const users = await read($, socials)
+  const linked = SOCIALS.flatMap(([id, , label, color]) => accountsOf(users, id)
+    .filter(key => socialLink(id, users[key] ?? ''))
+    .map(key => ({ key, label: accountLabel(label, key), color })))
+  const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
+  const model = modelLabel(current)
+  const level = await read($, effort)
+  // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
+  // so play and pause take the same room. U+FE0E asks for the text form.
+  const play = { idle: ['⏵', '#51cf66'], thinking: ['⧗', '#748ffc'], playing: ['⏸︎', '#ffd43b'], paused: ['⏵', '#51cf66'] }[now]
+  // Always drawn, so nothing in the footer moves: disabled, in gray, while the narrator is off and
+  // before the first answer, when there is nothing to read again.
+  const canPlay = isPlayable(enabled, now)
+  const modelText = level ? `◆ ${model} ` : `◆ ${model} ▾ `
+  const effortText = `· ${level} ▾ `
+  const voiceText = `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`
+  return [
+    {
+      name: 'socials',
+      width: linked.length > 0 ? linked.reduce((sum, one) => sum + one.label.length + 2, 2) : 0,
+      node: (
+        <Box key="group:socials" flexDirection="row">
+          {linked.map(({ key, label, color }) => (
+            <Client key={`speedy:social:${key}`} module="./control.tsx" width={label.length + 2} props={{ label: ` ${label} `, color, bold: true }} />
+          ))}
+          <Text dimColor>│ </Text>
+        </Box>
+      )
+    },
+    {
+      name: 'tools',
+      width: CONTROL_WIDTH * 5 + 3 + 1,
+      node: (
+        <Box key="group:tools" flexDirection="row">
+          <Client key="speedy:copy" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📋 ', color: '#adb5bd' }} />
+          <Client key="speedy:paste" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📥 ', color: '#adb5bd' }} />
+          <Client key="speedy:image" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🖼️ ', color: '#adb5bd' }} />
+          {/* An emoji takes no color: the glyph tells it is at work. */}
+          <Client key="speedy:polish" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: polishing ? ' ⏳ ' : ' 🖋️ ', color: '#da77f2' }} />
+          <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
+          <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
+          <Text> </Text>
+        </Box>
+      )
+    },
+    {
+      name: 'model',
+      width: cells(modelText) + (level ? cells(effortText) : 0),
+      node: (
+        <Box key="group:model" flexDirection="row">
+          <Client key="speedy:model" module="./control.tsx" props={{ label: modelText, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
+          {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
+          {level ? <Client key="speedy:effort" module="./control.tsx" props={{ label: effortText, color: effortColor(level), bold: true }} /> : null}
+        </Box>
+      )
+    },
+    {
+      name: 'voice',
+      width: cells(voiceText),
+      node: <Client key="speedy:voice" module="./control.tsx" props={{ label: voiceText, color: languageColor(active) }} />
+    },
+    {
+      name: 'narrator',
+      width: CONTROL_WIDTH * 2 + PLAY_WIDTH,
+      node: (
+        <Box key="group:narrator" flexDirection="row">
+          {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
+          <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
+          <Client key="speedy:play" module="./control.tsx" width={PLAY_WIDTH} props={{ label: ` ${play[0]} `, color: canPlay ? play[1] : DISABLED, bold: canPlay }} />
+          <Client key="speedy:clip" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📎 ', color: enabled ? '#ffd43b' : DISABLED }} />
+        </Box>
+      )
+    },
+    {
+      name: 'mic',
+      width: CONTROL_WIDTH + 2,
+      node: (
+        <Box key="group:mic" flexDirection="row">
+          <Client key="speedy:mic" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${MIC_GLYPHS[listen]}`, color: MIC_COLORS[listen], bold: listen !== 'off' }} />
+          <Client key="speedy:mics" module="./control.tsx" width={2} props={{ label: '▾ ', color: MIC_COLORS.off }} />
+        </Box>
+      )
+    },
+    { name: 'reload', width: CONTROL_WIDTH, node: <Client key="speedy:reload" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🔄 ', color: '#adb5bd' }} /> },
+    { name: 'settings', width: CONTROL_WIDTH, node: <Client key="speedy:settings" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' ⚙️ ', color: '#adb5bd' }} /> },
+    { name: 'exit', width: 3, node: <Client key="speedy:exit" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} /> }
+  ]
+}
+
+/** Tokens said short: 172.4k, 1M. */
+function shortTokens (n: number) {
+  if (n >= 999950) return `${(n / 1000000).toFixed(1).replace(/\.0$/, '')}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(Math.round(n))
+}
+
+/** A span of time in days, hours and minutes, as the status line says it. */
+function shortDuration (ms: number) {
+  const minutes = Math.max(0, Math.floor(ms / 60000))
+  const [days, hours, mins] = [Math.floor(minutes / 1440), Math.floor((minutes % 1440) / 60), minutes % 60]
+  return days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+}
+
+/** When a limit resets: `hoy 13:40`, `mañana 09:00`, or the day's short name. */
+function resetWhen (iso: string | undefined) {
+  if (!iso) return ''
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  const today = new Date()
+  const day = (one: Date) => one.toDateString()
+  if (day(at) === day(today)) return `hoy ${time}`
+  if (day(at) === day(new Date(today.getTime() + 86400000))) return `mañana ${time}`
+  return `${['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][at.getDay()]} ${time}`
+}
+
+/**
+ * The ⋯ panel: the status line's figures, whole, as the session reports them, and the footer
+ * controls that did not fit, drawn as in the footer. A control that opens something replaces the
+ * panel; one that switches keeps it open, showing the change.
+ */
+async function moreMenu ($: EngineInterface, e: Drawn) {
+  const { Box, Text } = $.ui.resolve(e)
+  const usage = await $.session.usage().catch(() => undefined)
+  const levels = await read($, barLevels)
+  const hidden = (await footerGroups($, e)).filter(group => group.width > 0 && hiddenGroups.includes(group.name))
+  const tone = (value: number, yellow: number, red: number) => value >= red ? '#ff6b6b' : value >= yellow ? '#ffd43b' : '#51cf66'
+  const percent = Math.round(usage?.context.percent ?? 0)
+  const limitNames: Record<string, string> = { five_hour: '5hs', seven_day: 'semana' }
+  return (
+    <Box flexDirection="column">
+      {usage
+        ? (
+          <Box flexDirection="column">
+            <Text>
+              <Text dimColor>{'ctx: '}</Text>
+              <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${percent}% ${shortTokens(usage.context.tokens ?? 0)}/${shortTokens(usage.context.window)}`}</Text>
+              <Text dimColor>{'   ⏱  '}</Text>
+              <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>
+              {usage.cost ? <Text dimColor>{'   sesión '}</Text> : null}
+              {usage.cost ? <Text bold color="#ffd43b">{`$${usage.cost.usd.toFixed(2)}`}</Text> : null}
+            </Text>
+            {usage.rateLimits.map(limit => (
+              <Text key={`limit:${limit.kind}`}>
+                <Text color={limit.kind === 'seven_day' ? '#d0bfff' : '#91a7ff'}>{`${limitNames[limit.kind] ?? limit.kind} `}</Text>
+                <Text bold color={tone(limit.percentUsed, levels.limitYellow, levels.limitRed)}>{`${Math.round(limit.percentUsed)}%`}</Text>
+                <Text dimColor>{limit.resetsAt ? `  ↻ ${resetWhen(limit.resetsAt)}` : ''}</Text>
+              </Text>
+            ))}
+          </Box>
+          )
+        : <Text dimColor>sin datos de la sesión todavía</Text>}
+      <Box flexDirection="row" flexWrap="wrap" marginTop={1}>
+        {hidden.length > 0 ? hidden.map(group => group.node) : <Text dimColor>todo entra en el pie</Text>}
+      </Box>
+    </Box>
+  )
+}
+
 /** The color of an effort level: its traffic-light color in EFFORTS, gray for one it does not list. */
 export function effortColor (level: string): string {
   return EFFORTS.find(([name]) => name === level)?.[1] ?? '#adb5bd'
@@ -1412,55 +1623,21 @@ export const register: Register = on => {
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     // Only the terminal and the desktop draw a Client.
     if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
-    const chosen = await read($, picks)
-    const active = chosen.active ?? DEFAULT_LANG
-    const voice = chosen[active] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
-    const [enabled, now, listen, polishing] = [await read($, isEnabled), await read($, speech), await read($, listening), await read($, isPolishing)]
-    // The networks with a user name set, in SOCIALS' order.
-    const users = await read($, socials)
-    const linked = SOCIALS.flatMap(([id, , label, color]) => accountsOf(users, id)
-      .filter(key => socialLink(id, users[key] ?? ''))
-      .map(key => ({ key, label: accountLabel(label, key), color })))
-    const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
-    const model = modelLabel(current)
-    const level = await read($, effort)
+    const groups = (await footerGroups($, e)).filter(group => group.width > 0)
     const beneath = await next(e)
     const { Box, Client, Text } = $.ui.resolve(e)
-    // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
-    // so play and pause take the same room. U+FE0E asks for the text form.
-    const play = { idle: ['⏵', '#51cf66'], thinking: ['⧗', '#748ffc'], playing: ['⏸︎', '#ffd43b'], paused: ['⏵', '#51cf66'] }[now]
-    // Always drawn, so nothing in the footer moves: disabled, in gray, while the narrator is off and
-    // before the first answer, when there is nothing to read again.
-    const canPlay = isPlayable(enabled, now)
+    // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
+    const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - cells(e.props.modes.join(' & ')) - 5
+    const shown = footerFit(groups, room)
+    hiddenGroups = groups.filter(group => !shown.has(group.name)).map(group => group.name)
     return (
       <Box flexDirection="row">
         {beneath}
         <Text dimColor> · </Text>
-        {linked.map(({ key, label, color }) => (
-          <Client key={`speedy:social:${key}`} module="./control.tsx" width={label.length + 2} props={{ label: ` ${label} `, color, bold: true }} />
-        ))}
-        {linked.length > 0 ? <Text dimColor>│ </Text> : null}
-        <Client key="speedy:copy" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📋 ', color: '#adb5bd' }} />
-        <Client key="speedy:paste" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📥 ', color: '#adb5bd' }} />
-        <Client key="speedy:image" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🖼️ ', color: '#adb5bd' }} />
-        {/* An emoji takes no color: the glyph tells it is at work. */}
-        <Client key="speedy:polish" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: polishing ? ' ⏳ ' : ' 🖋️ ', color: '#da77f2' }} />
-        <Client key="speedy:send" module="./control.tsx" width={3} props={{ label: ' ⏎ ', color: '#51cf66', bold: true }} />
-        <Client key="speedy:clear" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🗑️ ', color: '#adb5bd' }} />
-        <Text> </Text>
-        <Client key="speedy:model" module="./control.tsx" props={{ label: level ? `◆ ${model} ` : `◆ ${model} ▾ `, color: modelOf(current)?.[3] ?? MODEL_COLOR, bold: true }} />
-        {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
-        {level ? <Client key="speedy:effort" module="./control.tsx" props={{ label: `· ${level} ▾ `, color: effortColor(level), bold: true }} /> : null}
-        <Client key="speedy:voice" module="./control.tsx" props={{ label: `🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`, color: languageColor(active) }} />
-        {/* Each control's region is a column wider than its glyph on either side: easier to hit. */}
-        <Client key="speedy:switch" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${enabled ? '🔊' : '🔇'} `, color: enabled ? '#51cf66' : '#868e96' }} />
-        <Client key="speedy:play" module="./control.tsx" width={PLAY_WIDTH} props={{ label: ` ${play[0]} `, color: canPlay ? play[1] : DISABLED, bold: canPlay }} />
-        <Client key="speedy:clip" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 📎 ', color: enabled ? '#ffd43b' : DISABLED }} />
-        <Client key="speedy:mic" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ` ${MIC_GLYPHS[listen]}`, color: MIC_COLORS[listen], bold: listen !== 'off' }} />
-        <Client key="speedy:mics" module="./control.tsx" width={2} props={{ label: '▾ ', color: MIC_COLORS.off }} />
-        <Client key="speedy:reload" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' 🔄 ', color: '#adb5bd' }} />
-        <Client key="speedy:settings" module="./control.tsx" width={CONTROL_WIDTH} props={{ label: ' ⚙️ ', color: '#adb5bd' }} />
-        <Client key="speedy:exit" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
+        {groups.filter(group => shown.has(group.name) && group.name !== 'exit').map(group => group.node)}
+        {/* What did not fit waits behind ⋯, in a panel above the prompt. */}
+        {hiddenGroups.length > 0 ? <Client key="speedy:more" module="./control.tsx" width={MORE_WIDTH} props={{ label: ' ⋯ ', color: '#adb5bd', bold: true }} /> : null}
+        {groups.find(group => group.name === 'exit')?.node}
       </Box>
     )
   })
@@ -1480,6 +1657,9 @@ export const register: Register = on => {
       const key = e.element.slice('speedy:social:'.length)
       const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
       if (link) await openLink($, link)
+      await closeMenu($, 'more')
+    } else if (e.element === 'speedy:more') {
+      await openMenu($, 'more')
     } else if (e.element === 'speedy:settings') {
       await openMenu($, 'settings')
     } else if (e.element === 'speedy:model' || e.element === 'speedy:effort') {
@@ -1537,7 +1717,7 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : 'Configuración'} `
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : 'Configuración'} `
       const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
@@ -1547,7 +1727,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : shown === 'more' ? await moreMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

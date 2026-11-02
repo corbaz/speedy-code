@@ -137,6 +137,16 @@ request. The yellow and red levels come from `~/.claude/speedy-code/levels.json`
 limits 75/90). The status line is plain text: it takes no clicks, so the footer is where the model
 and effort are changed.
 
+## Narrow terminals
+
+The status line reads its width from `$env:COLUMNS`, which Claude Code sets (`[Console]::WindowWidth`
+fails there: no console handle). Its parts are taken by rank in their short form until one does not
+fit, then the limits get their reset time back while there is room; a lower rank never takes a higher
+one's place. The footer reads `e.viewport.columns`, which every drawing carries and which a resize
+redraws. `footerGroups()` builds the controls in groups with their widths; `footerFit()` picks those
+that fit by `FOOTER_RANKS`; the ones left out are kept in `hiddenGroups` for the ⋯ panel, which draws
+the very same Clients, so a click there runs the footer's own handler.
+
 ## Model and effort in the footer
 
 `/model` and `/effort` typed in the terminal are not events a mod sees. The model is polled every

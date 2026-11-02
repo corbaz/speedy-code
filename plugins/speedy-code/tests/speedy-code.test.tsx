@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { accountsOf, ascii, effortColor, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, cells, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -1104,6 +1104,51 @@ test('the effort in force ignores subagents, clears on a request without one, an
   await band.unmount()
   expect(commands).toEqual(['model'])
   expect(await shown()).toBe('◆ Opus 5.5 ▾ |')
+})
+
+test('cells counts an emoji as two and a variation selector as none', () => {
+  expect(cells('◆ Opus 5.5 ▾ ')).toBe(13)
+  expect(cells('🗣  Elena · ES ▾')).toBe(16)
+  expect(cells(' ⚙️ ')).toBe(4)
+})
+
+test('footerFit keeps every group when they fit, and by rank when not, never a lower rank before a higher', () => {
+  const groups = [
+    { name: 'socials', width: 30 }, { name: 'tools', width: 24 }, { name: 'model', width: 13 }, { name: 'voice', width: 16 },
+    { name: 'narrator', width: 11 }, { name: 'mic', width: 6 }, { name: 'reload', width: 4 }, { name: 'settings', width: 4 }, { name: 'exit', width: 3 }
+  ]
+  expect([...footerFit(groups, 200)].length).toBe(9)
+  // 24 + 13 + 16 + 3 and the ⋯ (4) is 60: settings (4) fits, reload (4) does not, and the mic (6) waits behind it.
+  expect([...footerFit(groups, 65)].sort()).toEqual(['exit', 'model', 'settings', 'tools', 'voice'])
+  expect([...footerFit(groups, 61)].sort()).toEqual(['exit', 'model', 'tools', 'voice'])
+})
+
+test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ opens the rest with the figures', { timeoutMs: 30000 }, async ($, on) => {
+  on('session.usage', () => ({ value: { startedAt: Date.now() - 3600000, context: { tokens: 172400, window: 1000000, percent: 17 }, rateLimits: [{ kind: 'five_hour', percentUsed: 7 }, { kind: 'seven_day', percentUsed: 86 }], cost: { usd: 85.88 } } }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo' } })
+  const has = async (view: { find: typeof ui.find }, key: string) => view.find({ type: 'Text', in: key }).then(found => found !== undefined, () => false)
+  // Wide: everything, and no ⋯.
+  expect(await has(ui, 'speedy:social:github')).toBe(true)
+  expect(await has(ui, 'speedy:more')).toBe(false)
+  await ui.unmount()
+  const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
+  for (const key of ['speedy:copy', 'speedy:send', 'speedy:model', 'speedy:voice', 'speedy:exit', 'speedy:more']) expect(await has(narrow, key)).toBe(true)
+  for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(narrow, key)).toBe(false)
+  await narrow.post({ isClicked: true }, { in: 'speedy:more' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: / Más / }))?.text).toBe(' Más ')
+  // The hidden controls, the same Clients; and the figures, whole.
+  for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
+  expect((await band.find({ type: 'Text', text: /^ctx: / }))?.text).toBe('ctx: 17% 172.4k/1M   ⏱  1h 0m   sesión $85.88')
+  expect((await band.find({ type: 'Text', text: /^5hs / }))?.text).toBe('5hs 7%')
+  expect((await band.find({ type: 'Text', text: /^semana / }))?.text).toBe('semana 86%')
+  await band.unmount()
+  // ⋯ again closes it.
+  await narrow.post({ isClicked: true }, { in: 'speedy:more' })
+  const closed = await $.ui.mount(BAND)
+  expect(await closed.find({ type: 'Text', text: / Más / })).toBeUndefined()
+  await closed.unmount()
+  await narrow.unmount()
 })
 
 test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
