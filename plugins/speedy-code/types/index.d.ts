@@ -42,6 +42,8 @@ declare module 'claude-code' {
       gender: Voice['gender']
       /** The page of voices shown, from 0, when they do not all fit. */
       page: number
+      /** The page of social accounts shown, from 0, when they do not all fit. */
+      socialPage: number
       /** What the narrator is doing now. */
       speech: Speech
       /** What the microphone is doing now. */

@@ -29,6 +29,7 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.menu ??= { value: '', version: 1 }
   held.gender ??= { value: 'Female', version: 1 }
   held.page ??= { value: 0, version: 1 }
+  held.socialPage ??= { value: 0, version: 1 }
   held.socials ??= { value: {}, version: 1 }
   held.settingsTab ??= { value: 'socials', version: 1 }
   held.settingsOpened ??= { value: 0, version: 1 }
@@ -863,6 +864,63 @@ test('+ adds an empty account with its field open; left empty, it goes', { timeo
   await open.input({ key: 'social:github#2:1', text: '', kind: 'submit' })
   await open.unmount()
   expect(w.kept.socials).toEqual({ github: 'octo' })
+  await ui.unmount()
+})
+
+test('+ on a network with an empty account opens it, closing drops empty accounts, and − removes an added one', { timeoutMs: 30000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo', 'github#2': 'trabajo' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'add:github' })
+  await band.press({ key: 'add:github' })
+  await band.press({ key: 'add:github' })
+  await band.unmount()
+  // Three presses, one empty account: the next press opens it again.
+  expect(w.kept.socials).toEqual({ github: 'octo', 'github#2': 'trabajo', 'github#3': '' })
+  // Closed with nothing typed: the empty account goes.
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  expect(w.kept.socials).toEqual({ github: 'octo', 'github#2': 'trabajo' })
+  // − removes an added account; the first has none.
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const again = await $.ui.mount(BAND)
+  expect(await again.find({ key: 'remove:github' })).toBeUndefined()
+  expect(await again.find({ key: 'remove:github#2' })).toBeDefined()
+  await again.press({ key: 'remove:github#2' })
+  await again.unmount()
+  expect(w.kept.socials).toEqual({ github: 'octo' })
+  await ui.unmount()
+})
+
+test('the accounts go in pages when they do not fit the band, and the page with the field being edited shows', { timeoutMs: 30000 }, async ($, on) => {
+  const socials = Object.fromEntries([['github', 'octo'], ...Array.from({ length: 10 }, (_, index) => [`github#${index + 2}`, `cuenta${index + 2}`])])
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const shown = async () => {
+    const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 110, maxRows: 12 } })
+    const keys = (await band.findAll({ type: 'Box' })).map(box => String(box.key ?? '')).filter(key => key.startsWith('social-row:'))
+    const page = (await band.findAll({ type: 'Text', text: /^ \d+\/\d+ $/ }))[0]?.text
+    return { band, keys, page }
+  }
+  const first = await shown()
+  // 22 accounts, 7 rows a page: four pages.
+  expect(first.keys.length).toBe(7)
+  expect(first.page).toBe(' 1/4 ')
+  await first.band.press({ key: 'social-page:next' })
+  await first.band.unmount()
+  const second = await shown()
+  expect(second.page).toBe(' 2/4 ')
+  expect(second.keys[0]).toBe('social-row:github#8')
+  await second.band.press({ key: 'social-page:previous' })
+  await second.band.unmount()
+  // + on page 1 adds github#12, row 12: its field is on page 2, and page 2 shows.
+  const third = await shown()
+  expect(third.page).toBe(' 1/4 ')
+  await third.band.press({ key: 'add:github' })
+  await third.band.unmount()
+  const fourth = await shown()
+  expect(fourth.page).toBe(' 2/4 ')
+  expect(fourth.keys).toContain('social-row:github#12')
+  await fourth.band.unmount()
   await ui.unmount()
 })
 

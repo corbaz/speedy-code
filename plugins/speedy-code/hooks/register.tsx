@@ -158,6 +158,7 @@ const voices = atom({ plugin: 'speedy-code', key: 'voices' } as const, [] as Voi
 const tab = atom({ plugin: 'speedy-code', key: 'tab' } as const, DEFAULT_LANG)
 const gender = atom({ plugin: 'speedy-code', key: 'gender' } as const, 'Female' as Voice['gender'])
 const page = atom({ plugin: 'speedy-code', key: 'page' } as const, 0)
+const socialPage = atom({ plugin: 'speedy-code', key: 'socialPage' } as const, 0)
 const speech = atom({ plugin: 'speedy-code', key: 'speech' } as const, 'idle' as Speech)
 const listening = atom({ plugin: 'speedy-code', key: 'listening' } as const, 'off' as Listening)
 const mics = atom({ plugin: 'speedy-code', key: 'mics' } as const, [] as string[])
@@ -292,6 +293,7 @@ async function savePicks ($: EngineInterface, next: Picks) {
  * chat changed its layout with its width (and needs 110 columns or more when the footer opens it).
  */
 async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
+  await dropEmptyAccounts($)
   // Its icon clicked again while it is open: it closes, as its ✕ does.
   if ((await read($, menu)) === which) {
     await closeMenu($, which)
@@ -322,6 +324,7 @@ function voiceTitle (chosen: Picks) {
 
 /** Closes a menu, wherever it shows. */
 async function closeMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
+  await dropEmptyAccounts($)
   if ((await read($, menu)) === which) await update($, menu, () => '')
 }
 
@@ -637,13 +640,36 @@ const networkOf = (key: string) => key.split('#')[0] ?? key
 /** The label of an account's button: the network's, numbered past the first (`GH`, `GH2`). */
 const accountLabel = (label: string, key: string) => label + (key.split('#')[1] ?? '')
 
-/** The + button: another account of a network, empty, its field open to type in. */
+/** The + button: another account of a network, empty, its field open to type in. One already empty is opened instead. */
 async function addAccount ($: EngineInterface, id: string) {
   const users = await read($, socials)
+  const empty = accountsOf(users, id).slice(1).find(key => !(users[key] ?? '').trim())
+  if (empty) {
+    await update($, editing, () => empty)
+    return
+  }
   const numbers = accountsOf(users, id).slice(1).map(key => Number(key.split('#')[1]))
   const key = `${id}#${Math.max(1, ...numbers) + 1}`
   await saveSocial($, key, '')
   await update($, editing, () => key)
+}
+
+/** The − button: an added account goes, whatever it holds. A network's first account has none: it always stays. */
+async function removeAccount ($: EngineInterface, key: string) {
+  if (!key.includes('#')) return
+  const { [key]: _gone, ...rest } = await read($, socials)
+  await update($, socials, () => rest)
+  await $.store.set('socials', rest)
+  if ((await read($, editing)) === key) await update($, editing, () => '')
+}
+
+/** Every added account still empty: they go, as when the settings close with nothing typed in them. */
+async function dropEmptyAccounts ($: EngineInterface) {
+  const users = await read($, socials)
+  const rest = Object.fromEntries(Object.entries(users).filter(([key, user]) => !key.includes('#') || (user ?? '').trim()))
+  if (Object.keys(rest).length === Object.keys(users).length) return
+  await update($, socials, () => rest)
+  await $.store.set('socials', rest)
 }
 
 /** An added account left empty when its field is done with: it goes. */
@@ -784,7 +810,7 @@ async function pressPlay ($: EngineInterface) {
 }
 
 /** The settings menu: a tab per kind of setting. Social networks: a user name each, its link shown as it is built. */
-async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
+async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 24) {
   const open = await read($, settingsTab)
   const users = await read($, socials)
   const generation = await read($, settingsOpened)
@@ -808,7 +834,8 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
     const done = (value: string) => saveSocial($, key, value).then(() => update($, editing, () => '')).then(() => dropIfEmpty($, key))
     return (
       <Box key={`social-row:${key}`} flexDirection="row">
-        {/* The + adds another account of the network: on its first row alone. */}
+        {/* The + adds another account of the network, on its first row; − removes an added one.
+            The first account has no −: a network keeps one. */}
         <Box width={SOCIAL_PLUS_WIDTH}>
           {isFirst
             ? (
@@ -816,7 +843,11 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
                 <Text bold color={color}>{' + '}</Text>
               </Button>
               )
-            : null}
+            : (
+              <Button key={`remove:${key}`} plain onPress={() => { void removeAccount($, key) }}>
+                <Text bold color="#ff6b6b">{' − '}</Text>
+              </Button>
+              )}
         </Box>
         <Box width={SOCIAL_BADGE_WIDTH}><Text bold color={color} dimColor={!isFirst}>{accountLabel(label, key)}</Text></Box>
         <Box width={SOCIAL_NAME_WIDTH}><Text bold={isFirst} color={color} dimColor={!isFirst}>{isFirst ? name : `  cuenta ${index + 1}`}</Text></Box>
@@ -917,29 +948,52 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90) {
       <Text dimColor bold>Link</Text>
     </Box>
   )
-  const perTable = Math.ceil(rows.length / tableCount)
+  // The rows a table holds: the band's height less the frame's three, the tabs line and the header.
+  // More than that, and the accounts go in pages; the page with the field being edited is shown.
+  const fits = Math.max(3, height - 5)
+  const perPage = fits * tableCount
+  const pages = Math.max(1, Math.ceil(rows.length / perPage))
+  const editedAt = SOCIALS.flatMap(([id]) => accountsOf(users, id)).indexOf(edited)
+  const at = editedAt >= 0 ? Math.floor(editedAt / perPage) : Math.min(await read($, socialPage), pages - 1)
+  const shownRows = rows.slice(at * perPage, (at + 1) * perPage)
+  const perTable = Math.ceil(shownRows.length / tableCount)
+  const turn = (to: number) => { void update($, editing, () => '').then(() => update($, socialPage, () => Math.min(Math.max(to, 0), pages - 1))) }
   const tables = (
     <Box flexDirection="row" columnGap={TABLE_GAP}>
       {Array.from({ length: tableCount }, (_, index) => (
         <Box key={`social-table:${index}`} flexDirection="column" width={fixed + linkWidth}>
           {header}
-          {rows.slice(index * perTable, (index + 1) * perTable)}
+          {shownRows.slice(index * perTable, (index + 1) * perTable)}
         </Box>
       ))}
     </Box>
   )
+  const pager = pages > 1
+    ? (
+      <Box flexDirection="row" marginLeft={2}>
+        <Button key="social-page:previous" plain onPress={() => turn(at - 1)}>
+          <Text bold color={at > 0 ? '#adb5bd' : DISABLED}>{' ◀ '}</Text>
+        </Button>
+        <Text color="#adb5bd">{` ${at + 1}/${pages} `}</Text>
+        <Button key="social-page:next" plain onPress={() => turn(at + 1)}>
+          <Text bold color={at < pages - 1 ? '#adb5bd' : DISABLED}>{' ▶ '}</Text>
+        </Button>
+      </Box>
+      )
+    : null
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
         {SETTINGS_TABS.map(([id, label]) => (
           <Box key={`settings-cell:${id}`} marginRight={2}>
-            <Button key={`settings:${id}`} plain onPress={() => { void update($, settingsTab, () => id) }}>
+            <Button key={`settings:${id}`} plain onPress={() => { void dropEmptyAccounts($).then(() => update($, settingsTab, () => id)) }}>
               <Text bold color={id === open ? 'black' : '#adb5bd'} backgroundColor={id === open ? '#adb5bd' : undefined}>{` ${label} `}</Text>
             </Button>
           </Box>
         ))}
-        {open === 'socials' ? <Text dimColor>click en un usuario para editarlo · Enter guarda · + suma otra cuenta</Text> : null}
+        {open === 'socials' ? <Text dimColor>click en un usuario para editarlo · Enter guarda · + suma otra cuenta · − la borra</Text> : null}
+        {open === 'socials' ? pager : null}
       </Box>
       {open === 'setup' ? setupTab : null}
       {open === 'bar' ? barTab : null}
@@ -1464,7 +1518,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : await settingsMenu($, e, width)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

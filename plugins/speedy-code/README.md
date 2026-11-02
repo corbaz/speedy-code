@@ -88,8 +88,10 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
   the context and the limits turn yellow and red, in steps of 5; "Restaurar los valores por defecto" brings the defaults
   back.
 - **Redes sociales:** a user name per network (GitHub, LinkedIn, X, YouTube, Instagram, TikTok,
-  Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network. Click a
-  user name to edit it, Enter keeps it. Discord takes the numeric user ID.
+  Facebook, Twitch, Threads, Reddit, Gmail, Discord); + adds another account of a network and −
+  removes an added one (a network always keeps its first). Click a user name to edit it, Enter keeps
+  it. An added account left empty goes when the settings close. When the accounts do not fit, they
+  go in pages (◀ 1/2 ▶).
 
 ## Command
 
