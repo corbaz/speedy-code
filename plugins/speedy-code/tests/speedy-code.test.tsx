@@ -1,5 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, TestBody } from 'claude-code/testing'
+
+/** A test's registrar, as the kit hands it to a test body. */
+type On = Parameters<TestBody>[1]
 
 import { accountsOf, ascii, cells, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
@@ -22,8 +25,8 @@ const VOICES = [
 ]
 
 /** The session's state as the engine would hold it, `state.get` and `state.set` answered from it. */
-function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<string, unknown>) {
-  const held: Record<string, unknown> = { ...seed }
+function holdState (on: On, seed: Record<string, unknown>) {
+  const held: Record<string, { value: unknown, version: number } | undefined> = { ...seed } as Record<string, { value: unknown, version: number }>
   held.listening ??= { value: 'off', version: 1 }
   held.isPolishing ??= { value: false, version: 1 }
   held.menu ??= { value: '', version: 1 }
@@ -41,7 +44,7 @@ function holdState (on: Parameters<Parameters<typeof test>[1]>[1], seed: Record<
   held.modelNow ??= { value: '', version: 1 }
   held.effort ??= { value: '', version: 1 }
   held.picks ??= { value: { shape: 'picks-1', value: { es: 'es-AR-ElenaNeural', active: 'es' } }, version: 1 }
-  on('state.get', (_, e) => ({ value: held[e.key] }))
+  on('state.get', (_, e) => ({ value: held[e.key] ?? { value: undefined, version: 0 } }))
   on('state.set', (_, e) => { held[e.key] = { value: e.value, version: 2 }; return { value: { isSet: true, version: 2 } } })
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
   return held
@@ -111,7 +114,7 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   await ui.unmount()
 })
 
-function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }) {
+function world (on: On, store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }) {
   const clock = mock.clock(on, { now: 0 })
   const kept: Record<string, unknown> = { ...store }
   const prompts: string[] = []
@@ -132,37 +135,37 @@ function world (on: Parameters<Parameters<typeof test>[1]>[1], store: Record<str
   on('ui.log', () => ({ value: undefined }))
   // edge-tts lists the voices of VOICES; PowerShell answers the clipboard.
   on('process.run', (_, e) => {
-    if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '' } }
-    if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '' } }
+    if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
     if (e.argv.some(arg => arg.startsWith('Start-Process'))) {
       opened.push(e.argv.at(-1) ?? '')
-      return { value: { exitCode: 0, stdout: '', stderr: '' } }
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The send button: PowerShell presses Enter.
     if (e.argv.some(arg => arg.includes("SendWait('{ENTER}')"))) {
       pressed.push(e.argv.join(' '))
-      return { value: { exitCode: 0, stdout: 'sent\r\n', stderr: '' } }
+      return { value: { exitCode: 0, stdout: 'sent\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The image button: PowerShell presses Alt+V when the clipboard holds an image.
     if (e.argv.some(arg => arg.includes('ContainsImage'))) {
       pressed.push(e.argv.join(' '))
-      return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\r\n' : 'none\r\n', stderr: '' } }
+      return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\r\n' : 'none\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // Leaving: the resume command goes to the clipboard by PowerShell.
     if (e.argv.some(arg => arg.startsWith('Set-Clipboard'))) {
       copied.push(e.argv.at(-1) ?? '')
-      return { value: { exitCode: 0, stdout: '', stderr: '' } }
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The status line switch answers what is in use.
     if (e.argv.some(arg => arg.endsWith('switch.py'))) {
       switched.push(e.argv.at(-1) ?? '')
       if (e.argv.at(-1) === 'on') line.on = true
       if (e.argv.at(-1) === 'off') line.on = false
-      return { value: { exitCode: 0, stdout: `${line.on ? 'on' : 'off'}\r\n`, stderr: '' } }
+      return { value: { exitCode: 0, stdout: `${line.on ? 'on' : 'off'}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (e.argv.includes('--list')) return { value: { exitCode: 0, stdout: `mic ${JBL}\r\nmic ${G432}\r\n`, stderr: '' } }
-    return { value: { exitCode: 1, stdout: '', stderr: '' } }
+    if (e.argv.includes('--list')) return { value: { exitCode: 0, stdout: `mic ${JBL}\r\nmic ${G432}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -381,7 +384,7 @@ for (const row of BUTTONS) {
 }
 
 /** A session with the footer drawn, the voice done talking at once. */
-async function footerSession ($: Engine, on: Parameters<Parameters<typeof test>[1]>[1], store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }) {
+async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }) {
   const w = world(on, store, '', { on: false }, clipboard, mic, polish)
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
   on('ui.toast', () => ({ value: undefined }))
@@ -445,7 +448,7 @@ test('after another voice is picked, play reads the last answer with it', { time
 test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000 }, async ($, on) => {
   const filled: Array<{ text: string; mode?: string }> = []
   let draft = 'Tengo una duda:'
-  on('prompt.read', () => ({ value: { text: draft } }))
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   on('prompt.fill', (_, e) => { filled.push({ text: e.text, mode: e.mode }); draft += e.text; return { isFilled: true } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:mic' })
@@ -459,7 +462,7 @@ test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000
 
 test('clicked again, the microphone is asked to stop, and it goes back to gray', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: true }
-  on('prompt.read', () => ({ value: { text: '' } }))
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
   on('prompt.fill', () => ({ isFilled: true }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
   expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#adb5bd')
@@ -488,7 +491,7 @@ test('micName keeps the device, not its kind', () => {
 
 test('the microphone menu lists the default and every microphone; the one picked is kept and listened to', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: false }
-  on('prompt.read', () => ({ value: { text: '' } }))
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
   on('prompt.fill', () => ({ isFilled: true }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
@@ -509,12 +512,12 @@ test('the microphone menu lists the default and every microphone; the one picked
   await ui.unmount()
 })
 
-const BAND = { plugin: 'speedy-code', component: 'AbovePrompt', requestId: 'band', props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 130, scroll: { offset: 0, bodyRows: 30 } }, surface: 'terminal' } as const
+const BAND = { plugin: 'speedy-code', component: 'AbovePrompt', requestId: 'band', props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 130, scroll: { offset: 0, bodyRows: 30 }, view: {} }, surface: 'terminal' } as const
 
 test('above the prompt, what is heard shows while it is said, and leaves once it is written', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: true }
   let draft = ''
-  on('prompt.read', () => ({ value: { text: draft } }))
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   on('prompt.fill', (_, e) => { draft += e.text; return { isFilled: true } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', mic)
   await ui.post({ isClicked: true }, { in: 'speedy:mic' })
@@ -536,7 +539,7 @@ test('above the prompt, what is heard shows while it is said, and leaves once it
 test('the prompt buttons copy the draft, paste the clipboard and clear it all', { timeoutMs: 30000 }, async ($, on) => {
   const fills: Array<{ text: string; mode?: string }> = []
   const copies: string[] = []
-  on('prompt.read', () => ({ value: { text: 'Mi pregunta sobre React' } }))
+  on('prompt.read', () => ({ value: { text: 'Mi pregunta sobre React', cursor: 0 } }))
   on('prompt.fill', (_, e) => { fills.push({ text: e.text, mode: e.mode }); return { isFilled: true } })
   on('ui.copy', (_, e) => { copies.push(e.text); return { value: { isCopied: true } } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'useEffect(() => {})\r\n')
@@ -556,7 +559,7 @@ test('ascii escapes every character past ASCII, as JSON reads it back', () => {
 test('the wand sends the prompt to Groq and puts back the text it cleaned up, accents whole', { timeoutMs: 30000 }, async ($, on) => {
   const fills: Array<{ text: string; mode?: string }> = []
   const polish = { reply: '{"text": "\\u00bfUna varita m\\u00e1gica? Tom\\u00e1s el texto."}', sent: [] as string[] }
-  on('prompt.read', () => ({ value: { text: 'eh una varita mágica tomás el texto' } }))
+  on('prompt.read', () => ({ value: { text: 'eh una varita mágica tomás el texto', cursor: 0 } }))
   on('prompt.fill', (_, e) => { fills.push({ text: e.text, mode: e.mode }); return { isFilled: true } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, polish)
   await ui.post({ isClicked: true }, { in: 'speedy:polish' })
@@ -573,7 +576,7 @@ test('typed into while Groq answers, the wand overwrites nothing', { timeoutMs: 
   let reads = 0
   const fills: string[] = []
   // The draft reads one way when the wand starts and another once Groq has answered.
-  on('prompt.read', () => ({ value: { text: reads++ === 0 ? 'eh necesito un refactor' : 'eh necesito un refactor y algo más' } }))
+  on('prompt.read', () => ({ value: { text: reads++ === 0 ? 'eh necesito un refactor' : 'eh necesito un refactor y algo más', cursor: 0 } }))
   on('prompt.fill', (_, e) => { fills.push(e.text); return { isFilled: true } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, { reply: '{"text": "Necesito un refactor."}', sent: [] })
   await ui.post({ isClicked: true }, { in: 'speedy:polish' })
@@ -781,7 +784,7 @@ test('the voices take as many columns as the width holds, up to four', { timeout
 
 test('the send button presses Enter, and with an empty prompt presses nothing', { timeoutMs: 30000 }, async ($, on) => {
   let draft = ''
-  on('prompt.read', () => ({ value: { text: draft } }))
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:send' })
   expect(w.pressed).toEqual([])
@@ -1050,7 +1053,7 @@ test('the footer shows the model in use, and follows it when /model changes it i
 })
 
 test('the footer shows the effort in force beside the model, follows /effort, and opens the menu', { timeoutMs: 30000 }, async ($, on) => {
-  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
+  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ▾ ')
@@ -1071,7 +1074,7 @@ test('the footer shows the effort in force beside the model, follows /effort, an
 
 test('the effort in force ignores subagents, clears on a request without one, and on a new model', { timeoutMs: 30000 }, async ($, on) => {
   const commands: string[] = []
-  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [] } })
+  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
