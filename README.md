@@ -17,7 +17,7 @@ and a footer of shortcuts. Windows.*
 In Claude Code:
 
 ```text
-/plugin marketplace add <owner>/speedy-code
+/plugin marketplace add corbaz/speedy-code
 /plugin install speedy-code@speedy-code
 ```
 
@@ -28,7 +28,7 @@ todo** and it installs the rest (uv, Python 3.12, the voices, the dictation and 
 ### From a clone
 
 ```powershell
-git clone https://github.com/<owner>/speedy-code
+git clone https://github.com/corbaz/speedy-code
 cd speedy-code
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
