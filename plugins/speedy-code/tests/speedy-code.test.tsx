@@ -732,6 +732,24 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   await ui.unmount()
 })
 
+test('a chosen option takes the cells of its label, no more: what follows stays in its column', { timeoutMs: 30000 }, async ($, on) => {
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:model' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'effort:high' })
+  await band.unmount()
+  const menu = await $.ui.mount(BAND)
+  for (const key of ['speedy:chosen:model:claude-opus-5-5', 'speedy:chosen:effort:high']) {
+    const chosen = await menu.find({ key })
+    const label = String((chosen?.props.props as { label?: string } | undefined)?.label ?? '')
+    expect(label.length).toBeGreaterThan(0)
+    expect(chosen?.props.width).toBe(cells(label))
+  }
+  await menu.unmount()
+  await ui.unmount()
+})
+
 test('Aplicar with nothing picked runs no command', { timeoutMs: 30000 }, async ($, on) => {
   const commands: string[] = []
   on('session.model', () => ({ value: 'claude-opus-5-5' }))

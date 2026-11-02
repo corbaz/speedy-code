@@ -1455,16 +1455,15 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
       <Text bold dimColor>MODELO</Text>
       {MODELS.map(([id, name, use, color]) => {
         const isChosen = id === chosenModel
+        const label = ` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `
         return (
           // A Button holds text alone: the row is a Box, and the name and its use each pick the model.
           <Box key={`model-row:${id}`} flexDirection={isNarrow ? 'column' : 'row'}>
             {isChosen && 'Client' in elements
-              ? <elements.Client key={`speedy:chosen:model:${id}`} module="./control.tsx" width={width + 2} props={{ label: ` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `, color: 'black', bold: true, backgroundColor: color }} />
+              ? <elements.Client key={`speedy:chosen:model:${id}`} module="./control.tsx" width={cells(label)} props={{ label, color: 'black', bold: true, backgroundColor: color }} />
               : (
                 <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
-                  <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
-                    {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
-                  </Text>
+                  <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>{label}</Text>
                 </Button>
                 )}
             {/* Narrow, the use goes below, indented on every line it wraps to. */}
