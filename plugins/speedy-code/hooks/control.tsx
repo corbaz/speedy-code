@@ -4,15 +4,15 @@
 // enough, and the region is wider than the glyph, so a click need not land on it exactly.
 import type { ClientModule } from 'claude-code'
 
-/** The label drawn, and its color. */
-type Props = { label: string; color: string; bold?: boolean }
+/** The label drawn, its color and, for a control that shows a choice, the fill behind it. */
+type Props = { label: string; color: string; bold?: boolean; backgroundColor?: string }
 
 const Control: ClientModule<Props> = (props, surface) => {
   surface.onPointer(event => {
     if (event.type === 'down' && event.button === 'left') surface.post({ isClicked: true })
   })
   const { Text } = surface.elements
-  return <Text color={props.color} bold={props.bold}>{props.label}</Text>
+  return <Text color={props.color} bold={props.bold} backgroundColor={props.backgroundColor}>{props.label}</Text>
 }
 
 export default Control

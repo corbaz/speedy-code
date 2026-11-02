@@ -40,7 +40,7 @@ closes it, as its ✕ does.
 
 **The voice menu:** eleven language tabs (Español, Inglés, Francés, Italiano, Portugués, Ruso, Chino,
 Árabe, Hindi, Bengalí, Urdu), a switch between women's and men's voices, the voices in as many
-columns as the width holds and paged so the menu always fits. ✦ marks a multilingual voice.
+columns as the width holds and paged so the menu always fits.
 
 ## A narrow terminal
 

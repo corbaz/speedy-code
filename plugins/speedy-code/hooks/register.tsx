@@ -1485,7 +1485,8 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
   const all = await read($, voices)
   const known = all.filter(v => v.lang === lang)
   const accent = languageColor(lang)
-  const { Box, Button, Text } = $.ui.resolve(e)
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
 
   const pick = async (picked: Voice) => {
     // The language picked is the one narrated in from now on: `active`.
@@ -1523,9 +1524,15 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
         const count = known.filter(v => v.gender === value).length
         return (
           <Box key={`gender-cell:${value}`} marginRight={2} flexShrink={0}>
-            <Button key={`gender:${value}`} plain onPress={() => { void update($, gender, () => value).then(() => update($, page, () => 0)) }}>
-              <Text bold color={isOn ? 'black' : tint} backgroundColor={isOn ? tint : undefined}>{` ${label}  ${count} `}</Text>
-            </Button>
+            {/* A Client, not a Button: a Button inverts under the pointer, and the fill of the one
+                chosen would go while the pointer is on it. */}
+            {'Client' in elements
+              ? <elements.Client key={`speedy:gender:${value}`} module="./control.tsx" width={cells(` ${label}  ${count} `)} props={{ label: ` ${label}  ${count} `, color: isOn ? 'black' : tint, bold: true, ...(isOn ? { backgroundColor: tint } : {}) }} />
+              : (
+                <Button key={`gender:${value}`} plain onPress={() => { void update($, gender, () => value).then(() => update($, page, () => 0)) }}>
+                  <Text bold color={isOn ? 'black' : tint} backgroundColor={isOn ? tint : undefined}>{` ${label}  ${count} `}</Text>
+                </Button>
+                )}
           </Box>
         )
       })}
@@ -1542,7 +1549,6 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
           </Box>
           )
         : null}
-      <Box flexShrink={0}><Text color="#ffd43b">{'✦ multilingüe'}</Text></Box>
     </Box>
   )
 
@@ -1557,7 +1563,6 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
                 <Text color={isCurrent ? 'white' : color}>{isCurrent ? ' ● ' : ' ♪ '}</Text>
                 <Text bold color={isCurrent ? 'white' : undefined}>{fit(v.name, NAME_WIDTH)}</Text>{' '}
                 <Text color={isCurrent ? 'white' : accent}>{fit(v.country, COUNTRY_WIDTH)}</Text>
-                <Text color={isCurrent ? 'white' : '#ffd43b'}>{v.tag.includes('✦') ? ' ✦' : '  '}</Text>
               </Text>
             </Button>
           )
@@ -1767,6 +1772,10 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:compact') {
       await closeMenu($, 'more')
       await $.command.run({ command: 'compact' }).catch(() => { $.ui.toast('speedy-code: no pude compactar; escribí /compact.') })
+    } else if (e.element.startsWith('speedy:gender:')) {
+      const chosenGender = e.element.slice('speedy:gender:'.length) === 'Male' ? 'Male' : 'Female'
+      await update($, gender, () => chosenGender)
+      await update($, page, () => 0)
     } else if (e.element === 'speedy:more') {
       await openMenu($, 'more')
     } else if (e.element === 'speedy:settings') {
