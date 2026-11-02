@@ -1427,14 +1427,20 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
       {MODELS.map(([id, name, use, color]) => {
         const isChosen = id === chosenModel
         return (
-          <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
-            <Text>
+          // A Button holds text alone: the row is a Box, and the name and its use each pick the model.
+          <Box key={`model-row:${id}`} flexDirection={isNarrow ? 'column' : 'row'}>
+            <Button key={`model:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
               <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
                 {` ${id === current ? '●' : '○'} ${name.padEnd(width - 4)} `}
               </Text>
-              <Text dimColor={!isChosen} color={isChosen ? color : undefined}>{`${isNarrow ? '\n    ' : '  '}${use}`}</Text>
-            </Text>
-          </Button>
+            </Button>
+            {/* Narrow, the use goes below, indented on every line it wraps to. */}
+            <Box paddingLeft={isNarrow ? 4 : 2} flexShrink={1}>
+              <Button key={`model-use:${id}`} plain onPress={() => { void update($, modelPick, () => id) }}>
+                <Text dimColor={!isChosen} color={isChosen ? color : undefined}>{use}</Text>
+              </Button>
+            </Box>
+          </Box>
         )
       })}
       <Text> </Text>
@@ -1446,13 +1452,13 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
           return (
             <Button key={`effort:${name}`} plain onPress={() => { void update($, effortPick, now => now === name ? '' : name) }}>
               <Text bold color={isChosen ? 'black' : color} backgroundColor={isChosen ? color : undefined}>
-                {` ${name === applied ? '●' : '○'} ${name} `}
+                {`${name === applied ? '●' : '○'} ${name} `}
               </Text>
             </Button>
           )
         })}
       </Box>
-      <Box flexDirection="row" justifyContent="center">
+      <Box flexDirection="row" justifyContent="center" marginTop={1}>
         <Button key="models:apply" plain onPress={() => { void applyModel($) }}>
           <Text bold color="black" backgroundColor={MODEL_COLOR}>{'  Aplicar  '}</Text>
         </Button>
@@ -1561,7 +1567,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
       <Box flexDirection="row" flexWrap="wrap">
         {LANGUAGES.map(([code, label, , tint]) => {
           const isOpen = code === lang
-          const mark = active === code ? '▶' : chosen[code] ? '●' : ''
+          const mark = active === code ? '▶' : ''
           return (
             <Box key={`cell:${code}`} width={TAB_WIDTH}>
               <Button key={`tab:${code}`} plain onPress={() => { void update($, tab, () => code).then(() => update($, page, () => 0)) }}>
