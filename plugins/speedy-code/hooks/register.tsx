@@ -770,18 +770,20 @@ async function followModel ($: EngineInterface) {
  * The tools, the model, the voice and ✕ always stay; the networks go first.
  */
 const FOOTER_RANKS: Record<string, number> = {
-  copy: 0, paste: 0, image: 0, polish: 0, send: 0, clear: 0, model: 0, voice: 0, exit: 0,
+  copy: 0, paste: 0, image: 0, polish: 0, send: 0, clear: 0, model: 0, voice: 0, compact: 0, exit: 0,
   settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5
 }
 /**
  * The groups always drawn that give way, in this order, when even their short forms do not fit: they
  * go to the ⋯ panel, so ⋯ and ✕ are always on screen. Paste, send and the model never go.
  */
-const FOOTER_SHED = ['voice', 'clear', 'image', 'copy', 'polish']
+const FOOTER_SHED = ['voice', 'compact', 'clear', 'image', 'copy', 'polish']
 /** The ⋯ button's width, drawn when something does not fit. */
 const MORE_WIDTH = 4
 /** The groups the footer last left out for want of room: the ⋯ panel draws them. */
 let hiddenGroups: readonly string[] = []
+/** The share of the context used, as the last session.measure said it: the footer's 🗜️ shows from the red level. */
+let contextUsed = 0
 
 /** The cells a label takes on a terminal: an emoji two, a variation selector or joiner none, the rest one. */
 export function cells (text: string) {
@@ -886,6 +888,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen] },
     { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off },
     { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd' },
+    { group: 'compact', key: 'speedy:compact', footer: ' 🗜️ ', panel: ' 🗜️ compactar ', color: '#ff6b6b' },
     { group: 'settings', key: 'speedy:settings', footer: ' ⚙️ ', panel: ' ⚙️ configuración ', color: '#adb5bd' }
   ]
   const namedGroup = (name: string) => {
@@ -936,6 +939,8 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       panel: [control('speedy:voice', ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `, languageColor(active))],
       labels: [cells(` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `)]
     },
+    // /compact, in the footer only once the context is red; the ⋯ panel always has it beside the context.
+    { ...namedGroup('compact'), width: contextUsed > 0 && contextUsed >= (await read($, barLevels)).contextRed ? cells(' 🗜️ ') : 0 },
     namedGroup('narrator'),
     namedGroup('mic'),
     namedGroup('reload'),
@@ -977,7 +982,8 @@ function resetWhen (iso: string | undefined) {
  * Clients: a control that opens something replaces the panel; one that switches keeps it open.
  */
 async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
-  const { Box, Text } = $.ui.resolve(e)
+  const elements = $.ui.resolve(e)
+  const { Box, Text } = elements
   const usage = await $.session.usage().catch(() => undefined)
   const levels = await read($, barLevels)
   const hidden = (await footerGroups($, e)).filter(group => group.width > 0 && hiddenGroups.includes(group.name))
@@ -990,7 +996,7 @@ async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
   const limitNames: Record<string, string> = { five_hour: '5 horas', seven_day: 'semana' }
   const LABEL = 11
   const heading = (text: string) => <Text bold dimColor>{text}</Text>
-  const row = (key: string, label: string, value: ReturnType<typeof Text>) => (
+  const row = (key: string, label: string, value: ReturnType<typeof Text> | ReturnType<typeof Box>) => (
     <Box key={key} flexDirection="row">
       <Box width={LABEL}><Text dimColor>{`  ${label}`}</Text></Box>
       {value}
@@ -998,7 +1004,13 @@ async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
   )
   const figures = usage
     ? [
-        row('ctx', 'contexto', <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${meter(percent)} ${String(percent).padStart(3)}%   ${shortTokens(usage.context.tokens ?? 0)} / ${shortTokens(usage.context.window)}`}</Text>),
+        row('ctx', 'contexto', (
+          <Box flexDirection="row">
+            <Text bold color={tone(percent, levels.contextYellow, levels.contextRed)}>{`${meter(percent)} ${String(percent).padStart(3)}%   ${shortTokens(usage.context.tokens ?? 0)} / ${shortTokens(usage.context.window)} `}</Text>
+            {/* /compact, at hand beside what it frees. */}
+            {'Client' in elements ? <elements.Client key="speedy:compact" module="./control.tsx" width={cells(' 🗜️ ')} props={{ label: ' 🗜️ ', color: '#ff6b6b', bold: true }} /> : null}
+          </Box>
+        )),
         row('time', 'tiempo', <Text color="#74c0fc">{shortDuration(Date.now() - usage.startedAt)}</Text>),
         row('cost', 'costo', <Text bold color="#ffd43b">{usage.cost ? `$${usage.cost.usd.toFixed(2)}` : '—'}</Text>)
       ]
@@ -1030,8 +1042,9 @@ async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
     </Box>
   )
   const networks = hidden.find(group => group.name === 'socials')?.panel ?? []
-  const controls = hidden.filter(group => group.name !== 'socials').flatMap(group => group.panel)
-  const controlCell = Math.max(0, ...hidden.filter(group => group.name !== 'socials').flatMap(group => group.labels)) + 2
+  const gridded = hidden.filter(group => group.name !== 'socials' && group.name !== 'compact')
+  const controls = gridded.flatMap(group => group.panel)
+  const controlCell = Math.max(0, ...gridded.flatMap(group => group.labels)) + 2
   const networkCell = Math.max(0, ...(hidden.find(group => group.name === 'socials')?.labels ?? [])) + 1
   return (
     <Box flexDirection="column">
@@ -1133,6 +1146,10 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const halfLink = Math.floor((inside - TABLE_GAP) / 2) - fixed
   const tableCount = halfLink >= MIN_LINK_WIDTH ? 2 : 1
   const linkWidth = tableCount === 2 ? halfLink : Math.max(MIN_LINK_WIDTH, inside - fixed)
+  // Narrow: a table of the whole would not fit, so the network's name and the link go; the badge
+  // already names the network, and the field takes the room. The other tabs stack their rows too.
+  const narrow = inside < fixed + MIN_LINK_WIDTH
+  const fieldWidth = narrow ? Math.max(12, inside - SOCIAL_PLUS_WIDTH - SOCIAL_BADGE_WIDTH) : SOCIAL_FIELD_WIDTH
 
   const rows = SOCIALS.flatMap(([id, name, label, color, , hint]) => accountsOf(users, id).map((key, index) => {
     const link = socialLink(id, users[key] ?? '')
@@ -1156,8 +1173,8 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
               )}
         </Box>
         <Box width={SOCIAL_BADGE_WIDTH}><Text bold color={color} dimColor={!isFirst}>{accountLabel(label, key)}</Text></Box>
-        <Box width={SOCIAL_NAME_WIDTH}><Text bold={isFirst} color={color} dimColor={!isFirst}>{isFirst ? name : `  cuenta ${index + 1}`}</Text></Box>
-        <Box width={SOCIAL_FIELD_WIDTH} paddingRight={2}>
+        {narrow ? null : <Box width={SOCIAL_NAME_WIDTH}><Text bold={isFirst} color={color} dimColor={!isFirst}>{isFirst ? name : `  cuenta ${index + 1}`}</Text></Box>}
+        <Box width={fieldWidth} paddingRight={2}>
           {/* At rest the user name is text, always whole; a click makes it a field, focused,
               and Enter keeps it and makes it text again. A field shown at rest did not
               always draw the name it was given, and its Enter label took a second line. */}
@@ -1179,7 +1196,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
               </Button>
               )}
         </Box>
-        <Text color={link ? color : undefined} dimColor={!link}>{fit(link || '—', linkWidth).trimEnd()}</Text>
+        {narrow ? null : <Text color={link ? color : undefined} dimColor={!link}>{fit(link || '—', linkWidth).trimEnd()}</Text>}
       </Box>
     )
   }))
@@ -1194,10 +1211,12 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         const check = checks[name] ?? { state: '', detail: '' }
         const [glyph, tint] = mark[check.state]
         return (
-          <Box key={`setup-row:${name}`} flexDirection="row">
-            <Text bold color={tint}>{` ${glyph} `}</Text>
-            <Box width={46}><Text color={check.state === 'fail' ? tint : undefined}>{label}</Text></Box>
-            <Text color={tint} dimColor={check.state === ''}>{check.detail}</Text>
+          <Box key={`setup-row:${name}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow ? 1 : 0}>
+            <Box flexDirection="row">
+              <Text bold color={tint}>{` ${glyph} `}</Text>
+              <Box width={narrow ? inside - 4 : 46}><Text color={check.state === 'fail' ? tint : undefined}>{label}</Text></Box>
+            </Box>
+            <Box paddingLeft={narrow ? 4 : 0}><Text color={tint} dimColor={check.state === ''}>{check.detail}</Text></Box>
           </Box>
         )
       })}
@@ -1213,7 +1232,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const levels = await read($, barLevels)
   const level = (label: string, key: LevelKey, note: string) => (
     <Box key={`level-row:${key}`} flexDirection="row">
-      <Box width={38}><Text bold color={LEVEL_COLORS[key]}>{label}</Text></Box>
+      <Box width={narrow ? 22 : 38}><Text bold color={LEVEL_COLORS[key]}>{narrow ? label.replace(' usado', '').replace(' desde', '') : label}</Text></Box>
       <Button key={`lvl-down:${key}`} plain onPress={() => { void adjustLevel($, key, -5) }}>
         <Text bold color="black" backgroundColor={LEVEL_COLORS[key]}>{' − '}</Text>
       </Button>
@@ -1221,13 +1240,13 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Button key={`lvl-up:${key}`} plain onPress={() => { void adjustLevel($, key, 5) }}>
         <Text bold color="black" backgroundColor={LEVEL_COLORS[key]}>{' + '}</Text>
       </Button>
-      <Text color={LEVEL_COLORS[key]}>{`  ${note}`}</Text>
+      {narrow || !note ? null : <Text color={LEVEL_COLORS[key]}>{`  ${note}`}</Text>}
     </Box>
   )
   const barTab = (
     <Box flexDirection="column" marginTop={1}>
-      <Box flexDirection="row" marginBottom={1}>
-        <Box width={49}><Text bold color="#4dabf7">{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
+      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
+        <Box width={narrow ? inside : 49}><Text bold color="#4dabf7">{' ▤  Barra de estado a colores de speedy-code'}</Text></Box>
         <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
           <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Volver a mi barra anterior ' : ' Usar la de speedy-code '}</Text>
         </Button>
@@ -1246,9 +1265,9 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const header = (
     <Box flexDirection="row">
       <Box width={SOCIAL_PLUS_WIDTH + SOCIAL_BADGE_WIDTH} />
-      <Box width={SOCIAL_NAME_WIDTH}><Text dimColor bold>Red</Text></Box>
-      <Box width={SOCIAL_FIELD_WIDTH}><Text dimColor bold>Usuario</Text></Box>
-      <Text dimColor bold>Link</Text>
+      {narrow ? null : <Box width={SOCIAL_NAME_WIDTH}><Text dimColor bold>Red</Text></Box>}
+      <Box width={fieldWidth}><Text dimColor bold>Usuario</Text></Box>
+      {narrow ? null : <Text dimColor bold>Link</Text>}
     </Box>
   )
   // The rows a table holds: the band's height less the frame's three, the tabs line and the header.
@@ -1264,7 +1283,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const tables = (
     <Box flexDirection="row" columnGap={TABLE_GAP}>
       {Array.from({ length: tableCount }, (_, index) => (
-        <Box key={`social-table:${index}`} flexDirection="column" width={fixed + linkWidth}>
+        <Box key={`social-table:${index}`} flexDirection="column" width={narrow ? inside : fixed + linkWidth}>
           {header}
           {shownRows.slice(index * perTable, (index + 1) * perTable)}
         </Box>
@@ -1569,6 +1588,8 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const levels = await read($, barLevels)
     const used = e.context.percent ?? 0
+    if ((used >= levels.contextRed) !== (contextUsed >= levels.contextRed)) $.ui.invalidate('ui.render')
+    contextUsed = used
     if (used >= levels.contextRed && !warnedContext) {
       warnedContext = true
       $.ui.toast(`speedy-code: el contexto va al ${used}%. Claude Code compacta cerca de ahí: /compact ahora, o empezá una sesión nueva.`)
@@ -1722,6 +1743,9 @@ export const register: Register = on => {
       const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
       if (link) await openLink($, link)
       await closeMenu($, 'more')
+    } else if (e.element === 'speedy:compact') {
+      await closeMenu($, 'more')
+      await $.command.run({ command: 'compact' }).catch(() => { $.ui.toast('speedy-code: no pude compactar; escribí /compact.') })
     } else if (e.element === 'speedy:more') {
       await openMenu($, 'more')
     } else if (e.element === 'speedy:settings') {

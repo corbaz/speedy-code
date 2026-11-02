@@ -50,6 +50,8 @@ give way, so ⋯ and ✕ are always on screen. What does not fit goes in this or
 networks first, then the narrator's controls, the microphone, 🔄 and ⚙️; a ⋯ appears. Click ⋯ for a
 panel above the prompt: the session (context, time, cost) and the limits, then the networks and the
 controls left out, each named (`🔄 recargar`), working as in the footer. ⋯ again, Esc or its ✕ closes it.
+🗜️ beside the context runs `/compact`; once the context is red, 🗜️ also shows in the footer. In
+narrow terminals the settings tabs stack their rows and the networks show the badge and user name.
 
 ## Model and effort
 

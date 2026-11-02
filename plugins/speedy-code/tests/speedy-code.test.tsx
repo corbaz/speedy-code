@@ -1148,10 +1148,12 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   expect((await band.find({ type: 'Text', text: / Más / }))?.text).toBe(' Más ')
   // The hidden controls, the same Clients; and the figures, whole.
   for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
-  expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱  17%   172.4k / 1M')
+  expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱  17%   172.4k / 1M ')
   expect((await band.find({ type: 'Text', text: /^1h 0m$/ }))?.text).toBe('1h 0m')
   expect((await band.find({ type: 'Text', text: /^\$85\.88$/ }))?.text).toBe('$85.88')
   expect((await band.find({ type: 'Text', text: /86%/ }))?.text).toBe('▰▰▰▱  86%')
+  // /compact beside the context.
+  expect((await band.find({ type: 'Text', in: 'speedy:compact' }))?.text).toBe(' 🗜️ ')
   // The hidden controls carry their names in the panel.
   expect((await band.find({ type: 'Text', in: 'speedy:reload' }))?.text).toBe(' 🔄 recargar ')
   await band.unmount()
@@ -1179,6 +1181,24 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   expect(await closed.find({ type: 'Text', text: / Más / })).toBeUndefined()
   await closed.unmount()
   await again.unmount()
+})
+
+test('🗜️ in the ⋯ panel runs /compact and closes the panel', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: string[] = []
+  on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 900000, window: 1000000, percent: 90 }, rateLimits: [], cost: { usd: 1 } } }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.unmount()
+  const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 60, rows: 30 } })
+  await narrow.post({ isClicked: true }, { in: 'speedy:more' })
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:compact' })
+  await band.unmount()
+  expect(commands).toEqual(['compact'])
+  const after = await $.ui.mount(BAND)
+  expect(await after.find({ type: 'Text', text: / Más / })).toBeUndefined()
+  await after.unmount()
+  await narrow.unmount()
 })
 
 test('the status line levels: the steppers move them by 5, keep yellow under red, and are kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
