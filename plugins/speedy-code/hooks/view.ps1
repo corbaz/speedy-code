@@ -41,7 +41,9 @@ $close.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
 $close.BackColor = $black
 $close.Cursor = [System.Windows.Forms.Cursors]::Hand
 
-$image = [System.Drawing.Image]::FromFile($env:SPEEDY_IMAGE)
+# Read into memory, not with FromFile, which holds the file till the popup closes: clearing the history
+# could not delete the image shown.
+$image = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(, [System.IO.File]::ReadAllBytes($env:SPEEDY_IMAGE))))
 $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
 # The picture's scale: what leaves the whole popup within 80% of the screen, never above its own size.
 $scale = [Math]::Min(1.0, [Math]::Min(($area.Width * 0.8 - $extraWidth) / $image.Width, ($area.Height * 0.8 - $extraHeight) / $image.Height))
