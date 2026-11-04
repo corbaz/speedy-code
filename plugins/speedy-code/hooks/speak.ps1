@@ -1,6 +1,7 @@
 # Speaks NARRATOR_TEXT with the Microsoft Edge neural voice NARRATOR_VOICE (edge-tts), for the speedy-code mod.
 # Prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 # Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
+# With NARRATOR_SAVE_AS set, the whole narration is joined into that file once it has played (history.py).
 #
 # The text is cut in up to five parts at sentence ends, all synthesized at once: the first plays as soon
 # as it is ready while the rest are still being made, and each plays after the one before.
@@ -26,6 +27,10 @@ if ($control) {
     Remove-Item -Force -ErrorAction SilentlyContinue
 }
 $temp = [IO.Path]::GetTempPath()
+# The mod's own Python environment (NARRATOR_PYTHON), else whatever python the PATH finds.
+$python = if ($env:NARRATOR_PYTHON -and (Test-Path -LiteralPath $env:NARRATOR_PYTHON)) { $env:NARRATOR_PYTHON } else { (Get-Command python).Source }
+# Where a finished narration is kept for the history menu, if the caller asks: its file name, whole.
+$saveAs = $env:NARRATOR_SAVE_AS
 Get-ChildItem -LiteralPath $temp -Filter 'speedy-code-*' -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
   Remove-Item -Force -ErrorAction SilentlyContinue
@@ -59,8 +64,6 @@ try {
     }
     # One process makes them all: the first alone, then the rest at once while it plays.
     $arguments = @("`"$PSScriptRoot\tts.py`"", $voice, $rate, "`"$(Join-Path $temp "speedy-code-$key")`"") + $textFiles
-    # The mod's own Python environment (NARRATOR_PYTHON), else whatever python the PATH finds.
-    $python = if ($env:NARRATOR_PYTHON -and (Test-Path -LiteralPath $env:NARRATOR_PYTHON)) { $env:NARRATOR_PYTHON } else { (Get-Command python).Source }
     $maker = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru
   }
 
@@ -108,6 +111,11 @@ try {
       if ($isPaused) { $end = (Get-Date).AddSeconds(1) }
     }
     $player.Stop()
+  }
+  # Every part has played, so each exists whole. The join runs detached: the sound has already ended.
+  if ($saveAs) {
+    $joinArguments = @("`"$PSScriptRoot\history.py`"", "`"$saveAs`"") + @($audios | ForEach-Object { "`"$_`"" })
+    Start-Process -FilePath $python -ArgumentList $joinArguments -WindowStyle Hidden | Out-Null
   }
   foreach ($one in $players) { $one.Close() }
 } catch {

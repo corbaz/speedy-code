@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Heard, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -17,6 +17,12 @@ const SHORT_ANSWER = 3000
 /** Where the pause button leaves its word for speak.ps1: a file per narration, so sessions narrating
  * at once never pause each other. speak.ps1 removes it as it ends. */
 const CONTROL_DIR = '.claude/speedy-code'
+/** The narrations kept for the 📎 menu: a folder under the local app data, and how many of the newest.
+ * history.py keeps the same count when it saves. */
+const HISTORY_DIR = 'speedy-code/audio'
+const HISTORY_LENGTH = 10
+/** How much of a narration's text names its file. */
+const HISTORY_NAME_LENGTH = 40
 /**
  * The Python environment every script runs in: the voice (edge-tts), the dictation (transcribe-cpp
  * with a local streaming model) and the pen. One environment of the mod's own, so a machine
@@ -181,6 +187,7 @@ const mics = atom({ plugin: 'speedy-code', key: 'mics' } as const, [] as string[
 const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard[])
 const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
+const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
 const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
 const settingsTab = atom({ plugin: 'speedy-code', key: 'settingsTab' } as const, 'socials')
 const settingsOpened = atom({ plugin: 'speedy-code', key: 'settingsOpened' } as const, 0)
@@ -346,6 +353,11 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     void checkSetup($)
     void switchStatusLine($, 'status')
   }
+  // The narrations kept are read when the menu opens, so it lists what is on disk now.
+  if (which === 'history') {
+    const found = await listClips($)
+    await update($, clips, () => found)
+  }
   await update($, menu, () => which)
 }
 
@@ -375,11 +387,18 @@ let lastNarration = { answer: '', lang: '', text: '' }
 let isPausedByOff = false
 /** The pause file of the narration under way. */
 let controlFile = ''
+/** The text selected when 📎 was pressed, read by the menu's first row. Taken then: the menu's own click
+ * could clear the selection on screen. */
+let pendingSelection = ''
+/** The kept narration playing from the history menu, if any. */
+let historyPlay: AbortController | undefined
 
 async function stop ($: EngineInterface) {
   isPausedByOff = false
   current?.abort()
   current = undefined
+  historyPlay?.abort()
+  historyPlay = undefined
   await update($, speech, () => 'idle')
 }
 
@@ -420,9 +439,11 @@ async function narrate ($: EngineInterface, answer: string) {
     const control = await homeFile($, `${CONTROL_DIR}/control-${crypto.randomUUID()}.txt`)
     controlFile = control
     await $.fs.write(control, 'play')
+    // A new narration is kept in the history; saying the same one again is not, it is already there.
+    const saveAs = isSame ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
     const speaker = $.process.spawn({
       argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/speak.ps1`],
-      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: await homeFile($, PYTHON) }
+      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: await homeFile($, PYTHON), NARRATOR_SAVE_AS: saveAs.replace(/\//g, '\\') }
     })
     for await (const { text: said } of speaker) {
       // Leaving the loop ends the process, and its sound with it.
@@ -472,15 +493,106 @@ async function clipboardText ($: EngineInterface) {
   return clipboard?.exitCode === 0 ? clipboard.stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '') : ''
 }
 
-/** The clip button: reads the selection or the clipboard aloud, and play reads it again after. */
-async function readSelection ($: EngineInterface) {
-  const text = await selectedText($)
-  if (!text) {
+/**
+ * A narration's file name: the start of its text, safe in a file name, then when it was written, as
+ * `<description>-yy-mm-dd_hh-mm-ss.mp3`.
+ */
+export function historyName (text: string, now: Date) {
+  const start = Array.from(text.replace(/\p{Cc}/gu, ' ').replace(/[<>:"/\\|?*]/g, ' ').replace(/\s+/g, ' ').trim())
+    .slice(0, HISTORY_NAME_LENGTH).join('').trim()
+  const description = start.replace(/ /g, '-') || 'audio'
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const stamp = [
+    pad(now.getFullYear() % 100), pad(now.getMonth() + 1), pad(now.getDate())
+  ].join('-') + '_' + [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('-')
+  return `${description}-${stamp}.mp3`
+}
+
+/** The folder the narrations are kept in: `%LOCALAPPDATA%/speedy-code/audio`. */
+async function historyDir ($: EngineInterface) {
+  const local = (await $.env.get('LOCALAPPDATA')) || ''
+  return local ? `${local.replace(/\\/g, '/')}/${HISTORY_DIR}` : homeFile($, `AppData/Local/${HISTORY_DIR}`)
+}
+
+/** The newest narrations kept, newest first, as the folder holds them now. */
+async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
+  const result = await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', `Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`],
+    { env: { SPEEDY_HISTORY: await historyDir($) } }
+  ).catch(() => undefined)
+  if (!result || result.exitCode !== 0) return []
+  return result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+    .map(path => ({ path, name: path.split(/[\\/]/).pop()?.replace(/\.mp3$/i, '') ?? path }))
+}
+
+/** Deletes every narration kept, from the disk, and empties the menu's list. */
+async function clearClips ($: EngineInterface) {
+  await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue'],
+    { env: { SPEEDY_HISTORY: await historyDir($) } }
+  ).catch(() => undefined)
+  await update($, clips, () => [])
+  $.ui.toast('speedy-code: historial borrado.')
+}
+
+/** Plays one narration kept, ending the narration under way. Playing another ends this one. */
+async function playClip ($: EngineInterface, clip: HistoryClip) {
+  await stop($)
+  const controller = new AbortController()
+  historyPlay = controller
+  const player = $.process.spawn({
+    argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`, '-Clip', clip.path]
+  })
+  try {
+    // Leaving the loop ends the process, and its sound with it.
+    for await (const _line of player) {
+      if (controller.signal.aborted) break
+    }
+  } catch (error) {
+    $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+  } finally {
+    if (historyPlay === controller) historyPlay = undefined
+  }
+}
+
+/** The first row of the 📎 menu: reads the selection taken when 📎 was pressed, else says there is none. */
+async function readPending ($: EngineInterface) {
+  if (!pendingSelection) {
     $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
   }
-  lastAnswer = text
-  void narrate($, text)
+  lastAnswer = pendingSelection
+  void narrate($, pendingSelection)
+}
+
+/** The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. */
+async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
+  const list = await read($, clips)
+  const nameWidth = Math.max(10, width - 12)
+  return (
+    <Box flexDirection="column">
+      <Button key="clip:read" plain onPress={() => { void readPending($) }}>
+        <Text bold color="#ffd43b">{' 📎 leer selección '}</Text>
+      </Button>
+      {list.length === 0
+        ? <Text dimColor>{'  Todavía no hay audios. Se guardan cada vez que se lee una respuesta o una selección.'}</Text>
+        : list.map((clip, index) => (
+          <Box key={`clip:${clip.path}`} flexDirection="row">
+            <Button key={`clip-play:${index}`} plain onPress={() => { void playClip($, clip) }}>
+              <Text bold color="#63e6be">{' ▶ '}</Text>
+            </Button>
+            <Text>{` ${fit(clip.name, nameWidth)}`}</Text>
+          </Box>
+        ))}
+      <Box marginTop={1}>
+        <Button key="clip:clear" plain onPress={() => { void clearClips($) }}>
+          <Text bold color="#ff6b6b">{' 🗑️ limpiar historial '}</Text>
+        </Button>
+      </Box>
+    </Box>
+  )
 }
 
 /** The stop file of the dictation under way. */
@@ -916,7 +1028,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
-    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 leer selección ', color: enabled ? '#ffd43b' : DISABLED },
+    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 audios y selección ', color: enabled ? '#ffd43b' : DISABLED },
     { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen] },
     { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off },
     { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd' },
@@ -1955,7 +2067,9 @@ export const register: Register = on => {
       if ((await read($, listening)) === 'off') void listen($)
       else await stopListening($)
     } else if (e.element === 'speedy:clip' && (await read($, isEnabled))) {
-      await readSelection($)
+      // The selection is taken as 📎 is pressed, before the menu opens, so it is not lost to the menu.
+      if ((await read($, menu)) !== 'history') pendingSelection = await selectedText($)
+      await openMenu($, 'history')
     } else if (e.element === 'speedy:play' && isPlayable(await read($, isEnabled), await read($, speech))) {
       await pressPlay($)
     }
@@ -1973,8 +2087,8 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? 'Audios' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -1983,7 +2097,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Audio history: every narration is kept as an MP3 in `%LOCALAPPDATA%\speedy-code\audio`, named
+  `<description>-yy-mm-dd_hh-mm-ss.mp3`; the newest 10 are kept. 📎 opens the menu: "leer selección"
+  first, then the narrations newest first, each with ▶ to play it, and 🗑️ clears them from disk. The
+  parts are joined in the background, after playback ends, so no sound waits for it. Dictation is not
+  kept, and saying the same text again keeps no second copy.
 - Narrow terminals: the footer and the status line fit the width. Short of room, the model and
   the voice go short first, then some tools give way; ⋯ opens the rest with the figures. The
   status line keeps the parts by the priority set in ⚙️ → Barra de estado, and it no longer

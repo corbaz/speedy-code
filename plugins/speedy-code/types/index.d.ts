@@ -13,8 +13,12 @@ export type Listening = 'off' | 'loading' | 'on'
 /** A phrase heard and not yet written into the prompt: its number and the quick model's preview. */
 export type Heard = { number: number; text: string }
 
-/** A menu shown above the prompt: none, the voices, the microphones, the settings, or the Claude models. */
-export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more'
+/** A menu shown above the prompt: none, the voices, the microphones, the settings, the Claude models, the
+ * more panel, or the narrations kept (📎). */
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history'
+
+/** A narration kept in the history: its MP3 file, whole path, and its name without the extension. */
+export type HistoryClip = { path: string; name: string }
 
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>

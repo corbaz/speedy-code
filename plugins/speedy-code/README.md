@@ -20,7 +20,7 @@ From left to right:
 | 🗣 *Voice* · *LANG* ▾ | Opens the voice menu |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
-| 📎 | Reads aloud the text selected with the mouse, or the clipboard's |
+| 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |

@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, historyName, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -394,11 +394,17 @@ async function footerSession ($: Engine, on: On, store: Record<string, unknown>,
   return { w, ui: await $.ui.mount(FOOTER) }
 }
 
-test('the clip reads the text selected with the mouse, and play reads it again', { timeoutMs: 30000 }, async ($, on) => {
+test('the clip opens the menu; its first row reads the selection taken, and play reads it again', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
+  // Opening the menu reads nothing yet.
+  expect(w.spoken).toEqual([])
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'clip:read' })
+  await w.clock.advance(200)
+  await band.unmount()
   await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.advance(200)
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual([
@@ -408,11 +414,25 @@ test('the clip reads the text selected with the mouse, and play reads it again',
   await ui.unmount()
 })
 
-test('with nothing selected, the clip reads the clipboard', { timeoutMs: 30000 }, async ($, on) => {
+test('the 📎 menu with no narration kept says so, and clear is always there', { timeoutMs: 30000 }, async ($, on) => {
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Text', text: /Todavía no hay audios/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /limpiar historial/ })).toBeDefined()
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('with nothing selected, the menu reads the clipboard',{ timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'Texto que copié de otro lado, en el portapapeles.\r\n')
   await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'clip:read' })
+  await w.clock.advance(200)
+  await band.unmount()
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Texto que copié de otro lado, en el portapapeles.'])
   await ui.unmount()
 })
@@ -816,6 +836,21 @@ test('the send button presses Enter, and with an empty prompt presses nothing', 
   expect(w.pressed.length).toBe(1)
   expect(w.pressed[0]).toContain("SendWait('{ENTER}')")
   await ui.unmount()
+})
+
+test('historyName: the text start, safe in a file name, then when it was written', () => {
+  const when = new Date(2026, 10, 4, 15, 30, 7) // 4 Nov 2026, 15:30:07, local time
+  expect(historyName('Esta es una prueba del historial.', when)).toBe('Esta-es-una-prueba-del-historial.-26-11-04_15-30-07.mp3')
+  // Characters a file name cannot take are dropped, whitespace runs become one dash.
+  expect(historyName('¿Qué hora es?  Dime: "ya"/ahora', when)).toBe('¿Qué-hora-es-Dime-ya-ahora-26-11-04_15-30-07.mp3')
+  // Long text is cut to 40 characters, never inside a character (an emoji counts as one).
+  const long = `${'palabra '.repeat(10)}🎧 fin`
+  const cut = historyName(long, when).replace(/-26-11-04_15-30-07\.mp3$/, '')
+  expect(Array.from(cut.replace(/-/g, ' ')).length).toBeLessThanOrEqual(40)
+  expect(historyName(long, when).endsWith('-26-11-04_15-30-07.mp3')).toBe(true)
+  // Nothing left to name it by: the word audio.
+  expect(historyName('  \n\t ', when)).toBe('audio-26-11-04_15-30-07.mp3')
+  expect(historyName('<>|?*', when)).toBe('audio-26-11-04_15-30-07.mp3')
 })
 
 test('socialLink builds the profile link of each network, and refuses a name no network takes', () => {
