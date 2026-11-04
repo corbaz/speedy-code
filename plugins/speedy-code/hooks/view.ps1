@@ -1,61 +1,78 @@
 # Shows one pasted image in a popup, for the speedy-code images menu: the file named by $env:SPEEDY_IMAGE.
 # The popup stands in the middle of the screen the pointer is on, in the picture's own proportions, up to
-# 80% of that screen's working area and never larger than the picture: the picture fills it, never deformed.
-# A frame of two lines sets it apart from what is behind: a black one outside, a blue one inside.
-# Its close mark (top right) or Esc closes it. It says "shown" once it is up, then "." every tenth of a
-# second, so the mod wakes to end it; with no one reading, the write fails and it closes.
+# 80% of that screen's working area and never larger than the picture: the picture fills its place, never
+# deformed. Its frame, from outside in: a wide black contour that hides what is behind, a blue line, and a
+# black margin whose top band holds the close mark, inside the lines as the terminal panel's.
+# The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a second, so the
+# mod wakes to end it; with no one reading, the write fails and it closes.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
+# The frame's widths, in pixels.
+$contour = 10
+$line = 2
+$margin = 8
+$band = 30
+$extraWidth = 2 * ($contour + $line + $margin)
+$extraHeight = 2 * ($contour + $line) + $band + $margin
+
 $image = [System.Drawing.Image]::FromFile($env:SPEEDY_IMAGE)
 $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
-$scale = [Math]::Min(1.0, [Math]::Min($area.Width * 0.8 / $image.Width, $area.Height * 0.8 / $image.Height))
+# The picture's scale: what leaves the whole popup within 80% of the screen, never above its own size.
+$scale = [Math]::Min(1.0, [Math]::Min(($area.Width * 0.8 - $extraWidth) / $image.Width, ($area.Height * 0.8 - $extraHeight) / $image.Height))
 $width = [int][Math]::Round($image.Width * $scale)
 $height = [int][Math]::Round($image.Height * $scale)
+$popupWidth = $width + $extraWidth
+$popupHeight = $height + $extraHeight
 
-# The frame: the black line outside (the form's own padding) and the blue line inside (a panel's).
-$outer = 1
-$inner = 2
-$frameWidth = $width + 2 * ($outer + $inner)
-$frameHeight = $height + 2 * ($outer + $inner)
-
+$black = [System.Drawing.Color]::Black
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
 $form.TopMost = $true
 $form.ShowInTaskbar = $false
 $form.KeyPreview = $true
-$form.BackColor = [System.Drawing.Color]::Black
-$form.Padding = New-Object System.Windows.Forms.Padding($outer)
-$form.ClientSize = New-Object System.Drawing.Size($frameWidth, $frameHeight)
-$form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $frameWidth) / 2)), ([int]($area.Y + ($area.Height - $frameHeight) / 2)))
+$form.BackColor = $black
+$form.Padding = New-Object System.Windows.Forms.Padding($contour)
+$form.ClientSize = New-Object System.Drawing.Size($popupWidth, $popupHeight)
+$form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $popupWidth) / 2)), ([int]($area.Y + ($area.Height - $popupHeight) / 2)))
 
+# The blue line: a panel of that color, as wide as the line around what it holds.
 $frame = New-Object System.Windows.Forms.Panel
 $frame.Dock = 'Fill'
 $frame.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#74c0fc')
-$frame.Padding = New-Object System.Windows.Forms.Padding($inner)
+$frame.Padding = New-Object System.Windows.Forms.Padding($line)
+
+# Inside the line: black, the band on top for the close mark, the margin around the picture.
+$inside = New-Object System.Windows.Forms.Panel
+$inside.Dock = 'Fill'
+$inside.BackColor = $black
+$inside.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $margin)
 
 $box = New-Object System.Windows.Forms.PictureBox
 $box.Dock = 'Fill'
 $box.SizeMode = 'Zoom'
-$box.BackColor = [System.Drawing.Color]::Black
+$box.BackColor = $black
 $box.Image = $image
-$frame.Controls.Add($box)
+
+$inside.Controls.Add($box)
+$frame.Controls.Add($inside)
 $form.Controls.Add($frame)
 
-# The close mark, over the picture's top right corner. [char] keeps the file ASCII: PowerShell 5.1 reads
-# a script with no BOM in the system's code page, which would garble the glyph.
+# The close mark, in the band at the right, inside the lines. [char] keeps the file ASCII: PowerShell 5.1
+# reads a script with no BOM in the system's code page, which would garble the glyph.
 $close = New-Object System.Windows.Forms.Label
 $close.Text = [string][char]0x2715
 $close.AutoSize = $true
-$close.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
+$close.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 $close.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
-$close.BackColor = [System.Drawing.Color]::Black
+$close.BackColor = $black
 $close.Cursor = [System.Windows.Forms.Cursors]::Hand
-$box.Controls.Add($close)
-$close.Location = New-Object System.Drawing.Point(($width - $close.PreferredWidth - 6), 6)
+$inside.Controls.Add($close)
+$close.BringToFront()
+$close.Location = New-Object System.Drawing.Point(($width + 2 * $margin - $close.PreferredWidth - 4), [int](($band - $close.PreferredHeight) / 2))
 $close.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })
