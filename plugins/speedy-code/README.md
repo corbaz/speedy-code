@@ -14,7 +14,10 @@ From left to right:
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (Windows presses Alt+V for you) |
-| 👁️ | Lists the last 15 images pasted in this session, newest first, and follows new pastes while open; one clicked opens in a framed popup in the middle of the screen, in its own proportions, up to 80% of the screen and never enlarged. Its ✕ or Esc closes the picture and leaves the menu open; closing the menu closes the picture too. 🗑️ deletes the session's pasted images from disk, but those the prompt not yet sent still names |
+| 👁️ | The image history: the mod keeps a copy of each pasted image in `%LOCALAPPDATA%\speedy-code\images`, the newest 15. Each row has 👁️, which opens it in a framed popup in the middle of the screen (its own proportions, up to 80% of the screen, never enlarged; its ✕ or Esc closes it and leaves the menu open), and 🖼️, which pastes it into the prompt again (through the clipboard and Alt+V). 🗑️ deletes the mod's copies only, never Claude Code's files |
+
+Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
+that image in the popup, with no menu.
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
 | 🗑️ | Clears the draft |

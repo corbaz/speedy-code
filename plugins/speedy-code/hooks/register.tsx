@@ -23,8 +23,12 @@ const HISTORY_DIR = 'speedy-code/audio'
 const HISTORY_LENGTH = 10
 /** How much of a narration's text names its file. */
 const HISTORY_NAME_LENGTH = 40
-/** How many of the newest pasted images the images menu lists. */
+/** How many of the newest pasted images the mod keeps copies of, and its menu lists. */
 const IMAGES_LENGTH = 15
+/** The mod's own copies of the pasted images, under the local app data: Claude Code's may go. */
+const IMAGES_DIR = 'speedy-code/images'
+/** The color of an `[Image #N]`: painted in the prompt, and on the chips above it. */
+const IMAGE_COLOR = '#74c0fc'
 /**
  * The Python environment every script runs in: the voice (edge-tts), the dictation (transcribe-cpp
  * with a local streaming model) and the pen. One environment of the mod's own, so a machine
@@ -190,8 +194,10 @@ const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard
 const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
-/** The images pasted in this session, newest first, as the 👁 menu lists them. */
+/** The images the mod keeps, newest first, as the 👁 menu lists them. */
 const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as const, [] as PastedImage[])
+/** The image numbers the draft names, in order: a chip each above the prompt. */
+const draftIds = atom({ plugin: 'speedy-code', key: 'draftIds' } as const, [] as number[])
 /** The kept narration playing from the 📎 menu: its path; empty when none. Its row shows ⏸ or ⏵. */
 const clipNow = atom({ plugin: 'speedy-code', key: 'clipNow' } as const, '')
 const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
@@ -364,9 +370,10 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     const found = await listClips($)
     await update($, clips, () => found)
   }
-  // The images too, read as the menu opens: one pasted a moment ago is listed.
+  // The images too, kept and read as the menu opens: one pasted a moment ago is listed.
   if (which === 'images') {
-    const found = await sessionImages($)
+    await keepImages($)
+    const found = await ourImages($)
     await update($, pastedImages, () => found)
   }
   await update($, menu, () => which)
@@ -526,11 +533,14 @@ export function historyName (text: string, now: Date) {
   const start = Array.from(text.replace(/\p{Cc}/gu, ' ').replace(/[<>:"/\\|?*]/g, ' ').replace(/\s+/g, ' ').trim())
     .slice(0, HISTORY_NAME_LENGTH).join('').trim()
   const description = start.replace(/ /g, '-') || 'audio'
+  return `${description}-${stampOf(now)}.mp3`
+}
+
+/** When something was kept, local time, as the mod's file names carry it: `yy-mm-dd_hh-mm-ss`. */
+export function stampOf (now: Date) {
   const pad = (value: number) => String(value).padStart(2, '0')
-  const stamp = [
-    pad(now.getFullYear() % 100), pad(now.getMonth() + 1), pad(now.getDate())
-  ].join('-') + '_' + [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('-')
-  return `${description}-${stamp}.mp3`
+  return [pad(now.getFullYear() % 100), pad(now.getMonth() + 1), pad(now.getDate())].join('-') +
+    '_' + [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('-')
 }
 
 /** A kept narration's name split in its description and its stamp, for the menu's aligned columns. A name
@@ -685,40 +695,164 @@ async function sessionImages ($: EngineInterface, limit = IMAGES_LENGTH): Promis
   return [...found].sort((a, b) => b[0] - a[0]).slice(0, limit).map(([number, path]) => ({ id: number, path }))
 }
 
-/** The image numbers the draft names, `[Image #N]`: those files are still to be sent, so they stay. */
+/** The image numbers the draft names, `[Image #N]`. */
 export function draftImages (draft: string) {
   return new Set([...draft.matchAll(/\[Image #(\d+)\]/g)].map(match => Number(match[1])))
 }
 
-/**
- * Deletes the session's pasted images from disk, every one, but those the draft still names: Claude Code
- * attaches them when the prompt is sent. The open picture closes, and the menu lists what is left.
- */
-async function clearImages ($: EngineInterface) {
-  const kept = draftImages((await $.prompt.read().catch(() => ({ text: '' }))).text)
-  const gone = (await sessionImages($, Infinity)).filter(image => !kept.has(image.id))
-  viewing?.abort()
-  viewing = undefined
-  if (gone.length > 0) {
-    await $.process.run(
-      ['powershell', '-NoProfile', '-NonInteractive', '-Command', '$env:SPEEDY_FILES -split "`n" | Where-Object { $_ } | ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue }'],
-      { env: { SPEEDY_FILES: gone.map(image => image.path.replace(/\//g, '\\')).join('\n') } }
-    ).catch(() => undefined)
-  }
-  const left = await sessionImages($)
-  await update($, pastedImages, () => left)
-  $.ui.toast(kept.size > 0
-    ? `speedy-code: borré ${gone.length} imágenes; quedan las ${kept.size} del prompt sin enviar.`
-    : `speedy-code: borré ${gone.length} imágenes.`)
+/** The runs that paint each `[Image #N]` of the draft, in UTF-16 offsets, as `$.prompt.paint` takes them. */
+export function imageRuns (draft: string) {
+  return [...draft.matchAll(/\[Image #\d+\]/g)].map(match => {
+    const start = match.index ?? 0
+    return { start, end: start + match[0].length, color: IMAGE_COLOR, bold: true }
+  })
 }
 
-/** While the images menu is open, lists the images again: one pasted meanwhile shows without reopening it. */
+/** A copy's name, `<stamp>_<session, 8>-<N>.<ext>`, read back: its number, its session and its stamp. */
+export function keptImage (name: string) {
+  const match = /^(\d{2}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})_([0-9a-z]{8})-(\d+)\.[a-z]+$/i.exec(name)
+  return match ? { stamp: match[1] ?? '', session: match[2] ?? '', id: Number(match[3]) } : undefined
+}
+
+/** The folder the mod keeps its copies of the pasted images in: `%LOCALAPPDATA%/speedy-code/images`. */
+async function imagesDir ($: EngineInterface) {
+  const local = (await $.env.get('LOCALAPPDATA')) || ''
+  return local ? `${local.replace(/\\/g, '/')}/${IMAGES_DIR}` : homeFile($, `AppData/Local/${IMAGES_DIR}`)
+}
+
+/** The mod's copies, newest first: what the 👁 menu lists. */
+async function ourImages ($: EngineInterface): Promise<PastedImage[]> {
+  const dir = await imagesDir($)
+  return (await $.fs.list(dir).catch(() => []))
+    .flatMap(entry => {
+      const kept = keptImage(entry.name)
+      return kept ? [{ id: kept.id, path: `${dir}/${entry.name}`, stamp: kept.stamp, session: kept.session }] : []
+    })
+    .sort((a, b) => b.stamp.localeCompare(a.stamp) || b.id - a.id)
+    .slice(0, IMAGES_LENGTH)
+    .map(({ id, path, stamp }) => ({ id, path, stamp }))
+}
+
+/** The session images already copied in this run, by `<session>-<N>`: none is copied twice. */
+const copied = new Set<string>()
+
+/**
+ * Copies the session's newest pasted images Claude Code holds into the mod's own folder, once each, and
+ * keeps the newest IMAGES_LENGTH there. Those at or under the number the history was last cleared at,
+ * in this session, are not copied again: clearing would undo itself.
+ */
+async function keepImages ($: EngineInterface) {
+  const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
+  if (!session) return
+  const cleared = ((await $.store.get('imagesCleared')) ?? {}) as Record<string, number>
+  const dir = await imagesDir($)
+  const ours = new Set((await $.fs.list(dir).catch(() => [])).flatMap(entry => {
+    const kept = keptImage(entry.name)
+    return kept ? [`${kept.session}-${kept.id}`] : []
+  }))
+  const fresh = (await sessionImages($)).filter(image => {
+    const key = `${session}-${image.id}`
+    return image.id > (cleared[session] ?? 0) && !ours.has(key) && !copied.has(key)
+  })
+  if (fresh.length === 0) return
+  const stamp = stampOf(new Date())
+  for (const image of fresh) copied.add(`${session}-${image.id}`)
+  const copies = fresh.map(image => `${image.path.replace(/\//g, '\\')}|${dir.replace(/\//g, '\\')}\\${stamp}_${session}-${image.id}.${image.path.split('.').pop() ?? 'png'}`)
+  await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', [
+      'New-Item -ItemType Directory -Force -Path $env:SPEEDY_DIR | Out-Null',
+      '$env:SPEEDY_COPIES -split "`n" | Where-Object { $_ } | ForEach-Object { $pair = $_ -split "\\|", 2; Copy-Item -LiteralPath $pair[0] -Destination $pair[1] -Force -ErrorAction SilentlyContinue }',
+      'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File | Sort-Object Name -Descending | Select-Object -Skip ([int]$env:SPEEDY_KEEP) | Remove-Item -Force -ErrorAction SilentlyContinue'
+    ].join('; ')],
+    { env: { SPEEDY_DIR: dir.replace(/\//g, '\\'), SPEEDY_COPIES: copies.join('\n'), SPEEDY_KEEP: String(IMAGES_LENGTH) } }
+  ).catch(() => undefined)
+}
+
+/**
+ * Deletes the mod's copies, every one, and notes the highest number of this session cleared: those are not
+ * copied again. Claude Code's own files are never touched: it may still need them.
+ */
+async function clearImages ($: EngineInterface) {
+  viewing?.abort()
+  viewing = undefined
+  const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
+  const highest = Math.max(0, ...(await sessionImages($, Infinity)).map(image => image.id))
+  if (session) await $.store.set('imagesCleared', { ...((await $.store.get('imagesCleared')) ?? {}) as Record<string, number>, [session]: highest })
+  const gone = (await ourImages($)).length
+  await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue'],
+    { env: { SPEEDY_DIR: (await imagesDir($)).replace(/\//g, '\\') } }
+  ).catch(() => undefined)
+  await update($, pastedImages, () => [])
+  $.ui.toast(`speedy-code: borré ${gone} imágenes del historial.`)
+}
+
+/** While the images menu is open, keeps and lists the images again: one pasted meanwhile shows. */
 async function followImages ($: EngineInterface) {
   if ((await read($, menu)) !== 'images') return
-  const found = await sessionImages($)
+  await keepImages($)
+  const found = await ourImages($)
   const shown = await read($, pastedImages)
   // Only a change draws the menu again.
   if (found.map(image => image.path).join('|') !== shown.map(image => image.path).join('|')) await update($, pastedImages, () => found)
+}
+
+/** The draft as last painted: painting again only on a change. */
+let paintedDraft: string | undefined
+/** Whether a paint is on the draft: a draft with no image clears it once. */
+let isPainted = false
+
+/**
+ * Keeps the draft's `[Image #N]` painted and its chips above the prompt in step. A paste puts the
+ * placeholder in the box with no edit event, so the box is looked at on a clock.
+ */
+async function followDraft ($: EngineInterface) {
+  const box = await $.prompt.read().catch(() => undefined)
+  if (!box || box.text === paintedDraft) return
+  paintedDraft = box.text
+  const ids = [...draftImages(box.text)].sort((a, b) => a - b)
+  if (ids.join(',') !== (await read($, draftIds)).join(',')) {
+    await update($, draftIds, () => ids)
+    if (ids.length > 0) void keepImages($)
+  }
+  const runs = imageRuns(box.text)
+  if (runs.length === 0 && !isPainted) return
+  const painted = await $.prompt.paint(runs.length > 0 ? { text: box.text, decorations: runs } : { decorations: [] }).catch(() => undefined)
+  isPainted = runs.length > 0
+  // Not painted (the box changed meanwhile): the next look tries again.
+  if (runs.length > 0 && !painted?.isPainted) paintedDraft = undefined
+}
+
+/**
+ * Pastes a kept image into the prompt again: it goes on the clipboard, then Windows presses Alt+V, as the
+ * 🖼️ button pastes. No mod can attach an image to the draft. The clipboard keeps the image after.
+ */
+async function repasteImage ($: EngineInterface, image: PastedImage) {
+  const script = [
+    'Add-Type -AssemblyName System.Windows.Forms, System.Drawing',
+    '$picture = [System.Drawing.Image]::FromFile($env:SPEEDY_IMAGE)',
+    '[System.Windows.Forms.Clipboard]::SetImage($picture)',
+    '$picture.Dispose()',
+    "[System.Windows.Forms.SendKeys]::SendWait('%v'); 'pasted'"
+  ].join('; ')
+  const result = await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script],
+    { env: { SPEEDY_IMAGE: image.path.replace(/\//g, '\\') } }
+  ).catch(() => undefined)
+  if (result?.stdout.trim() !== 'pasted') $.ui.toast('speedy-code: no pude pegar la imagen.')
+}
+
+/** The image `[Image #N]` names in this session: Claude Code's file, else the mod's copy of it. */
+async function draftImage ($: EngineInterface, id: number) {
+  const held = (await sessionImages($, Infinity)).find(image => image.id === id)
+  if (held) return held
+  const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
+  const dir = await imagesDir($)
+  const name = (await $.fs.list(dir).catch(() => [])).find(entry => {
+    const kept = keptImage(entry.name)
+    return kept?.session === session && kept.id === id
+  })?.name
+  return name ? { id, path: `${dir}/${name}` } : undefined
 }
 
 /** The image popup open, if any: opening another closes it. */
@@ -745,20 +879,25 @@ async function openView ($: EngineInterface, image: PastedImage) {
   }
 }
 
-/** The 👁 menu: the images pasted in this session, newest first, each opening its popup. */
+/** The 👁 menu: the images kept, newest first, each with 👁️ to see it and 🖼️ to paste it again. */
 async function imagesMenu ($: EngineInterface, e: Drawn) {
   const { Box, Client, Text } = $.ui.resolve(e)
   const list = await read($, pastedImages)
-  if (list.length === 0) return <Text dimColor>{'  Todavía no pegaste imágenes en esta sesión.'}</Text>
+  if (list.length === 0) return <Text dimColor>{'  Todavía no hay imágenes en el historial.'}</Text>
   const clear = ' 🗑️ limpiar historial '
+  const control = (key: string, label: string) => (
+    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color: IMAGE_COLOR, bold: true }} />
+  )
   return (
     <Box flexDirection="column">
       {list.map((image, index) => {
-        const label = ` 👁️ [Image #${image.id}] `
+        const label = `[Image #${image.id}]`
         return (
-          <Box key={`image:${image.id}`} flexDirection="row">
-            <Client key={`speedy:image-view:${index}`} module="./control.tsx" width={cells(label)} props={{ label, color: '#74c0fc', bold: true }} />
-            <Text dimColor>{` ${image.path.split('/').pop() ?? ''}`}</Text>
+          <Box key={`image:${image.path}`} flexDirection="row">
+            {control(`speedy:image-view:${index}`, ' 👁️ ')}
+            {control(`speedy:image-paste:${index}`, ' 🖼️ ')}
+            <Text bold color={IMAGE_COLOR}>{` ${label.padEnd(12)}`}</Text>
+            <Text dimColor>{` ${image.stamp ?? ''}`}</Text>
           </Box>
         )
       })}
@@ -2058,6 +2197,8 @@ export const register: Register = on => {
     $.clock.every(1500, () => followModel($))
     // The images menu, kept in step with what is pasted while it is open: see followImages.
     $.clock.every(1500, () => followImages($))
+    // The draft's [Image #N], painted and with a chip each above the prompt: see followDraft.
+    if (e.isInteractive) $.clock.every(500, () => followDraft($))
     await $.command.register({
       name: 'speedy',
       description: 'Lee en voz alta las respuestas · sin argumento: prende o apaga',
@@ -2221,6 +2362,14 @@ export const register: Register = on => {
     } else if (e.element.startsWith('speedy:image-view:')) {
       const image = (await read($, pastedImages))[Number(e.element.slice('speedy:image-view:'.length))]
       if (image) void openView($, image)
+    } else if (e.element.startsWith('speedy:image-paste:')) {
+      const image = (await read($, pastedImages))[Number(e.element.slice('speedy:image-paste:'.length))]
+      if (image) await repasteImage($, image)
+    } else if (e.element.startsWith('speedy:draft-image:')) {
+      // A chip above the prompt: its image opens straight in the popup, with no menu.
+      const image = await draftImage($, Number(e.element.slice('speedy:draft-image:'.length)))
+      if (image) void openView($, image)
+      else $.ui.toast('speedy-code: esa imagen ya no está guardada.')
     } else if (e.element === 'speedy:clip-read') {
       await readPending($)
     } else if (e.element === 'speedy:clip-clear') {
@@ -2314,8 +2463,24 @@ export const register: Register = on => {
       )
     }
     const [now, list] = [await read($, listening), await read($, heard)]
-    if (e.props.hasSurvey || (now === 'off' && list.length === 0)) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    // The draft's images, a chip each: only where a Client is drawn.
+    const ids = e.surface === 'terminal' || e.surface === 'desktop' ? await read($, draftIds) : []
+    if (e.props.hasSurvey || (now === 'off' && list.length === 0 && ids.length === 0)) return next(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    const chips = ids.length > 0 && 'Client' in elements
+      ? (
+        <Box key="draft-images" flexDirection="row" columnGap={1}>
+          {ids.map(id => {
+            const label = `[Image #${id}]`
+            return <elements.Client key={`speedy:draft-image:${id}`} module="./control.tsx" width={cells(label)} props={{ label, color: IMAGE_COLOR, bold: true }} />
+          })}
+          <Text dimColor>clic para ver</Text>
+        </Box>
+        )
+      : null
+    // No dictation: what the others draw here, then the chips.
+    if (now === 'off' && list.length === 0) return <Box flexDirection="column">{await next(e)}{chips}</Box>
     const state = now === 'on' ? '🔴 escuchando' : now === 'loading' && list.length === 0 ? '🔵 preparando…' : '🔵 escribiendo…'
     return (
       <Box flexDirection="column">
@@ -2323,6 +2488,7 @@ export const register: Register = on => {
           <Text bold color={MIC_COLORS[now === 'off' ? 'loading' : now]}>{state}</Text>
         </Text>
         {list.map(one => <Text key={`heard:${one.number}`} italic dimColor>{`  ${one.text}`}</Text>)}
+        {chips}
       </Box>
     )
   })

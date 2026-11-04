@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Image history of the mod's own: each pasted image is copied to `%LOCALAPPDATA%\speedy-code\images`,
+  the newest 15 kept. 🗑️ clears those copies only, never Claude Code's files, and they are not copied
+  again. Each row of the 👁️ menu has 🖼️, which pastes that image into the prompt again.
+- The draft's `[Image #N]` are painted blue in the prompt, and each has a chip above it that opens the
+  image in the popup straight away.
 - Images: 👁️ in the footer lists the last 15 `[Image #N]` pasted in this session, newest first, and
   follows new pastes while it is open. A click opens the picture in a popup centered on the screen,
   in its own proportions (up to 80% of the screen, never enlarged), framed by a blue line and a black

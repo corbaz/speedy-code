@@ -17,8 +17,9 @@ export type Heard = { number: number; text: string }
  * more panel, the narrations kept (📎), or the images pasted in this session (👁). */
 export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images'
 
-/** An image pasted in this session: its number, as `[Image #N]` names it, and its file. */
-export type PastedImage = { id: number; path: string }
+/** A pasted image: its number, as `[Image #N]` names it, and its file; `stamp`, when the mod kept its
+ * copy (`yy-mm-dd_hh-mm-ss`), for the mod's own copies. */
+export type PastedImage = { id: number; path: string; stamp?: string }
 
 /** A narration kept in the history: its MP3 file, whole path, and its name without the extension. */
 export type HistoryClip = { path: string; name: string }

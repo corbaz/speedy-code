@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -430,7 +430,7 @@ test('👁️ opens the images menu, which says so when nothing was pasted', { t
   await ui.post({ isClicked: true }, { in: 'speedy:images' })
   const band = await $.ui.mount(BAND)
   expect(await band.find({ type: 'Text', text: / Imágenes / })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /Todavía no pegaste imágenes/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Todavía no hay imágenes en el historial/ })).toBeDefined()
   await band.unmount()
   await ui.unmount()
 })
@@ -871,7 +871,39 @@ test('historyName: the text start, safe in a file name, then when it was written
   expect(historyName('<>|?*', when)).toBe('audio-26-11-04_15-30-07.mp3')
 })
 
-test('draftImages: the images the draft still names, which clearing must keep', () => {
+test('imageRuns: a blue bold run over each [Image #N], in UTF-16 offsets', () => {
+  const draft = 'mirá 🎧 [Image #3] y [Image #12]'
+  const runs = imageRuns(draft)
+  expect(runs.map(run => draft.slice(run.start, run.end))).toEqual(['[Image #3]', '[Image #12]'])
+  expect(runs.every(run => run.color === '#74c0fc' && run.bold)).toBe(true)
+  expect(imageRuns('sin imágenes')).toEqual([])
+})
+
+test('keptImage reads a copy name back, and stampOf writes its stamp', () => {
+  expect(keptImage('26-11-04_19-20-07_da0b211f-13.png')).toEqual({ stamp: '26-11-04_19-20-07', session: 'da0b211f', id: 13 })
+  expect(keptImage('13.png')).toBeUndefined()
+  expect(stampOf(new Date(2026, 10, 4, 9, 5, 7))).toBe('26-11-04_09-05-07')
+})
+
+test('a draft naming [Image #3] is painted, and its chip above the prompt shows', { timeoutMs: 30000 }, async ($, on) => {
+  const painted: Array<{ text?: string, decorations: Array<{ start: number, end: number }> }> = []
+  const draft = 'mirá esto [Image #3]'
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+  on('prompt.paint', (_, e) => { painted.push({ text: e.text, decorations: e.decorations }); return { value: { isPainted: true, text: e.text ?? '', cursor: 0 } } })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await w.clock.advance(600)
+  expect(painted[0]?.text).toBe(draft)
+  expect(painted[0]?.decorations.map(run => draft.slice(run.start, run.end))).toEqual(['[Image #3]'])
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Text', in: 'speedy:draft-image:3' })).toBeDefined()
+  await band.unmount()
+  // The same draft looked at again is not painted again.
+  await w.clock.advance(600)
+  expect(painted.length).toBe(1)
+  await ui.unmount()
+})
+
+test('draftImages: the images the draft still names', () => {
   expect([...draftImages('mirá [Image #3] y [Image #12], otra vez [Image #3]')].sort((a, b) => a - b)).toEqual([3, 12])
   expect(draftImages('sin imágenes, ni [Image #] ni [image #4]').size).toBe(0)
 })
