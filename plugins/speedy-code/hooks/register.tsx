@@ -188,6 +188,8 @@ const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard
 const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
+/** The kept narration playing from the 📎 menu: its path; empty when none. Its row shows ⏸ or ⏵. */
+const clipNow = atom({ plugin: 'speedy-code', key: 'clipNow' } as const, '')
 const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
 const settingsTab = atom({ plugin: 'speedy-code', key: 'settingsTab' } as const, 'socials')
 const settingsOpened = atom({ plugin: 'speedy-code', key: 'settingsOpened' } as const, 0)
@@ -399,6 +401,7 @@ async function stop ($: EngineInterface) {
   current = undefined
   historyPlay?.abort()
   historyPlay = undefined
+  await update($, clipNow, () => '')
   await update($, speech, () => 'idle')
 }
 
@@ -457,8 +460,17 @@ async function narrate ($: EngineInterface, answer: string) {
     if (current === controller) {
       current = undefined
       await update($, speech, () => 'idle')
+      void refreshClipsLater($)
     }
   }
+}
+
+/** Reads the kept narrations again once the join has written the new one, a moment after the sound ends. */
+async function refreshClipsLater ($: EngineInterface) {
+  await new Promise(resolve => setTimeout(resolve, 1500))
+  if ((await read($, menu)) !== 'history') return
+  const found = await listClips($)
+  await update($, clips, () => found)
 }
 
 async function control ($: EngineInterface, asked: 'pause' | 'play') {
@@ -555,6 +567,7 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
   controlFile = control
   await $.fs.write(control, 'play')
   await update($, speech, () => 'playing')
+  await update($, clipNow, () => clip.path)
   const player = $.process.spawn({
     argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`],
     env: { SPEEDY_CLIP: clip.path.replace(/\//g, '\\'), SPEEDY_CONTROL: control.replace(/\//g, '\\') }
@@ -570,6 +583,7 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
     // Ended by its own end, not by a stop or another narration: the footer goes back to idle.
     if (historyPlay === controller) {
       historyPlay = undefined
+      await update($, clipNow, () => '')
       await update($, speech, () => 'idle')
     }
   }
@@ -585,11 +599,25 @@ async function readPending ($: EngineInterface) {
   void narrate($, pendingSelection)
 }
 
+/**
+ * A row's button, as the footer's: the narration playing from this row pauses or goes on; another row,
+ * or none, starts this one.
+ */
+async function clipPress ($: EngineInterface, clip: HistoryClip) {
+  const playing = await read($, clipNow)
+  const now = await read($, speech)
+  if (playing === clip.path && now === 'playing') return control($, 'pause')
+  if (playing === clip.path && now === 'paused') return control($, 'play')
+  return playClip($, clip)
+}
+
 /** The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. */
 async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   const elements = $.ui.resolve(e)
   const { Box, Button, Text } = elements
   const list = await read($, clips)
+  const playing = await read($, clipNow)
+  const now = await read($, speech)
   // The description takes the room left after the ▶ and the stamp, so every stamp starts in one column.
   const descriptionWidth = Math.max(10, width - 12 - 18)
   return (
@@ -599,14 +627,20 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
       </Button>
       {list.length === 0
         ? <Text dimColor>{'  Todavía no hay audios. Se guardan cada vez que se lee una respuesta o una selección.'}</Text>
-        : list.map((clip, index) => (
+        : list.map((clip, index) => {
+          // The row playing shows what the footer shows: ⏸ while it plays, ⏵ paused, ▶ otherwise.
+          const isHere = playing === clip.path
+          const glyph = isHere && now === 'playing' ? '⏸︎' : isHere && now === 'paused' ? '⏵' : '▶'
+          const color = isHere && now === 'playing' ? '#ffd43b' : '#63e6be'
+          return (
           <Box key={`clip:${clip.path}`} flexDirection="row">
-            <Button key={`clip-play:${index}`} plain onPress={() => { void playClip($, clip) }}>
-              <Text bold color="#63e6be">{' ▶ '}</Text>
+            <Button key={`clip-play:${index}`} plain onPress={() => { void clipPress($, clip) }}>
+              <Text bold color={color}>{` ${glyph} `}</Text>
             </Button>
             <Text>{` ${fit(historySplit(clip.name).description, descriptionWidth)} ${historySplit(clip.name).stamp}`}</Text>
           </Box>
-        ))}
+          )
+        })}
       <Box marginTop={1}>
         <Button key="clip:clear" plain onPress={() => { void clearClips($) }}>
           <Text bold color="#ff6b6b">{' 🗑️ limpiar historial '}</Text>
