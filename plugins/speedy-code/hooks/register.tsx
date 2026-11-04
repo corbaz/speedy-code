@@ -739,7 +739,8 @@ const copied = new Set<string>()
 /**
  * Copies the session's newest pasted images Claude Code holds into the mod's own folder, once each, and
  * keeps the newest IMAGES_LENGTH there. Those at or under the number the history was last cleared at,
- * in this session, are not copied again: clearing would undo itself.
+ * in this session, are not copied again: clearing would undo itself. One with the same bytes as a copy
+ * already kept is not copied either: pasting a kept image again does not list it twice.
  */
 async function keepImages ($: EngineInterface) {
   const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
@@ -761,7 +762,11 @@ async function keepImages ($: EngineInterface) {
   await $.process.run(
     ['powershell', '-NoProfile', '-NonInteractive', '-Command', [
       'New-Item -ItemType Directory -Force -Path $env:SPEEDY_DIR | Out-Null',
-      '$env:SPEEDY_COPIES -split "`n" | Where-Object { $_ } | ForEach-Object { $pair = $_ -split "\\|", 2; Copy-Item -LiteralPath $pair[0] -Destination $pair[1] -Force -ErrorAction SilentlyContinue }',
+      // An image already kept, pasted again (from the menu's 🖼️), has the same bytes: it is not kept twice.
+      // SHA-256 by .NET itself: Get-FileHash is missing from some PowerShell 5.1 setups.
+      '$sha = [Security.Cryptography.SHA256]::Create(); function Hash($path) { try { [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($path))) } catch { "" } }',
+      '$known = @{}; Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File | ForEach-Object { $known[(Hash $_.FullName)] = $true }',
+      '$env:SPEEDY_COPIES -split "`n" | Where-Object { $_ } | ForEach-Object { $pair = $_ -split "\\|", 2; $hash = Hash $pair[0]; if ($hash -and -not $known.ContainsKey($hash)) { Copy-Item -LiteralPath $pair[0] -Destination $pair[1] -Force -ErrorAction SilentlyContinue; $known[$hash] = $true } }',
       'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File | Sort-Object Name -Descending | Select-Object -Skip ([int]$env:SPEEDY_KEEP) | Remove-Item -Force -ErrorAction SilentlyContinue'
     ].join('; ')],
     { env: { SPEEDY_DIR: dir.replace(/\//g, '\\'), SPEEDY_COPIES: copies.join('\n'), SPEEDY_KEEP: String(IMAGES_LENGTH) } }
