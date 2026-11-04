@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -188,6 +188,8 @@ const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard
 const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
+/** The images pasted in this session, newest first, as the 👁 menu lists them. */
+const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as const, [] as PastedImage[])
 /** The kept narration playing from the 📎 menu: its path; empty when none. Its row shows ⏸ or ⏵. */
 const clipNow = atom({ plugin: 'speedy-code', key: 'clipNow' } as const, '')
 const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
@@ -359,6 +361,11 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
   if (which === 'history') {
     const found = await listClips($)
     await update($, clips, () => found)
+  }
+  // The images too, read as the menu opens: one pasted a moment ago is listed.
+  if (which === 'images') {
+    const found = await sessionImages($)
+    await update($, pastedImages, () => found)
   }
   await update($, menu, () => which)
 }
@@ -643,6 +650,75 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
           )
         })}
       <Box marginTop={1} flexDirection="row">{action('speedy:clip-clear', ' 🗑️ limpiar historial ', '#ff6b6b')}</Box>
+    </Box>
+  )
+}
+
+/**
+ * The images pasted in this session, newest first. Claude Code stores each as `images/<N>.<ext>` in
+ * `<CLAUDE_CODE_TMPDIR or %TEMP%>/claude/<folder>/<session id>`, and the folder follows the project: a
+ * session that changes folder keeps its images in several. Every one is looked in, each time, so none
+ * is missed; none is remembered, so a folder made later is found too.
+ */
+async function sessionImages ($: EngineInterface): Promise<PastedImage[]> {
+  const temp = (await $.env.get('CLAUDE_CODE_TMPDIR')) || (await $.env.get('TEMP')) || (await $.env.get('TMP')) || ''
+  if (!temp) return []
+  const root = `${temp.replace(/\\/g, '/').replace(/\/+$/, '')}/claude`
+  // No session id: no folder to look in, and the menu still opens, empty.
+  const id = await $.session.id().catch(() => '')
+  if (!id) return []
+  const found = new Map<number, string>()
+  for (const entry of await $.fs.list(root).catch(() => [])) {
+    if (entry.kind !== 'dir') continue
+    const folder = `${root}/${entry.name}/${id}/images`
+    for (const file of await $.fs.list(folder).catch(() => [])) {
+      const number = /^(\d+)\.[a-z]+$/i.exec(file.name)?.[1]
+      if (number) found.set(Number(number), `${folder}/${file.name}`)
+    }
+  }
+  return [...found].sort((a, b) => b[0] - a[0]).map(([number, path]) => ({ id: number, path }))
+}
+
+/** The image popup open, if any: opening another closes it. */
+let viewing: AbortController | undefined
+
+/** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another closes it. */
+async function openView ($: EngineInterface, image: PastedImage) {
+  viewing?.abort()
+  const controller = new AbortController()
+  viewing = controller
+  try {
+    const viewer = $.process.spawn({
+      argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/view.ps1`],
+      env: { SPEEDY_IMAGE: image.path.replace(/\//g, '\\') }
+    })
+    // It says "." ten times a second: leaving the loop ends it, and its window with it.
+    for await (const _line of viewer) {
+      if (controller.signal.aborted) break
+    }
+  } catch (error) {
+    $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+  } finally {
+    if (viewing === controller) viewing = undefined
+  }
+}
+
+/** The 👁 menu: the images pasted in this session, newest first, each opening its popup. */
+async function imagesMenu ($: EngineInterface, e: Drawn) {
+  const { Box, Client, Text } = $.ui.resolve(e)
+  const list = await read($, pastedImages)
+  if (list.length === 0) return <Text dimColor>{'  Todavía no pegaste imágenes en esta sesión.'}</Text>
+  return (
+    <Box flexDirection="column">
+      {list.map((image, index) => {
+        const label = ` 👁️ [Image #${image.id}] `
+        return (
+          <Box key={`image:${image.id}`} flexDirection="row">
+            <Client key={`speedy:image-view:${index}`} module="./control.tsx" width={cells(label)} props={{ label, color: '#74c0fc', bold: true }} />
+            <Text dimColor>{` ${image.path.split('/').pop() ?? ''}`}</Text>
+          </Box>
+        )
+      })}
     </Box>
   )
 }
@@ -1080,6 +1156,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     { group: 'copy', key: 'speedy:copy', footer: ' 📋 ', panel: ' 📋 copiar ', color: '#adb5bd' },
     { group: 'paste', key: 'speedy:paste', footer: ' 📥 ', panel: ' 📥 pegar ', color: '#adb5bd' },
     { group: 'image', key: 'speedy:image', footer: ' 🖼️ ', panel: ' 🖼️ imagen ', color: '#adb5bd' },
+    { group: 'image', key: 'speedy:images', footer: ' 👁️ ', panel: ' 👁️ ver imágenes ', color: '#74c0fc' },
     // An emoji takes no color: the glyph tells it is at work.
     { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
     { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
@@ -2089,6 +2166,11 @@ export const register: Register = on => {
       const chosenGender = e.element.slice('speedy:gender:'.length) === 'Male' ? 'Male' : 'Female'
       await update($, gender, () => chosenGender)
       await update($, page, () => 0)
+    } else if (e.element === 'speedy:images') {
+      await openMenu($, 'images')
+    } else if (e.element.startsWith('speedy:image-view:')) {
+      const image = (await read($, pastedImages))[Number(e.element.slice('speedy:image-view:'.length))]
+      if (image) void openView($, image)
     } else if (e.element === 'speedy:clip-read') {
       await readPending($)
     } else if (e.element === 'speedy:clip-clear') {
@@ -2157,8 +2239,8 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? 'Audios' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? 'Audios' : shown === 'images' ? 'Imágenes' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -2167,7 +2249,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">

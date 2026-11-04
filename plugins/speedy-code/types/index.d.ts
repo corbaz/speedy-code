@@ -14,8 +14,11 @@ export type Listening = 'off' | 'loading' | 'on'
 export type Heard = { number: number; text: string }
 
 /** A menu shown above the prompt: none, the voices, the microphones, the settings, the Claude models, the
- * more panel, or the narrations kept (📎). */
-export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history'
+ * more panel, the narrations kept (📎), or the images pasted in this session (👁). */
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images'
+
+/** An image pasted in this session: its number, as `[Image #N]` names it, and its file. */
+export type PastedImage = { id: number; path: string }
 
 /** A narration kept in the history: its MP3 file, whole path, and its name without the extension. */
 export type HistoryClip = { path: string; name: string }

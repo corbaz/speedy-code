@@ -424,7 +424,18 @@ test('the 📎 menu with no narration kept says so, and clear is always there', 
   await ui.unmount()
 })
 
-test('with nothing selected, the menu reads the clipboard',{ timeoutMs: 30000 }, async ($, on) => {
+test('👁️ opens the images menu, which says so when nothing was pasted', { timeoutMs: 30000 }, async ($, on) => {
+  on('session.id', () => ({ value: 'test-session' }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:images' })
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Text', text: / Imágenes / })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Todavía no pegaste imágenes/ })).toBeDefined()
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('with nothing selected, the menu reads the clipboard', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: undefined }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'Texto que copié de otro lado, en el portapapeles.\r\n')
   await ui.post({ isClicked: true }, { in: 'speedy:clip' })

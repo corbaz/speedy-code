@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Images: 👁️ in the footer lists the `[Image #N]` pasted in this session, newest first. A click opens
+  the picture in a popup centered on the screen, in its own proportions (up to 80% of the screen,
+  never enlarged); a click on it or Esc closes it. Every folder Claude Code keeps the session's images
+  in is read each time, so a session that changed folder still finds them all.
+- Audio history: stopping a kept narration now ends its sound at once (play.ps1 wakes the mod ten
+  times a second, as speak.ps1 does).
 - Audio history: every narration is kept as an MP3 in `%LOCALAPPDATA%\speedy-code\audio`, named
   `<description>-yy-mm-dd_hh-mm-ss.mp3`; the newest 10 are kept. 📎 opens the menu: "leer selección"
   first, then the narrations newest first, each with ▶ to play it, and 🗑️ clears them from disk. The

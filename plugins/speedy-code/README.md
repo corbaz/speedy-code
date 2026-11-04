@@ -14,6 +14,7 @@ From left to right:
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (Windows presses Alt+V for you) |
+| 👁️ | Lists the images pasted in this session, newest first; one clicked opens in a popup in the middle of the screen, in its own proportions, up to 80% of the screen and never enlarged. A click on it or Esc closes it |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
 | 🗑️ | Clears the draft |
