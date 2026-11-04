@@ -482,6 +482,13 @@ test('the microphone appends each phrase said to the prompt', { timeoutMs: 30000
   await ui.unmount()
 })
 
+test('a session starts with the microphone gray, even if a reload left it red', { timeoutMs: 30000 }, async ($, on) => {
+  // A reload ends the dictation without writing its end: the stored state says on, with nothing listening.
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, listening: 'on' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:mic' }))?.props.color).toBe('#adb5bd')
+  await ui.unmount()
+})
+
 test('clicked again, the microphone is asked to stop, and it goes back to gray', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: true }
   on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))

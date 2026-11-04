@@ -713,7 +713,13 @@ async function listen ($: EngineInterface) {
 
 /** Ends the dictation: what is being said is still written out. */
 async function stopListening ($: EngineInterface) {
-  if (!listenFile) return
+  // No dictation under way here, yet the footer shows one: a reload of the plugin ended it, and its end was
+  // never written. The click puts the footer back in step instead of doing nothing.
+  if (!listenFile) {
+    await update($, listening, () => 'off')
+    await update($, heard, () => [])
+    return
+  }
   await $.fs.write(listenFile, 'stop')
   // Blue again while the last phrases are written: it ends, and turns gray, once they are in the prompt.
   await update($, listening, () => 'loading')
@@ -1923,6 +1929,11 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive
+    // A session starts with no dictation under way: a state left from before a reload is cleared here.
+    if (!listenFile) {
+      await update($, listening, () => 'off')
+      await update($, heard, () => [])
+    }
     // The model in use, followed as it changes: see followModel.
     $.clock.every(1500, () => followModel($))
     await $.command.register({
