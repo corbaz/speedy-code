@@ -614,17 +614,20 @@ async function clipPress ($: EngineInterface, clip: HistoryClip) {
 /** The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. */
 async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   const elements = $.ui.resolve(e)
-  const { Box, Button, Text } = elements
+  const { Box, Client, Text } = elements
   const list = await read($, clips)
   const playing = await read($, clipNow)
   const now = await read($, speech)
   // The description takes the room left after the ▶ and the stamp, so every stamp starts in one column.
   const descriptionWidth = Math.max(10, width - 12 - 18)
+  // Clients, not Buttons: no fill under the pointer, as the footer's controls. A click posts to the
+  // footer's handler by key (speedy:clip-read, speedy:clip-play:<n>, speedy:clip-clear).
+  const action = (key: string, label: string, color: string) => (
+    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true }} />
+  )
   return (
     <Box flexDirection="column">
-      <Button key="clip:read" plain onPress={() => { void readPending($) }}>
-        <Text bold color="#ffd43b">{' 📎 leer selección '}</Text>
-      </Button>
+      <Box flexDirection="row">{action('speedy:clip-read', ' 📎 leer selección ', '#ffd43b')}</Box>
       {list.length === 0
         ? <Text dimColor>{'  Todavía no hay audios. Se guardan cada vez que se lee una respuesta o una selección.'}</Text>
         : list.map((clip, index) => {
@@ -634,18 +637,12 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
           const color = isHere && now === 'playing' ? '#ffd43b' : '#63e6be'
           return (
           <Box key={`clip:${clip.path}`} flexDirection="row">
-            <Button key={`clip-play:${index}`} plain onPress={() => { void clipPress($, clip) }}>
-              <Text bold color={color}>{` ${glyph} `}</Text>
-            </Button>
+            {action(`speedy:clip-play:${index}`, ` ${glyph} `, color)}
             <Text>{` ${fit(historySplit(clip.name).description, descriptionWidth)} ${historySplit(clip.name).stamp}`}</Text>
           </Box>
           )
         })}
-      <Box marginTop={1}>
-        <Button key="clip:clear" plain onPress={() => { void clearClips($) }}>
-          <Text bold color="#ff6b6b">{' 🗑️ limpiar historial '}</Text>
-        </Button>
-      </Box>
+      <Box marginTop={1} flexDirection="row">{action('speedy:clip-clear', ' 🗑️ limpiar historial ', '#ff6b6b')}</Box>
     </Box>
   )
 }
@@ -2092,6 +2089,13 @@ export const register: Register = on => {
       const chosenGender = e.element.slice('speedy:gender:'.length) === 'Male' ? 'Male' : 'Female'
       await update($, gender, () => chosenGender)
       await update($, page, () => 0)
+    } else if (e.element === 'speedy:clip-read') {
+      await readPending($)
+    } else if (e.element === 'speedy:clip-clear') {
+      await clearClips($)
+    } else if (e.element.startsWith('speedy:clip-play:')) {
+      const clip = (await read($, clips))[Number(e.element.slice('speedy:clip-play:'.length))]
+      if (clip) void clipPress($, clip)
     } else if (e.element === 'speedy:more') {
       await openMenu($, 'more')
     } else if (e.element === 'speedy:settings') {
