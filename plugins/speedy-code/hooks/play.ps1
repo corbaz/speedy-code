@@ -1,7 +1,8 @@
 # Plays one saved narration for the speedy-code 📎 menu: the MP3 named by $env:SPEEDY_CLIP.
 # $env:SPEEDY_CONTROL names a file that says "pause" or "play" while it plays, as speak.ps1's does, so the
 # footer's play button pauses and goes on. Exits 0 when it played to the end, 1 when the file would not open.
-# Ending the process stops it; the control file is removed as it ends.
+# It says "." every tenth of a second, so the mod wakes to end it. Ending the process stops it; the control
+# file is removed as it ends.
 $ErrorActionPreference = 'Stop'
 $clip = $env:SPEEDY_CLIP
 $control = $env:SPEEDY_CONTROL
@@ -19,6 +20,8 @@ try {
   $isPaused = $false
   while ($true) {
     Start-Sleep -Milliseconds 100
+    # A dot each tick, as speak.ps1 says them: the mod's loop wakes on it, so a stop ends the sound now.
+    [Console]::Out.WriteLine('.'); [Console]::Out.Flush()
     # A read that meets the writer is read again on the next tick.
     $asked = ''
     if ($control) { try { $asked = ([IO.File]::ReadAllText($control)).Trim() } catch { $asked = '' } }
