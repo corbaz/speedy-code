@@ -508,6 +508,13 @@ export function historyName (text: string, now: Date) {
   return `${description}-${stamp}.mp3`
 }
 
+/** A kept narration's name split in its description and its stamp, for the menu's aligned columns. A name
+ * without a stamp keeps all of it as the description. */
+export function historySplit (name: string) {
+  const match = /-(\d{2}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:-\d+)?(?:\.mp3)?$/i.exec(name)
+  return match ? { description: name.slice(0, match.index), stamp: match[1] ?? '' } : { description: name, stamp: '' }
+}
+
 /** The folder the narrations are kept in: `%LOCALAPPDATA%/speedy-code/audio`. */
 async function historyDir ($: EngineInterface) {
   const local = (await $.env.get('LOCALAPPDATA')) || ''
@@ -583,7 +590,8 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   const elements = $.ui.resolve(e)
   const { Box, Button, Text } = elements
   const list = await read($, clips)
-  const nameWidth = Math.max(10, width - 12)
+  // The description takes the room left after the ▶ and the stamp, so every stamp starts in one column.
+  const descriptionWidth = Math.max(10, width - 12 - 18)
   return (
     <Box flexDirection="column">
       <Button key="clip:read" plain onPress={() => { void readPending($) }}>
@@ -596,7 +604,7 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
             <Button key={`clip-play:${index}`} plain onPress={() => { void playClip($, clip) }}>
               <Text bold color="#63e6be">{' ▶ '}</Text>
             </Button>
-            <Text>{` ${fit(clip.name, nameWidth)}`}</Text>
+            <Text>{` ${fit(historySplit(clip.name).description, descriptionWidth)} ${historySplit(clip.name).stamp}`}</Text>
           </Box>
         ))}
       <Box marginTop={1}>

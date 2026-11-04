@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, historyName, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, historyName, historySplit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -851,6 +851,12 @@ test('historyName: the text start, safe in a file name, then when it was written
   // Nothing left to name it by: the word audio.
   expect(historyName('  \n\t ', when)).toBe('audio-26-11-04_15-30-07.mp3')
   expect(historyName('<>|?*', when)).toBe('audio-26-11-04_15-30-07.mp3')
+})
+
+test('historySplit: the description and the stamp, apart, so the menu lines the stamps up', () => {
+  expect(historySplit('Hola-que-tal-26-11-04_15-30-07.mp3')).toEqual({ description: 'Hola-que-tal', stamp: '26-11-04_15-30-07' })
+  expect(historySplit('Hola-que-tal-26-11-04_15-30-07-2.mp3')).toEqual({ description: 'Hola-que-tal', stamp: '26-11-04_15-30-07' })
+  expect(historySplit('sin-fecha.mp3')).toEqual({ description: 'sin-fecha.mp3', stamp: '' })
 })
 
 test('socialLink builds the profile link of each network, and refuses a name no network takes', () => {
