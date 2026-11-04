@@ -11,9 +11,9 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
 # The frame's widths, in pixels.
-$contour = 10
+$contour = 24
 $line = 2
-$margin = 8
+$margin = 12
 $band = 30
 $extraWidth = 2 * ($contour + $line + $margin)
 $extraHeight = 2 * ($contour + $line) + $band + $margin
