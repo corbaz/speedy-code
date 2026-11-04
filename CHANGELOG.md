@@ -7,7 +7,8 @@
   in its own proportions (up to 80% of the screen, never enlarged), framed by a blue line and a black
   one. Its ✕ or Esc closes the picture and leaves the menu open; closing the menu closes the picture.
   Every folder Claude Code keeps the session's images in is read each time, so a session that changed
-  folder still finds them all.
+  folder still finds them all. 🗑️ deletes the session's images from disk, keeping those the prompt not
+  yet sent still names, which Claude Code attaches when it is sent.
 - Audio history: stopping a kept narration now ends its sound at once (play.ps1 wakes the mod ten
   times a second, as speak.ps1 does).
 - Audio history: every narration is kept as an MP3 in `%LOCALAPPDATA%\speedy-code\audio`, named

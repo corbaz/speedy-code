@@ -666,7 +666,7 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
  * session that changes folder keeps its images in several. Every one is looked in, each time, so none
  * is missed; none is remembered, so a folder made later is found too.
  */
-async function sessionImages ($: EngineInterface): Promise<PastedImage[]> {
+async function sessionImages ($: EngineInterface, limit = IMAGES_LENGTH): Promise<PastedImage[]> {
   const temp = (await $.env.get('CLAUDE_CODE_TMPDIR')) || (await $.env.get('TEMP')) || (await $.env.get('TMP')) || ''
   if (!temp) return []
   const root = `${temp.replace(/\\/g, '/').replace(/\/+$/, '')}/claude`
@@ -682,7 +682,34 @@ async function sessionImages ($: EngineInterface): Promise<PastedImage[]> {
       if (number) found.set(Number(number), `${folder}/${file.name}`)
     }
   }
-  return [...found].sort((a, b) => b[0] - a[0]).slice(0, IMAGES_LENGTH).map(([number, path]) => ({ id: number, path }))
+  return [...found].sort((a, b) => b[0] - a[0]).slice(0, limit).map(([number, path]) => ({ id: number, path }))
+}
+
+/** The image numbers the draft names, `[Image #N]`: those files are still to be sent, so they stay. */
+export function draftImages (draft: string) {
+  return new Set([...draft.matchAll(/\[Image #(\d+)\]/g)].map(match => Number(match[1])))
+}
+
+/**
+ * Deletes the session's pasted images from disk, every one, but those the draft still names: Claude Code
+ * attaches them when the prompt is sent. The open picture closes, and the menu lists what is left.
+ */
+async function clearImages ($: EngineInterface) {
+  const kept = draftImages((await $.prompt.read().catch(() => ({ text: '' }))).text)
+  const gone = (await sessionImages($, Infinity)).filter(image => !kept.has(image.id))
+  viewing?.abort()
+  viewing = undefined
+  if (gone.length > 0) {
+    await $.process.run(
+      ['powershell', '-NoProfile', '-NonInteractive', '-Command', '$env:SPEEDY_FILES -split "`n" | Where-Object { $_ } | ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue }'],
+      { env: { SPEEDY_FILES: gone.map(image => image.path.replace(/\//g, '\\')).join('\n') } }
+    ).catch(() => undefined)
+  }
+  const left = await sessionImages($)
+  await update($, pastedImages, () => left)
+  $.ui.toast(kept.size > 0
+    ? `speedy-code: borré ${gone.length} imágenes; quedan las ${kept.size} del prompt sin enviar.`
+    : `speedy-code: borré ${gone.length} imágenes.`)
 }
 
 /** While the images menu is open, lists the images again: one pasted meanwhile shows without reopening it. */
@@ -723,6 +750,7 @@ async function imagesMenu ($: EngineInterface, e: Drawn) {
   const { Box, Client, Text } = $.ui.resolve(e)
   const list = await read($, pastedImages)
   if (list.length === 0) return <Text dimColor>{'  Todavía no pegaste imágenes en esta sesión.'}</Text>
+  const clear = ' 🗑️ limpiar historial '
   return (
     <Box flexDirection="column">
       {list.map((image, index) => {
@@ -734,6 +762,9 @@ async function imagesMenu ($: EngineInterface, e: Drawn) {
           </Box>
         )
       })}
+      <Box marginTop={1} flexDirection="row">
+        <Client key="speedy:images-clear" module="./control.tsx" width={cells(clear)} props={{ label: clear, color: '#ff6b6b', bold: true }} />
+      </Box>
     </Box>
   )
 }
@@ -2185,6 +2216,8 @@ export const register: Register = on => {
       await update($, page, () => 0)
     } else if (e.element === 'speedy:images') {
       await openMenu($, 'images')
+    } else if (e.element === 'speedy:images-clear') {
+      await clearImages($)
     } else if (e.element.startsWith('speedy:image-view:')) {
       const image = (await read($, pastedImages))[Number(e.element.slice('speedy:image-view:'.length))]
       if (image) void openView($, image)

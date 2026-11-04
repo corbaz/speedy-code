@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, footerFit, historyName, historySplit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, restoreChips, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -869,6 +869,11 @@ test('historyName: the text start, safe in a file name, then when it was written
   // Nothing left to name it by: the word audio.
   expect(historyName('  \n\t ', when)).toBe('audio-26-11-04_15-30-07.mp3')
   expect(historyName('<>|?*', when)).toBe('audio-26-11-04_15-30-07.mp3')
+})
+
+test('draftImages: the images the draft still names, which clearing must keep', () => {
+  expect([...draftImages('mirá [Image #3] y [Image #12], otra vez [Image #3]')].sort((a, b) => a - b)).toEqual([3, 12])
+  expect(draftImages('sin imágenes, ni [Image #] ni [image #4]').size).toBe(0)
 })
 
 test('historySplit: the description and the stamp, apart, so the menu lines the stamps up', () => {
