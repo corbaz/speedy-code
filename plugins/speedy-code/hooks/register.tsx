@@ -517,7 +517,8 @@ async function historyDir ($: EngineInterface) {
 /** The newest narrations kept, newest first, as the folder holds them now. */
 async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
   const result = await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', `Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`],
+    // UTF-8 out, so names with accents read as they are; the console's code page would turn them into ♦.
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`],
     { env: { SPEEDY_HISTORY: await historyDir($) } }
   ).catch(() => undefined)
   if (!result || result.exitCode !== 0) return []
@@ -535,13 +536,21 @@ async function clearClips ($: EngineInterface) {
   $.ui.toast('speedy-code: historial borrado.')
 }
 
-/** Plays one narration kept, ending the narration under way. Playing another ends this one. */
+/**
+ * Plays one narration kept, ending the narration under way. It is driven as the footer's play button
+ * drives a narration: the same speech state, and its control file, so ⏸ pauses it and ⏵ goes on.
+ */
 async function playClip ($: EngineInterface, clip: HistoryClip) {
   await stop($)
   const controller = new AbortController()
   historyPlay = controller
+  const control = await homeFile($, `${CONTROL_DIR}/clip-${crypto.randomUUID()}.txt`)
+  controlFile = control
+  await $.fs.write(control, 'play')
+  await update($, speech, () => 'playing')
   const player = $.process.spawn({
-    argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`, '-Clip', clip.path]
+    argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`],
+    env: { SPEEDY_CLIP: clip.path.replace(/\//g, '\\'), SPEEDY_CONTROL: control.replace(/\//g, '\\') }
   })
   try {
     // Leaving the loop ends the process, and its sound with it.
@@ -551,7 +560,11 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
   } catch (error) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
-    if (historyPlay === controller) historyPlay = undefined
+    // Ended by its own end, not by a stop or another narration: the footer goes back to idle.
+    if (historyPlay === controller) {
+      historyPlay = undefined
+      await update($, speech, () => 'idle')
+    }
   }
 }
 
