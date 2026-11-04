@@ -548,7 +548,7 @@ async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
 /** Deletes every narration kept, from the disk, and empties the menu's list. */
 async function clearClips ($: EngineInterface) {
   await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue'],
+    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in ".mp3", ".txt" } | Remove-Item -Force -ErrorAction SilentlyContinue'],
     { env: { SPEEDY_HISTORY: await historyDir($) } }
   ).catch(() => undefined)
   await update($, clips, () => [])

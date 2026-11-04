@@ -4,7 +4,9 @@ Usage: history.py DEST PART...
 
 DEST is the file to write, `<description>-yy-mm-dd_hh-mm-ss.mp3`, in the history folder. A name already
 taken gets `-2`, `-3`... before its extension. The parts are MP3 frames written one after another, which
-players read as one file. The folder is then cut to the KEEP newest MP3 files.
+players read as one file. The text narrated comes in the SPEEDY_NARRATION environment variable and is
+written beside the MP3 as a `.txt` of the same name. The folder is then cut to the KEEP newest MP3 files,
+and each one cut takes its `.txt` with it.
 """
 
 import glob
@@ -38,19 +40,27 @@ def join(dest: str, parts: list[str]) -> str:
     return target
 
 
+def write_text(mp3: str, text: str) -> None:
+    """Writes the narrated text beside the MP3, with the same name and a .txt extension."""
+    with open(os.path.splitext(mp3)[0] + ".txt", "w", encoding="utf-8") as file:
+        file.write(text)
+
+
 def prune(folder: str) -> None:
-    """Deletes the MP3 files past the KEEP newest, by when they were written."""
+    """Deletes the MP3 files past the KEEP newest, by when they were written, and their .txt."""
     files = sorted(glob.glob(os.path.join(folder, "*.mp3")), key=os.path.getmtime, reverse=True)
     for old in files[KEEP:]:
-        try:
-            os.remove(old)
-        except OSError:
-            pass
+        for path in (old, os.path.splitext(old)[0] + ".txt"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def main() -> None:
     dest, *parts = sys.argv[1:]
-    join(dest, parts)
+    target = join(dest, parts)
+    write_text(target, os.environ.get("SPEEDY_NARRATION", ""))
     prune(os.path.dirname(dest))
 
 

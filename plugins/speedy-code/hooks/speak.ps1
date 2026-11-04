@@ -115,6 +115,8 @@ try {
   # Every part has played, so each exists whole. The join runs detached: the sound has already ended.
   if ($saveAs) {
     $joinArguments = @("`"$PSScriptRoot\history.py`"", "`"$saveAs`"") + @($audios | ForEach-Object { "`"$_`"" })
+    # The narrated text goes to the join through the environment, which the process inherits: it is written beside the MP3.
+    $env:SPEEDY_NARRATION = $text
     Start-Process -FilePath $python -ArgumentList $joinArguments -WindowStyle Hidden | Out-Null
   }
   foreach ($one in $players) { $one.Close() }
