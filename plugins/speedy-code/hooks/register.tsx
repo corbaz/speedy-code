@@ -23,6 +23,8 @@ const HISTORY_DIR = 'speedy-code/audio'
 const HISTORY_LENGTH = 10
 /** How much of a narration's text names its file. */
 const HISTORY_NAME_LENGTH = 40
+/** How many of the newest pasted images the images menu lists. */
+const IMAGES_LENGTH = 15
 /**
  * The Python environment every script runs in: the voice (edge-tts), the dictation (transcribe-cpp
  * with a local streaming model) and the pen. One environment of the mod's own, so a machine
@@ -377,9 +379,13 @@ function voiceTitle (chosen: Picks) {
   return `Voz: ${nameOf(id).name} (${languageName(active)} - ${countryOf(id)})`
 }
 
-/** Closes a menu, wherever it shows. */
+/** Closes a menu, wherever it shows. The images menu takes its open picture with it. */
 async function closeMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
   await dropEmptyAccounts($)
+  if (which === 'images') {
+    viewing?.abort()
+    viewing = undefined
+  }
   if ((await read($, menu)) === which) await update($, menu, () => '')
 }
 
@@ -676,7 +682,16 @@ async function sessionImages ($: EngineInterface): Promise<PastedImage[]> {
       if (number) found.set(Number(number), `${folder}/${file.name}`)
     }
   }
-  return [...found].sort((a, b) => b[0] - a[0]).map(([number, path]) => ({ id: number, path }))
+  return [...found].sort((a, b) => b[0] - a[0]).slice(0, IMAGES_LENGTH).map(([number, path]) => ({ id: number, path }))
+}
+
+/** While the images menu is open, lists the images again: one pasted meanwhile shows without reopening it. */
+async function followImages ($: EngineInterface) {
+  if ((await read($, menu)) !== 'images') return
+  const found = await sessionImages($)
+  const shown = await read($, pastedImages)
+  // Only a change draws the menu again.
+  if (found.map(image => image.path).join('|') !== shown.map(image => image.path).join('|')) await update($, pastedImages, () => found)
 }
 
 /** The image popup open, if any: opening another closes it. */
@@ -2010,6 +2025,8 @@ export const register: Register = on => {
     }
     // The model in use, followed as it changes: see followModel.
     $.clock.every(1500, () => followModel($))
+    // The images menu, kept in step with what is pasted while it is open: see followImages.
+    $.clock.every(1500, () => followImages($))
     await $.command.register({
       name: 'speedy',
       description: 'Lee en voz alta las respuestas · sin argumento: prende o apaga',
