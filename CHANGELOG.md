@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Narrow terminals: the footer and the status line fit the width. Short of room, the model and
+  the voice go short first, then some tools give way; ⋯ opens the rest with the figures. The
+  status line keeps the parts by the priority set in ⚙️ → Barra de estado, and it no longer
+  overflows.
+- 🗜️ in the footer and in the ⋯ panel runs `/compact`.
+- Settings: short tab names, plain status line words, and menus whose chosen option keeps its
+  fill under the pointer; a click on the chosen effort takes the pick back.
 - Status line: each part in a color of its own, short labels (`ctx:`, `in`, `out`), four-cell
   bars for the context used and the 5-hour and weekly limits, filled in a traffic-light color. The
   context shows its tokens out of the window size; the time goes in days, hours and minutes; the
