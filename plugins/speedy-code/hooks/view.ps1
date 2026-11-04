@@ -2,7 +2,8 @@
 # The popup stands in the middle of the screen the pointer is on, in the picture's own proportions, up to
 # 80% of that screen's working area and never larger than the picture: the picture fills its place, never
 # deformed. Its frame, from outside in: a wide black contour that hides what is behind, a blue line, and a
-# black margin whose top band holds the close mark, inside the lines as the terminal panel's.
+# black margin. On the top line, as the terminal panel has them: the file's name in the middle and the
+# close mark at the right.
 # The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a second, so the
 # mod wakes to end it; with no one reading, the write fails and it closes.
 $ErrorActionPreference = 'Stop'
@@ -10,13 +11,35 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
-# The frame's widths, in pixels.
+# The frame's widths, in pixels. The band under the top line leaves room for the half of the title and
+# the close mark that hangs below it.
 $contour = 24
 $line = 2
 $margin = 12
-$band = 30
+$band = 16
 $extraWidth = 2 * ($contour + $line + $margin)
 $extraHeight = 2 * ($contour + $line) + $band + $margin
+
+$black = [System.Drawing.Color]::Black
+$blue = [System.Drawing.ColorTranslator]::FromHtml('#74c0fc')
+
+# On the top line, as the terminal panel has them: the file's name in the middle, the close mark at the
+# right. Each on black, so it cuts the line. [char] keeps the file ASCII: PowerShell 5.1 reads a script
+# with no BOM in the system's code page, which would garble the glyph.
+$title = New-Object System.Windows.Forms.Label
+$title.Text = " $([IO.Path]::GetFileName($env:SPEEDY_IMAGE)) "
+$title.AutoSize = $true
+$title.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$title.ForeColor = $blue
+$title.BackColor = $black
+
+$close = New-Object System.Windows.Forms.Label
+$close.Text = " $([string][char]0x2715) "
+$close.AutoSize = $true
+$close.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+$close.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
+$close.BackColor = $black
+$close.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 $image = [System.Drawing.Image]::FromFile($env:SPEEDY_IMAGE)
 $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
@@ -24,10 +47,10 @@ $area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::
 $scale = [Math]::Min(1.0, [Math]::Min(($area.Width * 0.8 - $extraWidth) / $image.Width, ($area.Height * 0.8 - $extraHeight) / $image.Height))
 $width = [int][Math]::Round($image.Width * $scale)
 $height = [int][Math]::Round($image.Height * $scale)
-$popupWidth = $width + $extraWidth
+# A small picture still leaves the top line room for its title and close mark: the picture stays its
+# size, centered, with black beside it.
+$popupWidth = [Math]::Max($width + $extraWidth, 2 * $contour + $title.PreferredWidth + 2 * $close.PreferredWidth + 48)
 $popupHeight = $height + $extraHeight
-
-$black = [System.Drawing.Color]::Black
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
@@ -42,10 +65,10 @@ $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width -
 # The blue line: a panel of that color, as wide as the line around what it holds.
 $frame = New-Object System.Windows.Forms.Panel
 $frame.Dock = 'Fill'
-$frame.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#74c0fc')
+$frame.BackColor = $blue
 $frame.Padding = New-Object System.Windows.Forms.Padding($line)
 
-# Inside the line: black, the band on top for the close mark, the margin around the picture.
+# Inside the line: black, the band on top under the title, the margin around the picture.
 $inside = New-Object System.Windows.Forms.Panel
 $inside.Dock = 'Fill'
 $inside.BackColor = $black
@@ -61,18 +84,14 @@ $inside.Controls.Add($box)
 $frame.Controls.Add($inside)
 $form.Controls.Add($frame)
 
-# The close mark, in the band at the right, inside the lines. [char] keeps the file ASCII: PowerShell 5.1
-# reads a script with no BOM in the system's code page, which would garble the glyph.
-$close = New-Object System.Windows.Forms.Label
-$close.Text = [string][char]0x2715
-$close.AutoSize = $true
-$close.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
-$close.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
-$close.BackColor = $black
-$close.Cursor = [System.Windows.Forms.Cursors]::Hand
-$inside.Controls.Add($close)
+# The title and the close mark ride the top line, their middle on it, drawn over the frame.
+$lineMiddle = $contour + [int]($line / 2)
+$form.Controls.Add($title)
+$form.Controls.Add($close)
+$title.BringToFront()
 $close.BringToFront()
-$close.Location = New-Object System.Drawing.Point(($width + 2 * $margin - $close.PreferredWidth - 4), [int](($band - $close.PreferredHeight) / 2))
+$title.Location = New-Object System.Drawing.Point(([int](($popupWidth - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
+$close.Location = New-Object System.Drawing.Point(($popupWidth - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
 $close.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })
