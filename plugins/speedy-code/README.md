@@ -14,7 +14,7 @@ From left to right:
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (Windows presses Alt+V for you) |
-| 👁️ | The image history: the mod keeps a copy of each pasted image in `%LOCALAPPDATA%\speedy-code\images`, the newest 15. Each row has 👁️, which opens it in a framed popup in the middle of the screen (its own proportions, up to 80% of the screen, never enlarged; its ✕ or Esc closes it and leaves the menu open), and 🖼️, which pastes it into the prompt again (through the clipboard and Alt+V). 🗑️ deletes the mod's copies only, never Claude Code's files |
+| 👁️ | The image history: the mod keeps a copy of each pasted image in `%LOCALAPPDATA%\speedy-code\images`, the newest 15. Each row has 👁️, which opens it in a framed popup in the middle of the screen (its own proportions, up to 80% of the screen, never enlarged; its ✕ or Esc closes it and leaves the menu open), and 🖼️, which puts it in the prompt again: an image of this session, which Claude already has, by writing its `[Image #N]`, so no new number is taken; one of another session by pasting it (through the clipboard and Alt+V), when Claude Code gives it a new number. 🗑️ deletes the mod's copies only, never Claude Code's files |
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
 that image in the popup, with no menu.

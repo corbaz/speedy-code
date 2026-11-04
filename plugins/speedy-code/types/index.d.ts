@@ -19,7 +19,7 @@ export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'his
 
 /** A pasted image: its number, as `[Image #N]` names it, and its file; `stamp`, when the mod kept its
  * copy (`yy-mm-dd_hh-mm-ss`), for the mod's own copies. */
-export type PastedImage = { id: number; path: string; stamp?: string }
+export type PastedImage = { id: number; path: string; stamp?: string; session?: string }
 
 /** A narration kept in the history: its MP3 file, whole path, and its name without the extension. */
 export type HistoryClip = { path: string; name: string }

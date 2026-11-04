@@ -730,7 +730,6 @@ async function ourImages ($: EngineInterface): Promise<PastedImage[]> {
     })
     .sort((a, b) => b.stamp.localeCompare(a.stamp) || b.id - a.id)
     .slice(0, IMAGES_LENGTH)
-    .map(({ id, path, stamp }) => ({ id, path, stamp }))
 }
 
 /** The session images already copied in this run, by `<session>-<N>`: none is copied twice. */
@@ -829,10 +828,19 @@ async function followDraft ($: EngineInterface) {
 }
 
 /**
- * Pastes a kept image into the prompt again: it goes on the clipboard, then Windows presses Alt+V, as the
- * 🖼️ button pastes. No mod can attach an image to the draft. The clipboard keeps the image after.
+ * Puts a kept image in the prompt again. One of this session Claude already has: its `[Image #N]` is
+ * written at the caret, so no new number is taken and the clipboard is left alone. One of another session
+ * is pasted: it goes on the clipboard, then Windows presses Alt+V, as the 🖼️ button pastes (no mod can
+ * attach an image to the draft), and Claude Code gives it a new number.
  */
 async function repasteImage ($: EngineInterface, image: PastedImage) {
+  const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
+  if (session && image.session === session) {
+    const draft = (await $.prompt.read().catch(() => ({ text: '' }))).text
+    const before = draft === '' || /\s$/.test(draft) ? '' : ' '
+    await $.prompt.fill({ text: `${before}[Image #${image.id}] `, mode: 'insert' })
+    return
+  }
   const script = [
     'Add-Type -AssemblyName System.Windows.Forms, System.Drawing',
     '$picture = [System.Drawing.Image]::FromFile($env:SPEEDY_IMAGE)',
