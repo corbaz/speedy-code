@@ -18,14 +18,14 @@ From left to right:
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
 that image in the popup, with no menu.
-| 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
-| ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
 | 🗑️ | Clears the draft |
 | 🗣 *Voice* · *LANG* ▾ | Opens the voice menu |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
 | 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
+| 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
+| ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |

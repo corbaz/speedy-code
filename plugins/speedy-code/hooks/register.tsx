@@ -835,7 +835,9 @@ async function followDraft ($: EngineInterface) {
  */
 async function repasteImage ($: EngineInterface, image: PastedImage) {
   const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
-  if (session && image.session === session) {
+  // The session is read from the copy's own name: a list kept from before a reload may lack the field.
+  const owner = keptImage(image.path.split('/').pop() ?? '')?.session ?? image.session
+  if (session && owner === session) {
     const draft = (await $.prompt.read().catch(() => ({ text: '' }))).text
     const before = draft === '' || /\s$/.test(draft) ? '' : ' '
     await $.prompt.fill({ text: `${before}[Image #${image.id}] `, mode: 'insert' })
@@ -1391,7 +1393,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       panel: linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true)),
       labels: linked.map(({ label }) => label.length + 2)
     },
-    ...['copy', 'paste', 'image', 'polish', 'send', 'clear'].map(namedGroup),
+    ...['copy', 'paste', 'image', 'clear'].map(namedGroup),
     {
       name: 'model',
       width: cells(modelText) + (level ? cells(effortText) : 0),
@@ -1419,7 +1421,10 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     // /compact, in the footer only once the context is red; the ⋯ panel always has it beside the context.
     { ...namedGroup('compact'), width: contextUsed > 0 && contextUsed >= (await read($, barLevels)).contextRed ? cells(' 🗜️ ') : 0 },
     namedGroup('narrator'),
+    // Dictate, clean up, send: the three in the order they are used, before reload.
     namedGroup('mic'),
+    namedGroup('polish'),
+    namedGroup('send'),
     namedGroup('reload'),
     namedGroup('settings'),
     { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
