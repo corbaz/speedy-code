@@ -748,7 +748,7 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('command.run', (_, e) => { commands.push([e.command, e.args]); return { text: '' } })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' Opus 5.5 ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:model' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude (Opus 5.5) ')
@@ -1172,13 +1172,13 @@ test('the footer shows the model in use, and follows it when /model changes it i
   on('session.model', () => ({ value: model }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await w.clock.advance(100)
-  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Opus 5.5')
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain(' Opus 5.5 ')
   // /model haiku typed in the terminal: the footer asks again, and redraws with the new model.
   model = 'claude-haiku-5-5'
   await w.clock.advance(1600)
   await ui.unmount()
   const redrawn = await $.ui.mount(FOOTER)
-  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain('◆ Haiku 5.5')
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toContain(' Haiku 5.5 ')
   await redrawn.unmount()
 })
 
@@ -1186,12 +1186,12 @@ test('the footer shows the effort in force beside the model, follows /effort, an
   on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' Opus 5.5 ▾ ')
   await ui.unmount()
   // /effort max typed in the terminal: the next model request carries it.
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'max', messageCount: 1 })) { /* drained */ }
   const redrawn = await $.ui.mount(FOOTER)
-  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' ◆ Opus 5.5 ')
+  expect((await redrawn.find({ type: 'Text', in: 'speedy:model' }))?.text).toBe(' Opus 5.5 ')
   expect((await redrawn.find({ type: 'Text', in: 'speedy:effort' }))?.text).toBe('· max ▾ ')
   expect(effortColor('max')).toBe('#ff6b6b')
   expect(effortColor('low')).toBe('#69db7c')
@@ -1223,10 +1223,10 @@ test('the effort in force ignores subagents, clears on a request without one, an
   await step({ effort: 'max' })
   // A subagent on low does not change what the session runs at.
   await step({ effort: 'low', agentId: 'a1' })
-  expect(await shown()).toBe(' ◆ Opus 5.5 |· max ▾ ')
+  expect(await shown()).toBe(' Opus 5.5 |· max ▾ ')
   // A request with no effort (a model without one) clears it: the model alone, with its ▾.
   await step({})
-  expect(await shown()).toBe(' ◆ Opus 5.5 ▾ |')
+  expect(await shown()).toBe(' Opus 5.5 ▾ |')
   // A new model from the menu starts from its own effort, unknown until its first request.
   await step({ effort: 'max' })
   const footer = await $.ui.mount(FOOTER)
@@ -1237,7 +1237,7 @@ test('the effort in force ignores subagents, clears on a request without one, an
   await band.press({ key: 'models:apply' })
   await band.unmount()
   expect(commands).toEqual(['model'])
-  expect(await shown()).toBe(' ◆ Opus 5.5 ▾ |')
+  expect(await shown()).toBe(' Opus 5.5 ▾ |')
 })
 
 test('cells counts an emoji as two and a variation selector as none', () => {

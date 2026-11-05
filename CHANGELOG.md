@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Footer: the model shows without ◆, after a │ that sets it apart from the tools; the gaps after the networks' │ and after the voice are one cell, like the rest.
 - Image history of the mod's own: each pasted image is copied to `%LOCALAPPDATA%\speedy-code\images`,
   the newest 15 kept. 🗑️ clears those copies only, never Claude Code's files, and they are not copied
   again. Each row of the 👁️ menu has 🖼️, which pastes that image into the prompt again.

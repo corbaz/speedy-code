@@ -49,7 +49,7 @@ columns as the width holds and paged so the menu always fits.
 ## A narrow terminal
 
 The footer keeps the tools (📋 📥 🖼️ 🖋️ ⏎ 🗑️), the model, the voice and ✕; short of room, the model
-goes short (`◆ Opus ▾`) and then the voice (`🗣 ES ▾`); narrower still, the voice, 🗑️, 🖼️, 📋 and 🖋️
+goes short (`Opus ▾`) and then the voice (`🗣 ES ▾`); narrower still, the voice, 🗑️, 🖼️, 📋 and 🖋️
 give way, so ⋯ and ✕ are always on screen. What does not fit goes in this order: the
 networks first, then the narrator's controls, the microphone, 🔄 and ⚙️; a ⋯ appears. Click ⋯ for a
 panel above the prompt: the session (context, time, cost) and the limits, then the networks and the

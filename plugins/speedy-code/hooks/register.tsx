@@ -1347,12 +1347,15 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   const control = (key: string, label: string, color: string, bold = false) => (
     <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold }} />
   )
-  const modelText = level ? ` ◆ ${model} ` : ` ◆ ${model} ▾ `
+  const modelText = level ? ` ${model} ` : ` ${model} ▾ `
   const effortText = `· ${level} ▾ `
   // Short: the model's family alone (`Opus`), no effort; the status line still shows both.
-  const modelShort = ` ◆ ${model.split(' ')[0] ?? model} ▾ `
-  const voiceText = ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾ `
-  const voiceShort = ` 🗣  ${active.toUpperCase()} ▾ `
+  const modelShort = ` ${model.split(' ')[0] ?? model} ▾ `
+  // No trailing space: the 🗜️ beside it brings its own, so the gap is one cell like the others.
+  const voiceText = ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`
+  const voiceShort = ` 🗣  ${active.toUpperCase()} ▾`
+  // The bar between the tools and the model, as the networks have theirs.
+  const bar = <Text dimColor>│</Text>
   const named = [
     { group: 'copy', key: 'speedy:copy', footer: ' 📋 ', panel: ' 📋 copiar ', color: '#adb5bd' },
     { group: 'paste', key: 'speedy:paste', footer: ' 📥 ', panel: ' 📥 pegar ', color: '#adb5bd' },
@@ -1384,11 +1387,12 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   return [
     {
       name: 'socials',
-      width: linked.length > 0 ? linked.reduce((sum, one) => sum + one.label.length + 2, 2) : 0,
+      // The bar with no space after it: 📋 brings its own.
+      width: linked.length > 0 ? linked.reduce((sum, one) => sum + one.label.length + 2, 1) : 0,
       node: (
         <Box key="group:socials" flexDirection="row" flexShrink={0}>
           {linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true))}
-          <Text dimColor>│ </Text>
+          {bar}
         </Box>
       ),
       panel: linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true)),
@@ -1397,16 +1401,17 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     ...['copy', 'paste', 'image', 'clear'].map(namedGroup),
     {
       name: 'model',
-      width: cells(modelText) + (level ? cells(effortText) : 0),
-      compactWidth: cells(modelShort),
+      width: 1 + cells(modelText) + (level ? cells(effortText) : 0),
+      compactWidth: 1 + cells(modelShort),
       node: (
         <Box key="group:model" flexDirection="row" flexShrink={0}>
+          {bar}
           {control('speedy:model', modelText, modelColor, true)}
           {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
           {level ? control('speedy:effort', effortText, effortColor(level), true) : null}
         </Box>
       ),
-      compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{control('speedy:model', modelShort, modelColor, true)}</Box>,
+      compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{bar}{control('speedy:model', modelShort, modelColor, true)}</Box>,
       panel: [],
       labels: []
     },
