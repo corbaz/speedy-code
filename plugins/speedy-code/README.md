@@ -15,11 +15,10 @@ From left to right:
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (Windows presses Alt+V for you) |
 | 👁️ | The image history: the mod keeps a copy of each pasted image in `%LOCALAPPDATA%\speedy-code\images`, the newest 15. Each row has 👁️, which opens it in a framed popup in the middle of the screen (its own proportions, up to 80% of the screen, never enlarged; its ✕ or Esc closes it and leaves the menu open), and 🖼️, which puts it in the prompt again: an image of this session, which Claude already has, by writing its `[Image #N]`, so no new number is taken; one of another session by pasting it (through the clipboard and Alt+V), when Claude Code gives it a new number. 🗑️ deletes the mod's copies only, never Claude Code's files |
-
-Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
-that image in the popup, with no menu.
 | 🗑️ | Clears the draft |
+| │ *Model* · *effort* ▾ | Opens the model menu (see below); a bar sets it apart from the tools |
 | 🗣 *Voice* · *LANG* ▾ | Opens the voice menu |
+| 🗜️ | Runs `/compact`; always shown, whatever the context used |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
 | 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk |
@@ -30,7 +29,10 @@ that image in the popup, with no menu.
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
 
-Each menu (voices, microphones, settings) shows framed above the prompt; its icon, clicked again,
+Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
+that image in the popup, with no menu.
+
+Each menu (voices, microphones, models, audios, images, settings) shows framed above the prompt; its icon, clicked again,
 closes it, as its ✕ does.
 
 ## Reading aloud
