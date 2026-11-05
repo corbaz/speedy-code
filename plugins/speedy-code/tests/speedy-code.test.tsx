@@ -903,6 +903,10 @@ test('a draft naming [Image #3] is painted, and its chip above the prompt shows'
   await ui.unmount()
 })
 
+test('draftImages keeps the order the draft names them in, not the numbers\' order', () => {
+  expect([...draftImages('[Image #27] [Image #20] y otra vez [Image #27]')]).toEqual([27, 20])
+})
+
 test('draftImages: the images the draft still names', () => {
   expect([...draftImages('mirá [Image #3] y [Image #12], otra vez [Image #3]')].sort((a, b) => a - b)).toEqual([3, 12])
   expect(draftImages('sin imágenes, ni [Image #] ni [image #4]').size).toBe(0)

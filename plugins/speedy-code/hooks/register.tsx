@@ -695,7 +695,7 @@ async function sessionImages ($: EngineInterface, limit = IMAGES_LENGTH): Promis
   return [...found].sort((a, b) => b[0] - a[0]).slice(0, limit).map(([number, path]) => ({ id: number, path }))
 }
 
-/** The image numbers the draft names, `[Image #N]`. */
+/** The image numbers the draft names, `[Image #N]`, in the order they first appear in it. */
 export function draftImages (draft: string) {
   return new Set([...draft.matchAll(/\[Image #(\d+)\]/g)].map(match => Number(match[1])))
 }
@@ -814,7 +814,8 @@ async function followDraft ($: EngineInterface) {
   const box = await $.prompt.read().catch(() => undefined)
   if (!box || box.text === paintedDraft) return
   paintedDraft = box.text
-  const ids = [...draftImages(box.text)].sort((a, b) => a - b)
+  // In the order the draft names them, as they were put in: the chips follow the prompt.
+  const ids = [...draftImages(box.text)]
   if (ids.join(',') !== (await read($, draftIds)).join(',')) {
     await update($, draftIds, () => ids)
     if (ids.length > 0) void keepImages($)
