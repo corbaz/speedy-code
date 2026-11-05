@@ -145,11 +145,6 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The send button: PowerShell presses Enter.
-    // The broom: PowerShell presses Ctrl+L.
-    if (e.argv.some(arg => arg.includes("SendWait('^l')"))) {
-      pressed.push(e.argv.join(' '))
-      return { value: { exitCode: 0, stdout: 'wiped\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    }
     if (e.argv.some(arg => arg.includes("SendWait('{ENTER}')"))) {
       pressed.push(e.argv.join(' '))
       return { value: { exitCode: 0, stdout: 'sent\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -858,15 +853,6 @@ test('the send button presses Enter, and with an empty prompt presses nothing', 
   await ui.post({ isClicked: true }, { in: 'speedy:send' })
   expect(w.pressed.length).toBe(1)
   expect(w.pressed[0]).toContain("SendWait('{ENTER}')")
-  await ui.unmount()
-})
-
-test('🧹 presses Ctrl+L, which clears the screen and keeps the conversation and the draft', { timeoutMs: 30000 }, async ($, on) => {
-  on('prompt.read', () => ({ value: { text: 'borrador', cursor: 8 } }))
-  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await ui.post({ isClicked: true }, { in: 'speedy:wipe' })
-  expect(w.pressed.length).toBe(1)
-  expect(w.pressed[0]).toContain("SendWait('^l')")
   await ui.unmount()
 })
 

@@ -1043,16 +1043,6 @@ async function sendPrompt ($: EngineInterface) {
 }
 
 /**
- * The broom: Windows presses Ctrl+L, which clears the terminal's screen and keeps the conversation,
- * its context and the draft; /clear would start a new conversation.
- */
-async function wipeScreen ($: EngineInterface) {
-  const script = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^l'); 'wiped'"
-  const result = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script]).catch(() => undefined)
-  if (result?.stdout.trim() !== 'wiped') $.ui.toast('speedy-code: no pude limpiar; apretá Ctrl+L.')
-}
-
-/**
  * A pasted image or text is held in the draft by its chip, `[Image #1]` or `[Pasted text #2 +40 lines]`:
  * a draft written back without it drops the attachment. So the chips go to Groq as `[[1]]` markers it
  * is told to keep, and come back as they were.
@@ -1259,14 +1249,14 @@ async function followModel ($: EngineInterface) {
  * The tools, the model, the voice and ✕ always stay; the networks go first.
  */
 const FOOTER_RANKS: Record<string, number> = {
-  copy: 0, paste: 0, image: 0, polish: 0, send: 0, wipe: 0, clear: 0, model: 0, voice: 0, compact: 0, exit: 0,
+  copy: 0, paste: 0, image: 0, polish: 0, send: 0, clear: 0, model: 0, voice: 0, compact: 0, exit: 0,
   settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5
 }
 /**
  * The groups always drawn that give way, in this order, when even their short forms do not fit: they
  * go to the ⋯ panel, so ⋯ and ✕ are always on screen. Paste, send and the model never go.
  */
-const FOOTER_SHED = ['wipe', 'voice', 'compact', 'clear', 'image', 'copy', 'polish']
+const FOOTER_SHED = ['voice', 'compact', 'clear', 'image', 'copy', 'polish']
 /** The ⋯ button's width, drawn when something does not fit. */
 const MORE_WIDTH = 4
 /** The groups the footer last left out for want of room: the ⋯ panel draws them. */
@@ -1371,7 +1361,6 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     // An emoji takes no color: the glyph tells it is at work.
     { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
     { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
-    { group: 'wipe', key: 'speedy:wipe', footer: ' 🧹 ', panel: ' 🧹 limpiar pantalla ', color: '#adb5bd' },
     { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
@@ -1437,8 +1426,6 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     namedGroup('mic'),
     namedGroup('polish'),
     namedGroup('send'),
-    // Clears the screen, not the conversation: after send, as the screen fills with the answer.
-    namedGroup('wipe'),
     namedGroup('reload'),
     namedGroup('settings'),
     { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
@@ -2439,8 +2426,6 @@ export const register: Register = on => {
       void polish($)
     } else if (e.element === 'speedy:send') {
       await sendPrompt($)
-    } else if (e.element === 'speedy:wipe') {
-      await wipeScreen($)
     } else if (e.element === 'speedy:image') {
       await pasteImage($)
     } else if (e.element === 'speedy:clear') {

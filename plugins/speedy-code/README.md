@@ -26,7 +26,6 @@ that image in the popup, with no menu.
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
-| 🧹 | Clears the screen (Windows presses Ctrl+L for you): the conversation, its context and the draft stay |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
