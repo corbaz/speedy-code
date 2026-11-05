@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 🧹 in the footer, after ⏎: clears the screen with Ctrl+L and keeps the conversation and the draft.
 - Image history of the mod's own: each pasted image is copied to `%LOCALAPPDATA%\speedy-code\images`,
   the newest 15 kept. 🗑️ clears those copies only, never Claude Code's files, and they are not copied
   again. Each row of the 👁️ menu has 🖼️, which pastes that image into the prompt again.
