@@ -903,6 +903,13 @@ test('a draft naming [Image #3] is painted, and its chip above the prompt shows'
   await ui.unmount()
 })
 
+test('🗜️ is always in the footer, whatever the context used', { timeoutMs: 30000 }, async ($, on) => {
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 10000, window: 1000000, percent: 1 }, rateLimits: [], cost: { usd: 0 } } }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  expect(await ui.find({ type: 'Text', in: 'speedy:compact' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('draftImages keeps the order the draft names them in, not the numbers\' order', () => {
   expect([...draftImages('[Image #27] [Image #20] y otra vez [Image #27]')]).toEqual([27, 20])
 })

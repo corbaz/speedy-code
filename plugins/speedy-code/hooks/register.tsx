@@ -1419,8 +1419,8 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       panel: [control('speedy:voice', ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `, languageColor(active))],
       labels: [cells(` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `)]
     },
-    // /compact, in the footer only once the context is red; the ⋯ panel always has it beside the context.
-    { ...namedGroup('compact'), width: contextUsed > 0 && contextUsed >= (await read($, barLevels)).contextRed ? cells(' 🗜️ ') : 0 },
+    // /compact, always in the footer: at hand whatever the context, as the ⋯ panel has it beside the context.
+    namedGroup('compact'),
     namedGroup('narrator'),
     // Dictate, clean up, send: the three in the order they are used, before reload.
     namedGroup('mic'),
