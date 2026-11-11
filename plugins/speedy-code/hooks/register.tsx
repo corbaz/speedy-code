@@ -92,6 +92,11 @@ export const MAC = {
 
 /** The system, read once: it does not change while the mod runs. */
 let osKnown: Os | undefined
+/** The system's name as the user knows it. */
+export function systemName (os: Os) {
+  return os === 'mac' ? 'macOS' : 'Windows'
+}
+
 async function osNow ($: EngineInterface) {
   osKnown ??= osOf(await $.env.get('USERPROFILE'))
   return osKnown
@@ -1112,7 +1117,7 @@ async function stopListening ($: EngineInterface) {
 async function pickMic ($: EngineInterface, name: string) {
   await update($, mic, () => name)
   await $.store.set('mic', name)
-  $.ui.toast(`speedy-code: dicto con ${name ? micName(name) : 'el micrófono predeterminado de Windows'}`)
+  $.ui.toast(`speedy-code: dicto con ${name ? micName(name) : `el micrófono predeterminado de ${systemName(await osNow($))}`}`)
   await closeMenu($, 'mic')
 }
 
@@ -2017,6 +2022,7 @@ async function micMenu ($: EngineInterface, e: Drawn) {
   // The microphone picked; none picked, or not connected now: the system's default (empty).
   const picked = await read($, mic)
   const chosenMic = connected.includes(picked) ? picked : ''
+  const systemDefault = `Predeterminado de ${systemName(await osNow($))}`
   const elements = $.ui.resolve(e)
   const { Box, Button, Text } = elements
   return (
@@ -2024,14 +2030,14 @@ async function micMenu ($: EngineInterface, e: Drawn) {
       {connected.length === 0 ? <Text dimColor>Buscando micrófonos…</Text> : null}
       {(connected.length === 0 ? [] : ['', ...connected]).map(name => {
         const isChosen = name === chosenMic
-        const label = ` ${isChosen ? '●' : '○'} ${name ? micName(name) : 'Predeterminado de Windows'} `
+        const label = ` ${isChosen ? '●' : '○'} ${name ? micName(name) : systemDefault} `
         if (isChosen && 'Client' in elements) {
           return <elements.Client key={`speedy:chosen:mic:${name}`} module="./control.tsx" width={cells(label)} props={{ label, color: 'black', bold: true, backgroundColor: '#ff8787' }} />
         }
         return (
           <Button key={`mic:${name}`} plain onPress={() => { void pickMic($, name) }}>
             <Text bold={isChosen} color={isChosen ? 'black' : '#ff8787'} backgroundColor={isChosen ? '#ff8787' : undefined}>
-              {` ${isChosen ? '●' : '○'} ${name ? micName(name) : 'Predeterminado de Windows'} `}
+              {label}
             </Text>
           </Button>
         )

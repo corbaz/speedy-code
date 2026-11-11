@@ -539,6 +539,16 @@ test('micName keeps the device, not its kind', () => {
   expect(micName('USB Mic')).toBe('USB Mic')
 })
 
+test('on a Mac the microphone menu names macOS’s default', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  const { w } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, undefined, 'mac')
+  await w.clock.advance(200)
+  const menu = await $.ui.mount({ ...PANE, requestId: 'speedy-code-mic', surface: 'terminal' })
+  expect((await menu.find({ type: 'Text', in: 'speedy:chosen:mic:' }))?.text).toBe(' ● Predeterminado de macOS ')
+  await menu.unmount()
+})
+
 test('the microphone menu lists the default and every microphone; the one picked is kept and listened to', { timeoutMs: 30000 }, async ($, on) => {
   const mic = { on: false }
   on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
