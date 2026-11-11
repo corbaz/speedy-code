@@ -396,8 +396,8 @@ for (const row of BUTTONS) {
 }
 
 /** A session with the footer drawn, the voice done talking at once. */
-async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, system: 'windows' | 'mac' = 'windows') {
-  const w = world(on, store, '', { on: false }, clipboard, mic, polish, true, { on: false }, system)
+async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, system: 'windows' | 'mac' = 'windows', talks = { on: false }) {
+  const w = world(on, store, '', talks, clipboard, mic, polish, true, { on: false }, system)
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
   on('ui.toast', () => ({ value: undefined }))
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
@@ -421,6 +421,32 @@ test('the clip opens the menu; its first row reads the selection taken, and play
     'Hola, este es el texto que seleccioné en la terminal.',
     'Hola, este es el texto que seleccioné en la terminal.',
   ])
+  await ui.unmount()
+})
+
+test('the selection’s row shows ⏸ while it is read, ⏵ paused, and ▶ again once it ends', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
+  const talks = { on: true }
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, undefined, 'windows', talks)
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  const row = async () => (await band.find({ type: 'Text', in: 'speedy:clip-read' }))?.text
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(300)
+  expect(await row()).toBe(' ⏸︎ ')
+  // Pressed again while it plays: a pause, not a new reading.
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(await row()).toBe(' ⏵ ')
+  expect(w.spoken.length).toBe(1)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(await row()).toBe(' ⏸︎ ')
+  talks.on = false
+  await w.clock.advance(500)
+  expect(await row()).toBe(' ▶ ')
+  await band.unmount()
   await ui.unmount()
 })
 

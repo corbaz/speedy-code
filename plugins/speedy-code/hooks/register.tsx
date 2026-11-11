@@ -543,11 +543,15 @@ async function narrationOf ($: EngineInterface, answer: string, lang: string, si
   return reply.isAnswered ? reply.text.trim() : ''
 }
 
-/** Reads `answer` aloud: ends any narration under way first. */
-async function narrate ($: EngineInterface, answer: string) {
+/** What `clipNow` holds while the 📎 menu's selection is being read: its row shows ⏸ and ⏵ as a kept one does. */
+const SELECTION_CLIP = 'selection'
+
+/** Reads `answer` aloud: ends any narration under way first. `source` marks the 📎 row it plays from, if any. */
+async function narrate ($: EngineInterface, answer: string, source = '') {
   await stop($)
   const controller = new AbortController()
   current = controller
+  if (source) await update($, clipNow, () => source)
   const chosen = await read($, picks)
   const lang = chosen.active ?? DEFAULT_LANG
   const voice = chosen[lang] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
@@ -581,6 +585,7 @@ async function narrate ($: EngineInterface, answer: string) {
   } finally {
     if (current === controller) {
       current = undefined
+      if (source) await update($, clipNow, () => '')
       await update($, speech, () => 'idle')
       void refreshClipsLater($)
     }
@@ -726,8 +731,15 @@ async function readPending ($: EngineInterface) {
     $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
   }
+  // Its row pauses and goes on while it is read, as a kept narration's does.
+  const now = await read($, speech)
+  if ((await read($, clipNow)) === SELECTION_CLIP && now !== 'idle') {
+    if (now === 'playing') await control($, 'pause')
+    else if (now === 'paused') await control($, 'play')
+    return
+  }
   lastAnswer = pendingSelection
-  void narrate($, pendingSelection)
+  void narrate($, pendingSelection, SELECTION_CLIP)
 }
 
 /**
@@ -758,9 +770,11 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   )
   return (
     <Box flexDirection="column">
-      {/* The selection plays as the narrations below do: its ▶ in the same column. */}
+      {/* The selection plays as the narrations below do: its ▶ in the same column, ⧗ while Haiku writes it, then ⏸ and ⏵. */}
       <Box flexDirection="row">
-        {action('speedy:clip-read', ' ▶ ', '#63e6be')}
+        {playing === SELECTION_CLIP
+          ? action('speedy:clip-read', ` ${({ idle: '▶', thinking: '⧗', playing: '⏸︎', paused: '⏵' } as const)[now]} `, now === 'playing' ? '#ffd43b' : '#63e6be')
+          : action('speedy:clip-read', ' ▶ ', '#63e6be')}
         <Text bold color="#ffd43b">{' leer selección'}</Text>
       </Box>
       {list.length === 0
