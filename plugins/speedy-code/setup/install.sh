@@ -54,8 +54,20 @@ python_step() {
 }
 
 packages_step() {
-  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
+  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy certifi >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
   "$python" -c "import edge_tts, transcribe_cpp, sounddevice, numpy" >/dev/null 2>&1 || { echo 'los paquetes no se pueden importar'; return 1; }
+  # uv's Python on macOS has no certificate store of its own, so HTTPS fails (CERTIFICATE_VERIFY_FAILED):
+  # every script the environment runs takes certifi's, unless SSL_CERT_FILE already names one.
+  local site
+  site="$("$python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" || { echo 'no encontré site-packages'; return 1; }
+  printf '%s\n' \
+    '# speedy-code: HTTPS with certifi'"'"'s certificates (uv'"'"'s Python on macOS has none of its own).' \
+    'import os' \
+    'try:' \
+    '    import certifi' \
+    '    os.environ.setdefault("SSL_CERT_FILE", certifi.where())' \
+    'except ImportError:' \
+    '    pass' > "$site/sitecustomize.py"
   echo 'edge-tts, transcribe-cpp, sounddevice y numpy listos'
 }
 
