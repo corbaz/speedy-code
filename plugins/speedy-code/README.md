@@ -1,6 +1,6 @@
 # speedy-code
 
-Talk to Claude Code and hear it answer. A Claude Code mod for Windows: Edge neural voices read the
+Talk to Claude Code and hear it answer. A Claude Code mod for Windows and macOS: Edge neural voices read the
 answers aloud, a local speech model turns your voice into the prompt as you speak, and a footer of shortcuts handles
 the rest.
 
@@ -13,7 +13,7 @@ From left to right:
 | `GH` `in` `X` … | One button per social account set in ⚙️ → Redes sociales; opens its profile in the browser |
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
-| 🖼️ | Pastes the clipboard's image (Windows presses Alt+V for you) |
+| 🖼️ | Pastes the clipboard's image (the system presses Alt+V on Windows, Ctrl+V on macOS, for you) |
 | 👁️ | The image history: the mod keeps a copy of each pasted image in `%LOCALAPPDATA%\speedy-code\images`, the newest 15. Each row has 👁️, which opens it in a framed popup in the middle of the screen (its own proportions, up to 80% of the screen, never enlarged; its ✕ or Esc closes it and leaves the menu open), and 🖼️, which puts it in the prompt again: an image of this session, which Claude already has, by writing its `[Image #N]`, so no new number is taken; one of another session by pasting it (through the clipboard and Alt+V), when Claude Code gives it a new number. 🗑️ deletes the mod's copies only, never Claude Code's files |
 | 🗑️ | Clears the draft |
 | │ *Model* · *effort* ▾ | Opens the model menu (see below); a bar sets it apart from the tools |
@@ -24,7 +24,7 @@ From left to right:
 | 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
-| ⏎ | Sends the prompt (Windows presses Enter for you, so pasted images and @ mentions go along) |
+| ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
@@ -129,11 +129,14 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 
 ## Requirements
 
-- Windows 10 or 11, with PowerShell 5.1 (it ships with Windows).
+- Windows 10 or 11, with PowerShell 5.1 (it ships with Windows); or macOS.
+- On macOS, 🖼️, ⏎ and pasting a kept image press keys through System Events: allow your terminal in
+  System Settings → Privacy & Security → Accessibility. Images open in Quick Look, narrations play with
+  `afplay`, and the history and image copies live in `~/Library/Application Support/speedy-code`.
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
-- For 🖋️: a Groq API key in the user variable `GROQ_API_KEY`; the draft is sent to Groq.
+- For 🖋️: a Groq API key in the user variable `GROQ_API_KEY` (on macOS, exported in `~/.zshrc`); the draft is sent to Groq.
 - Everything else (uv, Python 3.12, edge-tts, transcribe-cpp, the dictation model) is installed by
-  ⚙️ → Instalación, or by `setup/install.ps1`, under `~/.claude/speedy-code`.
+  ⚙️ → Instalación, or by `setup/install.ps1` (Windows) or `setup/install.sh` (macOS), under `~/.claude/speedy-code`.
 
 ## Privacy
 

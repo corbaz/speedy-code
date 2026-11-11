@@ -118,8 +118,8 @@ def main() -> int:
                     say(f"error edge-tts failed on part {index + 1} ({maker.returncode})")
                     return 1
                 time.sleep(0.05)
-                if is_told:
-                    say(".")
+                # A dot even before the first part plays: the mod wakes on it, so a stop ends a stalled wait too.
+                say(".")
             player.start(audio, is_paused)
             if not is_told:
                 say(f"voice {voice}")

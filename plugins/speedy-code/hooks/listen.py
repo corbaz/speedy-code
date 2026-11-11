@@ -64,11 +64,12 @@ def is_stopped(control: str) -> bool:
 
 
 def microphones() -> "dict[str, int]":
-    """The microphones by name: WASAPI's, which keeps names whole (MME cuts them at 31 characters)."""
+    """The microphones by name: on Windows WASAPI's, which keeps names whole (MME cuts them at 31
+    characters); on macOS Core Audio's, its only one."""
     found: "dict[str, int]" = {}
     for index, device in enumerate(sd.query_devices()):
         api = sd.query_hostapis(device["hostapi"])["name"]
-        if device["max_input_channels"] > 0 and "WASAPI" in api:
+        if device["max_input_channels"] > 0 and (sys.platform != "win32" or "WASAPI" in api):
             found.setdefault(device["name"], index)
     return found
 
@@ -220,8 +221,8 @@ def main() -> None:
         stream = None
         threading.Thread(target=feed, daemon=True).start()
     else:
-        # WASAPI records at the device's own rate: auto_convert brings it to 16 kHz.
-        extra = sd.WasapiSettings(auto_convert=True) if device is not None else None
+        # WASAPI records at the device's own rate: auto_convert brings it to 16 kHz. Core Audio converts by itself.
+        extra = sd.WasapiSettings(auto_convert=True) if device is not None and sys.platform == "win32" else None
         stream = sd.InputStream(samplerate=RATE, channels=1, dtype="float32", blocksize=int(RATE * BLOCK_SECONDS),
                                 device=device, extra_settings=extra,
                                 callback=lambda data, frames, when, status: blocks.put(data[:, 0].copy()))

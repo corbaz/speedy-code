@@ -2,7 +2,8 @@
 
 Usage: switch.py on|off|status
 
-on:     copies statusline.ps1 to ~/.claude/speedy-code and points settings.json's `statusLine` at it;
+on:     copies statusline.ps1 (Windows) or statusline.py (macOS, run by this same Python) to
+        ~/.claude/speedy-code and points settings.json's `statusLine` at it;
         the status line set before is kept in ~/.claude/speedy-code/statusline-previous.json.
 off:    puts the kept status line back (or removes `statusLine` when there was none).
 status: says whether speedy-code's status line is the one in use.
@@ -18,11 +19,13 @@ import sys
 HOME = os.path.expanduser('~')
 SETTINGS = os.path.join(HOME, '.claude', 'settings.json')
 DATA = os.path.join(HOME, '.claude', 'speedy-code')
-SCRIPT = os.path.join(DATA, 'statusline.ps1')
+IS_WINDOWS = os.name == 'nt'
+SCRIPT_NAME = 'statusline.ps1' if IS_WINDOWS else 'statusline.py'
+SCRIPT = os.path.join(DATA, SCRIPT_NAME)
 PREVIOUS = os.path.join(DATA, 'statusline-previous.json')
 OURS = {
     'type': 'command',
-    'command': f'powershell -NoProfile -ExecutionPolicy Bypass -File "{SCRIPT}"',
+    'command': f'powershell -NoProfile -ExecutionPolicy Bypass -File "{SCRIPT}"' if IS_WINDOWS else f'"{sys.executable}" "{SCRIPT}"',
     'refreshInterval': 1,
 }
 
@@ -50,7 +53,7 @@ def main():
     settings = load(SETTINGS, {})
     if action == 'on':
         os.makedirs(DATA, exist_ok=True)
-        shutil.copyfile(os.path.join(os.path.dirname(__file__), 'statusline.ps1'), SCRIPT)
+        shutil.copyfile(os.path.join(os.path.dirname(__file__), SCRIPT_NAME), SCRIPT)
         if not is_ours(settings):
             save(PREVIOUS, {'statusLine': settings.get('statusLine')})
         settings['statusLine'] = OURS

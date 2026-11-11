@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- macOS: the mod runs on macOS beside Windows, whose commands and scripts stay as they were. The clipboard goes through `pbpaste` and `osascript`, 🖼️/⏎ press Ctrl+V and Return through System Events (the terminal needs the Accessibility permission), links open with `open`, images in Quick Look, and narrations and kept clips play with `afplay` (`speak.py`, `play.py`), paused and resumed as on Windows. The status line is `statusline.py`, drawing the same line as `statusline.ps1`; ⚙️ → Instalación runs `setup/install.sh`; dictation lists Core Audio's microphones. History and image copies live in `~/Library/Application Support/speedy-code`.
 - Footer: the model shows without ◆, after a │ that sets it apart from the tools; the gaps after the networks' │ and after the voice are one cell, like the rest.
 - Image history of the mod's own: each pasted image is copied to `%LOCALAPPDATA%\speedy-code\images`,
   the newest 15 kept. 🗑️ clears those copies only, never Claude Code's files, and they are not copied
