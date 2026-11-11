@@ -60,8 +60,12 @@ packages_step() {
   # network that inspects HTTPS (a company proxy, an antivirus) signs with a root only the keychain has,
   # and every connection fails (ClientConnectorCertificateError). truststore makes Python verify with the
   # system's own trust, keychain included, in every script the environment runs; certifi if it is missing.
+  # Loaded by a .pth file, not sitecustomize.py: Homebrew's Python ships its own sitecustomize, which
+  # comes first on the path and hides one in the environment.
   local site
   site="$("$python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" || { echo 'no encontré site-packages'; return 1; }
+  rm -f "$site/sitecustomize.py"
+  echo 'import speedy_trust' > "$site/speedy_trust.pth"
   printf '%s\n' \
     '# speedy-code: HTTPS verified by the system'"'"'s trust (the macOS keychain), as the browser does.' \
     'import os' \
@@ -73,7 +77,8 @@ packages_step() {
     '        import certifi' \
     '        os.environ.setdefault("SSL_CERT_FILE", certifi.where())' \
     '    except ImportError:' \
-    '        pass' > "$site/sitecustomize.py"
+    '        pass' > "$site/speedy_trust.py"
+  "$python" -c 'import ssl; assert "truststore" in ssl.SSLContext.__module__' >/dev/null 2>&1 || { echo 'HTTPS sin el llavero de macOS (truststore no se cargó)'; return 1; }
   echo 'edge-tts, transcribe-cpp, sounddevice y numpy listos'
 }
 
