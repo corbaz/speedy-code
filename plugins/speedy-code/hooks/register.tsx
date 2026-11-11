@@ -202,7 +202,7 @@ const MALE = '#74c0fc'
  * what it is for, and its color. The newest of each line, as Anthropic lists them on 2026-10-31.
  */
 const MODELS: ReadonlyArray<readonly [string, string, string, string]> = [
-  ['claude-fable-5-1', 'Fable 5.1', 'el más capaz: razonamiento difícil y tareas largas', '#e599f7'],
+  ['claude-fable-5-2', 'Fable 5.2', 'el más capaz: razonamiento difícil y tareas largas', '#e599f7'],
   ['claude-opus-5-5', 'Opus 5.5', 'el Opus actual y el predeterminado', '#ff922b'],
   ['claude-sonnet-5-5', 'Sonnet 5.5', 'velocidad y capacidad para el día a día', '#4dabf7'],
   ['claude-haiku-5-5', 'Haiku 5.5', 'el más rápido y barato', '#63e6be']
@@ -278,7 +278,22 @@ const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as cons
 const draftIds = atom({ plugin: 'speedy-code', key: 'draftIds' } as const, [] as number[])
 /** The kept narration playing from the 📎 menu: its path; empty when none. Its row shows ⏸ or ⏵. */
 const clipNow = atom({ plugin: 'speedy-code', key: 'clipNow' } as const, '')
-const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, {} as Socials)
+/** The author's own profiles, filled in on a fresh install; anyone else writes theirs over them in ⚙️ → Redes sociales. */
+export const DEFAULT_SOCIALS: Socials = {
+  github: 'corbaz',
+  linkedin: 'julio-corbaz',
+  x: 'chipy_corbaz',
+  youtube: 'juliocorbaz',
+  instagram: 'chipy_corbaz',
+  tiktok: 'chipy.mdp',
+  facebook: 'JulioCesarCorbazArgentina',
+  twitch: 'che_argentino',
+  threads: 'chipy_corbaz',
+  reddit: 'corbazjcc',
+  gmail: 'julio.corbaz',
+  discord: 'chipy_corbaz'
+}
+const socials = atom({ plugin: 'speedy-code', key: 'socials' } as const, DEFAULT_SOCIALS)
 const settingsTab = atom({ plugin: 'speedy-code', key: 'settingsTab' } as const, 'socials')
 const settingsOpened = atom({ plugin: 'speedy-code', key: 'settingsOpened' } as const, 0)
 const editing = atom({ plugin: 'speedy-code', key: 'editing' } as const, '')
@@ -2346,6 +2361,7 @@ export const register: Register = on => {
       if (isInteractive) $.ui.toast('speedy-code: falta instalar las voces y el dictado. Abrí ⚙️ → Instalación.')
     }
     const savedSocials = await $.store.get('socials')
+    // The names saved, whole; the defaults only where nothing was ever saved.
     if (savedSocials && typeof savedSocials === 'object') await update($, socials, () => savedSocials as Socials)
     // The levels: the saved ones, else the defaults; the file the status line reads follows them.
     const savedLevels = await $.store.get('barLevels')

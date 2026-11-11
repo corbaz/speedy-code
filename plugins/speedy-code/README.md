@@ -63,7 +63,7 @@ narrow terminals the settings tabs stack their rows and the networks show the ba
 
 The footer shows the model in use and, beside it, the effort in force, in a traffic-light color:
 `low` green, `medium` lime, `high` yellow, `xhigh` orange, `max` red. Both follow `/model` and
-`/effort` typed in the terminal. Click either for the newest Claude models (Fable 5.1, Opus 5.5,
+`/effort` typed in the terminal. Click either for the newest Claude models (Fable 5.2, Opus 5.5,
 Sonnet 5.5, Haiku 5.5), each with what it is for, and the effort levels. The menu's title says what
 is in use (`Modelo de Claude (Opus 5.5 · medium)`); the model and effort in use are filled with
 their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model <id>` and then

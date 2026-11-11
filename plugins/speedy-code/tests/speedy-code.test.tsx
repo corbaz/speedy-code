@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { MAC, accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -747,7 +747,7 @@ test('modelOf knows a model by its id, a dated or [1m] id, and its alias', () =>
   expect(modelOf('claude-opus-5-5')?.[1]).toBe('Opus 5.5')
   expect(modelOf('claude-opus-5-5[1m]')?.[1]).toBe('Opus 5.5')
   expect(modelOf('sonnet')?.[1]).toBe('Sonnet 5.5')
-  expect(modelOf('claude-fable-5-1')?.[1]).toBe('Fable 5.1')
+  expect(modelOf('claude-fable-5-2')?.[1]).toBe('Fable 5.2')
   expect(modelOf('claude-opus-4-8')).toBeUndefined()
   expect(modelLabel('claude-opus-4-8')).toBe('opus-4-8')
   expect(modelLabel('')).toBe('modelo')
@@ -763,7 +763,7 @@ test('the model menu picks a model and an effort, and Aplicar runs /model then /
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Modelo de Claude/ }))?.text).toBe(' Modelo de Claude (Opus 5.5) ')
   const names = (await band.findAll({ type: 'Text', text: /^ [●○] \S+ [\d.]+ +$/ })).map(text => text.text.trim())
-  expect(names).toEqual(['○ Fable 5.1', '○ Sonnet 5.5', '○ Haiku 5.5'])
+  expect(names).toEqual(['○ Fable 5.2', '○ Sonnet 5.5', '○ Haiku 5.5'])
   // The model in use keeps its fill under the pointer: a Client.
   expect((await band.find({ type: 'Text', in: 'speedy:chosen:model:claude-opus-5-5' }))?.text?.trim()).toBe('● Opus 5.5')
   // A click only picks: nothing runs until Aplicar.
@@ -970,7 +970,8 @@ test('the gear opens the settings, where a user name typed is kept', { timeoutMs
   const editing = await $.ui.mount(BAND)
   await editing.input({ key: 'social:github:1', text: 'octocat' })
   const band2 = editing
-  expect(w.kept.socials).toEqual({ github: 'octocat' })
+  // Nothing saved before: the author's defaults, with the name typed over GitHub's.
+  expect(w.kept.socials).toEqual({ ...DEFAULT_SOCIALS, github: 'octocat' })
   await band2.unmount()
   await ui.unmount()
 })
@@ -1490,4 +1491,15 @@ test('on macOS, leaving puts the resume command on the clipboard by osascript', 
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 'a1b2-c3', resume: { id: 'a1b2-c3' } })
   expect(w.ran).toContainEqual(MAC.clipboardWrite('claude --resume a1b2-c3'))
   expect(w.copied).toEqual([])
+})
+
+test('a fresh install shows the author’s networks; names saved before are kept as they are', { timeoutMs: 30000 }, async ($, on) => {
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /github\.com/ }))?.text).toBe('https://github.com/corbaz')
+  expect((await band.findAll({ type: 'Text', text: /^usuario ✎$/ })).length).toBe(0)
+  await band.unmount()
+  await ui.unmount()
 })
