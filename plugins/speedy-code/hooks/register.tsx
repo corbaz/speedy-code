@@ -34,7 +34,85 @@ const IMAGE_COLOR = '#74c0fc'
  * with a local streaming model) and the pen. One environment of the mod's own, so a machine
  * needs no Python package installed by hand.
  */
-const PYTHON = '.claude/speedy-code/venv/Scripts/python.exe'
+export function pythonOf (os: Os) {
+  return os === 'windows' ? '.claude/speedy-code/venv/Scripts/python.exe' : '.claude/speedy-code/venv/bin/python'
+}
+
+/** The system the mod runs on. Windows keeps its PowerShell scripts; macOS has its own tools beside them. */
+export type Os = 'windows' | 'mac'
+
+/** Windows always sets USERPROFILE and macOS never does: the mod API names no system of its own. */
+export function osOf (userProfile: string | undefined): Os {
+  return userProfile ? 'windows' : 'mac'
+}
+
+/**
+ * What macOS runs where Windows runs PowerShell. Paths go in by the environment or as their own argument,
+ * never spliced into a script. Key presses go through System Events: the terminal needs the Accessibility
+ * permission. Claude Code on macOS pastes an image with Ctrl+V, where Windows uses Alt+V.
+ */
+export const MAC = {
+  clipboardRead: ['pbpaste'],
+  clipboardWrite: (text: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to item 1 of argv', '-e', 'end run', text],
+  open: (link: string) => ['open', link],
+  listClips: (count: number) => ['/bin/sh', '-c', `ls -t "$SPEEDY_HISTORY"/*.mp3 2>/dev/null | head -n ${count}`],
+  clearClips: ['/bin/sh', '-c', 'rm -f "$SPEEDY_HISTORY"/*.mp3 "$SPEEDY_HISTORY"/*.txt'],
+  clearImages: ['/bin/sh', '-c', 'find "$SPEEDY_DIR" -maxdepth 1 -type f -delete 2>/dev/null; true'],
+  /** As Windows keeps them: a copy whose bytes are already kept is skipped, and the newest SPEEDY_KEEP by name stay. */
+  keepImages: ['/bin/sh', '-c', [
+    'mkdir -p "$SPEEDY_DIR"',
+    "known=''",
+    'for f in "$SPEEDY_DIR"/*; do [ -f "$f" ] && known="$known $(shasum -a 256 "$f" | cut -d" " -f1)"; done',
+    "while IFS='|' read -r src dst; do",
+    '  [ -n "$src" ] || continue',
+    '  hash=$(shasum -a 256 "$src" 2>/dev/null | cut -d" " -f1)',
+    '  [ -n "$hash" ] || continue',
+    '  case "$known" in *"$hash"*) continue ;; esac',
+    '  cp -f "$src" "$dst" 2>/dev/null && known="$known $hash"',
+    'done <<EOF',
+    '$SPEEDY_COPIES',
+    'EOF',
+    'ls -1 "$SPEEDY_DIR" | sort -r | tail -n +$((SPEEDY_KEEP + 1)) | while IFS= read -r name; do rm -f "$SPEEDY_DIR/$name"; done'
+  ].join('\n')],
+  pasteImage: ['/bin/sh', '-c', `if osascript -e 'clipboard info' 2>/dev/null | grep -qE 'PNGf|TIFF|JPEG|GIFf'; then osascript -e 'tell application "System Events" to keystroke "v" using control down' >/dev/null && echo pasted; else echo none; fi`],
+  repasteImage: ['/bin/sh', '-c', [
+    "case \"$SPEEDY_IMAGE\" in *.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) kind='JPEG picture' ;; *) kind='«class PNGf»' ;; esac",
+    'osascript -e \'on run argv\' -e "set the clipboard to (read (POSIX file (item 1 of argv)) as $kind)" -e \'end run\' "$SPEEDY_IMAGE" >/dev/null &&',
+    '  osascript -e \'tell application "System Events" to keystroke "v" using control down\' >/dev/null && echo pasted'
+  ].join('\n')],
+  sendEnter: ['osascript', '-e', 'tell application "System Events" to key code 36', '-e', 'return "sent"'],
+  /** Quick Look shows the image; a dot each tenth of a second, as view.ps1 says them, so the mod can end it. */
+  view: ['/bin/sh', '-c', [
+    'qlmanage -p "$SPEEDY_IMAGE" >/dev/null 2>&1 & viewer=$!',
+    "trap 'kill $viewer 2>/dev/null' EXIT",
+    "trap 'exit 0' HUP INT TERM PIPE",
+    'while kill -0 $viewer 2>/dev/null; do echo .; sleep 0.1; done'
+  ].join('\n')]
+}
+
+/** The system, read once: it does not change while the mod runs. */
+let osKnown: Os | undefined
+async function osNow ($: EngineInterface) {
+  osKnown ??= osOf(await $.env.get('USERPROFILE'))
+  return osKnown
+}
+
+/** The mod's Python, as this system lays out a virtual environment. */
+async function python ($: EngineInterface) {
+  return homeFile($, pythonOf(await osNow($)))
+}
+
+/** The folder under the system's per-user app data: `%LOCALAPPDATA%` on Windows, `~/Library/Application Support` on macOS. */
+async function appDataDir ($: EngineInterface, folder: string) {
+  if ((await osNow($)) === 'mac') return homeFile($, `Library/Application Support/${folder}`)
+  const local = (await $.env.get('LOCALAPPDATA')) || ''
+  return local ? `${local.replace(/\\/g, '/')}/${folder}` : homeFile($, `AppData/Local/${folder}`)
+}
+
+/** A path as the system's own tools take it: backslashes on Windows. */
+async function nativePath ($: EngineInterface, path: string) {
+  return (await osNow($)) === 'windows' ? path.replace(/\//g, '\\') : path
+}
 /** The wand: Groq's model that cleans the prompt up, and where it is asked. The key is the system's
  * GROQ_API_KEY: it never leaves the request's header. */
 const POLISH_MODEL = 'openai/gpt-oss-120b'
@@ -309,7 +387,7 @@ async function loadPicks ($: EngineInterface): Promise<Picks> {
 
 /** The neural voices edge-tts offers in the tabs' languages, by `python -m edge_tts --list-voices`. */
 async function loadVoices ($: EngineInterface) {
-  const result = await $.process.run([await homeFile($, PYTHON), '-m', 'edge_tts', '--list-voices']).catch(() => undefined)
+  const result = await $.process.run([await python($), '-m', 'edge_tts', '--list-voices']).catch(() => undefined)
   if (!result || result.exitCode !== 0) return
   const found: Voice[] = []
   for (const line of result.stdout.split(/\r?\n/)) {
@@ -324,7 +402,7 @@ async function loadVoices ($: EngineInterface) {
 
 /** The microphones connected, by `listen.py --list`, as Windows names them. */
 async function loadMics ($: EngineInterface) {
-  const result = await $.process.run([await homeFile($, PYTHON), `${$.plugin.root}/hooks/listen.py`, '--list'], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/listen.py`, '--list'], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   if (!result || result.exitCode !== 0) return
   const found = result.stdout.split(/\r?\n/).filter(line => line.startsWith('mic ')).map(line => line.slice(4).trim())
   await update($, mics, () => found)
@@ -464,9 +542,12 @@ async function narrate ($: EngineInterface, answer: string) {
     await $.fs.write(control, 'play')
     // A new narration is kept in the history; saying the same one again is not, it is already there.
     const saveAs = isSame ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
+    const pythonFile = await python($)
     const speaker = $.process.spawn({
-      argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/speak.ps1`],
-      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: await homeFile($, PYTHON), NARRATOR_SAVE_AS: saveAs.replace(/\//g, '\\') }
+      argv: (await osNow($)) === 'windows'
+        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/speak.ps1`]
+        : [pythonFile, `${$.plugin.root}/hooks/speak.py`],
+      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: pythonFile, NARRATOR_SAVE_AS: await nativePath($, saveAs) }
     })
     for await (const { text: said } of speaker) {
       // Leaving the loop ends the process, and its sound with it.
@@ -521,7 +602,8 @@ async function selectedText ($: EngineInterface) {
 
 /** The clipboard's text, as Windows holds it: the clip reads it, the paste button puts it in the prompt. */
 async function clipboardText ($: EngineInterface) {
-  const clipboard = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw']).catch(() => undefined)
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'] : MAC.clipboardRead
+  const clipboard = await $.process.run(argv).catch(() => undefined)
   return clipboard?.exitCode === 0 ? clipboard.stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '') : ''
 }
 
@@ -550,17 +632,18 @@ export function historySplit (name: string) {
   return match ? { description: name.slice(0, match.index), stamp: match[1] ?? '' } : { description: name, stamp: '' }
 }
 
-/** The folder the narrations are kept in: `%LOCALAPPDATA%/speedy-code/audio`. */
+/** The folder the narrations are kept in: `speedy-code/audio` under the app data. */
 async function historyDir ($: EngineInterface) {
-  const local = (await $.env.get('LOCALAPPDATA')) || ''
-  return local ? `${local.replace(/\\/g, '/')}/${HISTORY_DIR}` : homeFile($, `AppData/Local/${HISTORY_DIR}`)
+  return appDataDir($, HISTORY_DIR)
 }
 
 /** The newest narrations kept, newest first, as the folder holds them now. */
 async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
   const result = await $.process.run(
-    // UTF-8 out, so names with accents read as they are; the console's code page would turn them into ♦.
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`],
+    (await osNow($)) === 'windows'
+      // UTF-8 out, so names with accents read as they are; the console's code page would turn them into ♦.
+      ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`]
+      : MAC.listClips(HISTORY_LENGTH),
     { env: { SPEEDY_HISTORY: await historyDir($) } }
   ).catch(() => undefined)
   if (!result || result.exitCode !== 0) return []
@@ -571,7 +654,9 @@ async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
 /** Deletes every narration kept, from the disk, and empties the menu's list. */
 async function clearClips ($: EngineInterface) {
   await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in ".mp3", ".txt" } | Remove-Item -Force -ErrorAction SilentlyContinue'],
+    (await osNow($)) === 'windows'
+      ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in ".mp3", ".txt" } | Remove-Item -Force -ErrorAction SilentlyContinue']
+      : MAC.clearClips,
     { env: { SPEEDY_HISTORY: await historyDir($) } }
   ).catch(() => undefined)
   await update($, clips, () => [])
@@ -592,8 +677,10 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
   await update($, speech, () => 'playing')
   await update($, clipNow, () => clip.path)
   const player = $.process.spawn({
-    argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`],
-    env: { SPEEDY_CLIP: clip.path.replace(/\//g, '\\'), SPEEDY_CONTROL: control.replace(/\//g, '\\') }
+    argv: (await osNow($)) === 'windows'
+      ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/play.ps1`]
+      : [await python($), `${$.plugin.root}/hooks/play.py`],
+    env: { SPEEDY_CLIP: await nativePath($, clip.path), SPEEDY_CONTROL: await nativePath($, control) }
   })
   try {
     // Leaving the loop ends the process, and its sound with it.
@@ -677,7 +764,8 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
  * is missed; none is remembered, so a folder made later is found too.
  */
 async function sessionImages ($: EngineInterface, limit = IMAGES_LENGTH): Promise<PastedImage[]> {
-  const temp = (await $.env.get('CLAUDE_CODE_TMPDIR')) || (await $.env.get('TEMP')) || (await $.env.get('TMP')) || ''
+  // TEMP on Windows, TMPDIR on macOS.
+  const temp = (await $.env.get('CLAUDE_CODE_TMPDIR')) || (await $.env.get('TEMP')) || (await $.env.get('TMP')) || (await $.env.get('TMPDIR')) || ''
   if (!temp) return []
   const root = `${temp.replace(/\\/g, '/').replace(/\/+$/, '')}/claude`
   // No session id: no folder to look in, and the menu still opens, empty.
@@ -714,10 +802,9 @@ export function keptImage (name: string) {
   return match ? { stamp: match[1] ?? '', session: match[2] ?? '', id: Number(match[3]) } : undefined
 }
 
-/** The folder the mod keeps its copies of the pasted images in: `%LOCALAPPDATA%/speedy-code/images`. */
+/** The folder the mod keeps its copies of the pasted images in: `speedy-code/images` under the app data. */
 async function imagesDir ($: EngineInterface) {
-  const local = (await $.env.get('LOCALAPPDATA')) || ''
-  return local ? `${local.replace(/\\/g, '/')}/${IMAGES_DIR}` : homeFile($, `AppData/Local/${IMAGES_DIR}`)
+  return appDataDir($, IMAGES_DIR)
 }
 
 /** The mod's copies, newest first: what the 👁 menu lists. */
@@ -757,9 +844,12 @@ async function keepImages ($: EngineInterface) {
   if (fresh.length === 0) return
   const stamp = stampOf(new Date())
   for (const image of fresh) copied.add(`${session}-${image.id}`)
-  const copies = fresh.map(image => `${image.path.replace(/\//g, '\\')}|${dir.replace(/\//g, '\\')}\\${stamp}_${session}-${image.id}.${image.path.split('.').pop() ?? 'png'}`)
+  const isWindows = (await osNow($)) === 'windows'
+  const copies = isWindows
+    ? fresh.map(image => `${image.path.replace(/\//g, '\\')}|${dir.replace(/\//g, '\\')}\\${stamp}_${session}-${image.id}.${image.path.split('.').pop() ?? 'png'}`)
+    : fresh.map(image => `${image.path}|${dir}/${stamp}_${session}-${image.id}.${image.path.split('.').pop() ?? 'png'}`)
   await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', [
+    !isWindows ? MAC.keepImages : ['powershell', '-NoProfile', '-NonInteractive', '-Command', [
       'New-Item -ItemType Directory -Force -Path $env:SPEEDY_DIR | Out-Null',
       // An image already kept, pasted again (from the menu's 🖼️), has the same bytes: it is not kept twice.
       // SHA-256 by .NET itself: Get-FileHash is missing from some PowerShell 5.1 setups.
@@ -768,7 +858,7 @@ async function keepImages ($: EngineInterface) {
       '$env:SPEEDY_COPIES -split "`n" | Where-Object { $_ } | ForEach-Object { $pair = $_ -split "\\|", 2; $hash = Hash $pair[0]; if ($hash -and -not $known.ContainsKey($hash)) { Copy-Item -LiteralPath $pair[0] -Destination $pair[1] -Force -ErrorAction SilentlyContinue; $known[$hash] = $true } }',
       'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File | Sort-Object Name -Descending | Select-Object -Skip ([int]$env:SPEEDY_KEEP) | Remove-Item -Force -ErrorAction SilentlyContinue'
     ].join('; ')],
-    { env: { SPEEDY_DIR: dir.replace(/\//g, '\\'), SPEEDY_COPIES: copies.join('\n'), SPEEDY_KEEP: String(IMAGES_LENGTH) } }
+    { env: { SPEEDY_DIR: await nativePath($, dir), SPEEDY_COPIES: copies.join('\n'), SPEEDY_KEEP: String(IMAGES_LENGTH) } }
   ).catch(() => undefined)
 }
 
@@ -784,8 +874,10 @@ async function clearImages ($: EngineInterface) {
   if (session) await $.store.set('imagesCleared', { ...((await $.store.get('imagesCleared')) ?? {}) as Record<string, number>, [session]: highest })
   const gone = (await ourImages($)).length
   await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue'],
-    { env: { SPEEDY_DIR: (await imagesDir($)).replace(/\//g, '\\') } }
+    (await osNow($)) === 'windows'
+      ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -LiteralPath $env:SPEEDY_DIR -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue']
+      : MAC.clearImages,
+    { env: { SPEEDY_DIR: await nativePath($, await imagesDir($)) } }
   ).catch(() => undefined)
   await update($, pastedImages, () => [])
   $.ui.toast(`speedy-code: borré ${gone} imágenes del historial.`)
@@ -852,8 +944,8 @@ async function repasteImage ($: EngineInterface, image: PastedImage) {
     "[System.Windows.Forms.SendKeys]::SendWait('%v'); 'pasted'"
   ].join('; ')
   const result = await $.process.run(
-    ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script],
-    { env: { SPEEDY_IMAGE: image.path.replace(/\//g, '\\') } }
+    (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script] : MAC.repasteImage,
+    { env: { SPEEDY_IMAGE: await nativePath($, image.path) } }
   ).catch(() => undefined)
   if (result?.stdout.trim() !== 'pasted') $.ui.toast('speedy-code: no pude pegar la imagen.')
 }
@@ -881,8 +973,10 @@ async function openView ($: EngineInterface, image: PastedImage) {
   viewing = controller
   try {
     const viewer = $.process.spawn({
-      argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/view.ps1`],
-      env: { SPEEDY_IMAGE: image.path.replace(/\//g, '\\') }
+      argv: (await osNow($)) === 'windows'
+        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/view.ps1`]
+        : MAC.view,
+      env: { SPEEDY_IMAGE: await nativePath($, image.path) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it.
     for await (const _line of viewer) {
@@ -939,7 +1033,7 @@ async function listen ($: EngineInterface) {
   let pending = ''
   try {
     const listener = $.process.spawn({
-      argv: [await homeFile($, PYTHON), '-u', `${$.plugin.root}/hooks/listen.py`, lang, file, await read($, mic)],
+      argv: [await python($), '-u', `${$.plugin.root}/hooks/listen.py`, lang, file, await read($, mic)],
       env: { PYTHONIOENCODING: 'utf-8' }
     })
     for await (const { stream, text } of listener) {
@@ -1022,7 +1116,8 @@ async function pasteImage ($: EngineInterface) {
     'Add-Type -AssemblyName System.Windows.Forms',
     "if ([System.Windows.Forms.Clipboard]::ContainsImage()) { [System.Windows.Forms.SendKeys]::SendWait('%v'); 'pasted' } else { 'none' }"
   ].join('; ')
-  const result = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script]).catch(() => undefined)
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script] : MAC.pasteImage
+  const result = await $.process.run(argv).catch(() => undefined)
   const said = result?.stdout.trim() ?? ''
   if (said === 'none') $.ui.toast('speedy-code: el portapapeles no tiene una imagen.')
   else if (said !== 'pasted') $.ui.toast('speedy-code: no pude pegar la imagen.')
@@ -1038,7 +1133,8 @@ async function sendPrompt ($: EngineInterface) {
     return
   }
   const script = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}'); 'sent'"
-  const result = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script]).catch(() => undefined)
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script] : MAC.sendEnter
+  const result = await $.process.run(argv).catch(() => undefined)
   if (result?.stdout.trim() !== 'sent') $.ui.toast('speedy-code: no pude enviar; apretá Enter.')
 }
 
@@ -1082,7 +1178,7 @@ async function polish ($: EngineInterface) {
     // Groq is asked by polish.py, in ASCII both ways: the HTTP client here decoded Groq's UTF-8 as
     // another encoding and broke every accent.
     const polisher = $.process.spawn({
-      argv: [await homeFile($, PYTHON), '-X', 'utf8', `${$.plugin.root}/hooks/polish.py`],
+      argv: [await python($), '-X', 'utf8', `${$.plugin.root}/hooks/polish.py`],
       input: ascii(JSON.stringify({ model: POLISH_MODEL, system: POLISH_SYSTEM, text: shielded.text }))
     })
     let out = ''
@@ -1110,7 +1206,10 @@ async function polish ($: EngineInterface) {
 async function copyResume ($: EngineInterface, id: string) {
   // A session id is letters, digits and dashes alone: nothing to quote in a PowerShell string.
   if (!/^[\w-]+$/.test(id)) return
-  await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', `Set-Clipboard -Value 'claude --resume ${id}'`]).catch(() => undefined)
+  const argv = (await osNow($)) === 'windows'
+    ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', `Set-Clipboard -Value 'claude --resume ${id}'`]
+    : MAC.clipboardWrite(`claude --resume ${id}`)
+  await $.process.run(argv).catch(() => undefined)
 }
 
 /** The profile link of a network for a user name; empty when the name holds what no user name does. */
@@ -1123,7 +1222,8 @@ export function socialLink (id: string, user: string) {
 
 /** Opens a link in the default browser. The link is built by socialLink: letters, digits, `.`, `-`, `_` alone. */
 async function openLink ($: EngineInterface, link: string) {
-  await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', `Start-Process '${link}'`]).catch(() => undefined)
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', `Start-Process '${link}'`] : MAC.open(link)
+  await $.process.run(argv).catch(() => undefined)
 }
 
 /** Keeps a network's user name, for the next sessions too. */
@@ -1200,18 +1300,18 @@ async function setCheck ($: EngineInterface, name: string, check: SetupCheck) {
  * checked by the setup itself.
  */
 async function checkSetup ($: EngineInterface) {
-  const python = await homeFile($, PYTHON)
-  const hasPython = await $.fs.exists(python).catch(() => false)
+  const pythonFile = await python($)
+  const hasPython = await $.fs.exists(pythonFile).catch(() => false)
   await setCheck($, 'python', hasPython ? { state: 'ok', detail: 'listo' } : { state: 'fail', detail: 'falta' })
   let hasPackages = false
   if (hasPython) {
-    const probe = await $.process.run([python, '-c', 'import edge_tts, transcribe_cpp, sounddevice, numpy']).catch(() => undefined)
+    const probe = await $.process.run([pythonFile, '-c', 'import edge_tts, transcribe_cpp, sounddevice, numpy']).catch(() => undefined)
     hasPackages = probe?.exitCode === 0
   }
   await setCheck($, 'packages', hasPackages ? { state: 'ok', detail: 'listos' } : { state: 'fail', detail: 'faltan' })
   // The model loaded as a dictation loads it: "ok es-US", or "fail" and why.
   const lang = (await read($, picks)).active ?? DEFAULT_LANG
-  const loaded = hasPackages ? await $.process.run([python, `${$.plugin.root}/hooks/listen.py`, '--check', lang], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined) : undefined
+  const loaded = hasPackages ? await $.process.run([pythonFile, `${$.plugin.root}/hooks/listen.py`, '--check', lang], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined) : undefined
   const answer = loaded?.stdout.trim() ?? ''
   await setCheck($, 'model', answer.startsWith('ok ') ? { state: 'ok', detail: answer.slice(3) } : { state: 'fail', detail: answer.startsWith('fail ') ? answer.slice(5) : 'faltan los paquetes' })
   if (hasPackages) await loadMics($)
@@ -1225,7 +1325,7 @@ async function checkSetup ($: EngineInterface) {
  * status line set before is kept and comes back when it is switched off.
  */
 async function switchStatusLine ($: EngineInterface, action: 'on' | 'off' | 'status') {
-  const result = await $.process.run([await homeFile($, PYTHON), `${$.plugin.root}/statusline/switch.py`, action]).catch(() => undefined)
+  const result = await $.process.run([await python($), `${$.plugin.root}/statusline/switch.py`, action]).catch(() => undefined)
   const said = result?.stdout.trim() ?? ''
   if (said === 'on' || said === 'off') await update($, statusLine, () => said)
   else if (action !== 'status') $.ui.toast(`speedy-code: no pude cambiar la barra de estado: ${said.replace(/^error /, '') || 'falta instalar'}`)
@@ -1613,7 +1713,9 @@ async function runSetup ($: EngineInterface) {
   let pending = ''
   try {
     const setup = $.process.spawn({
-      argv: ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/setup/install.ps1`]
+      argv: (await osNow($)) === 'windows'
+        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/setup/install.ps1`]
+        : ['/bin/bash', `${$.plugin.root}/setup/install.sh`]
     })
     for await (const { stream, text } of setup) {
       if (stream !== 'stdout') continue
@@ -2239,7 +2341,7 @@ export const register: Register = on => {
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
     void loadMics($)
     // A first start, with nothing installed beside the code: the settings open on the setup tab.
-    if (!(await $.fs.exists(await homeFile($, PYTHON)).catch(() => false))) {
+    if (!(await $.fs.exists(await python($)).catch(() => false))) {
       await update($, settingsTab, () => 'setup')
       if (isInteractive) $.ui.toast('speedy-code: falta instalar las voces y el dictado. Abrí ⚙️ → Instalación.')
     }

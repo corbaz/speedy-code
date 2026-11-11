@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, modelOf, plain, socialLink } from '../hooks/register'
+import { MAC, accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 const PANE = {
   plugin: 'speedy-code',
@@ -116,14 +116,18 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   await ui.unmount()
 })
 
-function world (on: On, store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }) {
+function world (on: On, store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }, system: 'windows' | 'mac' = 'windows') {
   const clock = mock.clock(on, { now: 0 })
   const kept: Record<string, unknown> = { ...store }
   const prompts: string[] = []
   const spoken: Array<Record<string, string>> = []
   on('store.get', (_, e) => ({ value: kept[e.key] }))
   on('store.set', (_, e) => { kept[e.key] = e.value; return { value: undefined } })
-  on('env.get', () => ({ value: 'C:/Users/test' }))
+  // macOS sets no USERPROFILE, LOCALAPPDATA nor TEMP: HOME and TMPDIR are its own.
+  const MAC_ENV: Record<string, string | undefined> = { HOME: '/Users/test', TMPDIR: '/var/folders/t/T/', USERPROFILE: undefined, LOCALAPPDATA: undefined, TEMP: undefined, TMP: undefined }
+  on('env.get', (_, e) => ({ value: system === 'mac' && e.name in MAC_ENV ? MAC_ENV[e.name] : 'C:/Users/test' }))
+  // Every command run or started, its argv whole.
+  const ran: string[][] = []
   on('fs.read', () => { throw new Error('missing') })
   // What is installed beside the code: all of it, unless the test says nothing is.
   on('fs.exists', () => ({ value: installed }))
@@ -137,6 +141,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   on('ui.log', () => ({ value: undefined }))
   // edge-tts lists the voices of VOICES; PowerShell answers the clipboard.
   on('process.run', (_, e) => {
+    ran.push([...e.argv])
+    // macOS: pbpaste answers the clipboard; System Events presses the keys.
+    if (e.argv[0] === 'pbpaste') return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv.some(arg => arg.includes('key code 36'))) return { value: { exitCode: 0, stdout: 'sent\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
@@ -183,6 +192,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   const opened: string[] = []
   const switched: string[] = []
   on('process.spawn', async function * (_, e) {
+    ran.push([...e.argv])
     // The setup: install.ps1 says each step as it starts and ends.
     if (e.argv.some(arg => arg.endsWith('install.ps1'))) {
       yield { stream: 'stdout' as const, text: 'step python Creando el entorno\ninfo Using Python 3.12\nok python Python 3.12.16\n' }
@@ -215,7 +225,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     }
     return { value: { code: 0, signal: null } }
   })
-  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened, switched, files }
+  return { clock, kept, prompts, spoken, written, listened, pressed, copied, opened, switched, files, ran }
 }
 
 const answer = ($: Engine, text: string) =>
@@ -386,8 +396,8 @@ for (const row of BUTTONS) {
 }
 
 /** A session with the footer drawn, the voice done talking at once. */
-async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }) {
-  const w = world(on, store, '', { on: false }, clipboard, mic, polish)
+async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, system: 'windows' | 'mac' = 'windows') {
+  const w = world(on, store, '', { on: false }, clipboard, mic, polish, true, { on: false }, system)
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
   on('ui.toast', () => ({ value: undefined }))
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
@@ -1428,4 +1438,56 @@ test('the status line levels: the steppers move them by 5, keep yellow under red
   expect(w.kept.barLevels).toEqual({ contextYellow: 60, contextRed: 80, limitYellow: 75, limitRed: 90 })
   await bar.unmount()
   await ui.unmount()
+})
+
+test('osOf: Windows by its USERPROFILE, else macOS; pythonOf: the mod’s environment as each lays it out', () => {
+  expect(osOf('C:\\Users\\test')).toBe('windows')
+  expect(osOf(undefined)).toBe('mac')
+  expect(osOf('')).toBe('mac')
+  expect(pythonOf('windows')).toBe('.claude/speedy-code/venv/Scripts/python.exe')
+  expect(pythonOf('mac')).toBe('.claude/speedy-code/venv/bin/python')
+})
+
+test('on macOS the prompt buttons use its own tools: pbpaste, Ctrl+V and Return by System Events', { timeoutMs: 30000 }, async ($, on) => {
+  const fills: string[] = []
+  on('prompt.read', () => ({ value: { text: 'Revisá el endpoint', cursor: 0 } }))
+  on('prompt.fill', (_, e) => { fills.push(e.text); return { isFilled: true } })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'image', { on: false }, { reply: '', sent: [] }, 'mac')
+  await ui.post({ isClicked: true }, { in: 'speedy:paste' })
+  await ui.post({ isClicked: true }, { in: 'speedy:image' })
+  await ui.post({ isClicked: true }, { in: 'speedy:send' })
+  expect(fills).toEqual(['image'])
+  expect(w.ran).toContainEqual(MAC.clipboardRead)
+  expect(w.ran).toContainEqual(MAC.pasteImage)
+  expect(w.ran).toContainEqual(MAC.sendEnter)
+  expect(MAC.pasteImage.join(' ')).toContain('keystroke "v" using control down')
+  // Nothing of Windows' runs on macOS.
+  expect(w.ran.filter(argv => argv[0] === 'powershell')).toEqual([])
+  expect(w.pressed).toEqual([])
+  await ui.unmount()
+})
+
+test('on macOS a narration is spoken by speak.py in the mod’s Python, its paths kept with slashes', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la Mac.' } }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, { reply: '', sent: [] }, 'mac')
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  await band.unmount()
+  const speaker = w.ran.find(argv => argv.some(arg => arg.endsWith('speak.py')))
+  expect(speaker?.[0]).toBe('/Users/test/.claude/speedy-code/venv/bin/python')
+  expect(w.spoken.at(-1)?.NARRATOR_TEXT).toBe('Hola, este es el texto que seleccioné en la Mac.')
+  expect(w.spoken.at(-1)?.NARRATOR_SAVE_AS).toMatch(/^\/Users\/test\/Library\/Application Support\/speedy-code\/audio\/Hola,-este-es-el-texto-.*\.mp3$/)
+  expect(w.ran.filter(argv => argv[0] === 'powershell')).toEqual([])
+  await ui.unmount()
+})
+
+test('on macOS, leaving puts the resume command on the clipboard by osascript', { timeoutMs: 30000 }, async ($, on) => {
+  const w = world(on, {}, '', { on: false }, '', { on: false }, { reply: '', sent: [] }, true, { on: false }, 'mac')
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 'a1b2-c3', resume: { id: 'a1b2-c3' } })
+  expect(w.ran).toContainEqual(MAC.clipboardWrite('claude --resume a1b2-c3'))
+  expect(w.copied).toEqual([])
 })
