@@ -14,11 +14,23 @@ import sys
 import edge_tts
 
 
+# A part is a few seconds of speech, made in one or two. A connection that stalls sends nothing and
+# edge-tts waits up to a minute for it, the narration silent all along: it is dropped sooner and asked again.
+PART_SECONDS = 12
+ATTEMPTS = 3
+
+
 async def make(voice: str, rate: str, text_file: str, audio: str) -> None:
-    """Writes one part's audio, renamed into place once whole."""
+    """Writes one part's audio, renamed into place once whole; a stalled try is made again."""
     with open(text_file, encoding="utf-8") as source:
         text = source.read()
-    await edge_tts.Communicate(text, voice, rate=rate).save(f"{audio}.part")
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            await asyncio.wait_for(edge_tts.Communicate(text, voice, rate=rate).save(f"{audio}.part"), PART_SECONDS)
+            break
+        except Exception:  # pylint: disable=broad-except
+            if attempt == ATTEMPTS:
+                raise
     os.replace(f"{audio}.part", audio)
 
 
