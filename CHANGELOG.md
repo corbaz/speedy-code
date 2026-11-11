@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Footer: + beside ⏎ runs `/clear`, a new conversation in the same terminal with its context empty.
+- Setup: a last step sets `defaultToAgentsView: false` in `~/.claude.json` (`setup/claude_prefs.py`), so `claude` opens a normal session; only that key changes, and the file as it was is kept as `~/.claude.json.bak`.
+- Install from a clone on macOS: `install.sh` at the root, as `install.ps1` on Windows. The README says step by step how a person or an AI agent installs and updates it on either system.
+- Voice: a narration part whose connection to Edge stalls is dropped after 12 seconds and asked again, up to three times; before, the narration went silent after its first part.
+- macOS setup: Python verifies HTTPS with the macOS keychain (truststore, loaded by a `.pth` file, since Homebrew's Python hides an environment's `sitecustomize.py`); a network that inspects HTTPS no longer leaves the Edge voices failing. The voices step shows the real error when it fails.
+- Microphone menu: the system's default is named after the system running (Windows or macOS).
 - Models: Fable 5.2 replaces Fable 5.1 in the model menu.
 - Social networks: a fresh install comes with the author's profiles filled in; anyone else writes theirs over them in ⚙️ → Redes sociales. Names saved before are kept as they are.
 - macOS: the mod runs on macOS beside Windows, whose commands and scripts stay as they were. The clipboard goes through `pbpaste` and `osascript`, 🖼️/⏎ press Ctrl+V and Return through System Events (the terminal needs the Accessibility permission), links open with `open`, images in Quick Look, and narrations and kept clips play with `afplay` (`speak.py`, `play.py`), paused and resumed as on Windows. The status line is `statusline.py`, drawing the same line as `statusline.ps1`; ⚙️ → Instalación runs `setup/install.sh`; dictation lists Core Audio's microphones. History and image copies live in `~/Library/Application Support/speedy-code`.
