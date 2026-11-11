@@ -87,9 +87,15 @@ mics_step() {
 }
 
 voices_step() {
-  local count
-  count="$("$python" -m edge_tts --list-voices 2>/dev/null | grep -c 'Neural')"
-  [ "$count" -gt 0 ] || { echo 'no responden: ¿hay conexión a internet?'; return 1; }
+  local listed count why
+  listed="$("$python" -m edge_tts --list-voices 2>&1)"
+  count="$(printf '%s\n' "$listed" | grep -c 'Neural')"
+  if [ "$count" -eq 0 ]; then
+    # The error's last line says why (a certificate, no network): the step shows it.
+    why="$(printf '%s\n' "$listed" | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-120)"
+    echo "no responden: ${why:-¿hay conexión a internet?}"
+    return 1
+  fi
   echo "$count voces"
 }
 
