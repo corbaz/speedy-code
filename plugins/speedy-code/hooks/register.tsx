@@ -173,7 +173,8 @@ const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['model', 'Modelo de dictado Nemotron (~750 MB, local)'],
   ['mics', 'Micrófonos'],
   ['voices', 'Voces de Edge (internet)'],
-  ['groq', 'Clave de Groq (la pluma, opcional)']
+  ['groq', 'Clave de Groq (la pluma, opcional)'],
+  ['prefs', 'Claude Code: sesión normal al iniciar']
 ]
 
 
@@ -1484,6 +1485,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     // An emoji takes no color: the glyph tells it is at work.
     { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
     { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
+    { group: 'send', key: 'speedy:new', footer: ' + ', panel: ' + conversación nueva ', color: '#51cf66' },
     { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
@@ -2555,6 +2557,9 @@ export const register: Register = on => {
       void polish($)
     } else if (e.element === 'speedy:send') {
       await sendPrompt($)
+    } else if (e.element === 'speedy:new') {
+      // As the person typing /clear: a new conversation in this terminal, its context empty again.
+      await $.command.run({ command: 'clear' }).catch(() => { $.ui.toast('speedy-code: no pude empezar otra conversación; escribí /clear.') })
     } else if (e.element === 'speedy:image') {
       await pasteImage($)
     } else if (e.element === 'speedy:clear') {

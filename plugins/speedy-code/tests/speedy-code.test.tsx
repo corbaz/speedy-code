@@ -690,6 +690,16 @@ test('the image button asks Windows to press Alt+V, only when the clipboard hold
   await ui.unmount()
 })
 
+test('+ beside ⏎ starts a new conversation by /clear', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: string[] = []
+  on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  expect((await ui.find({ type: 'Text', in: 'speedy:new' }))?.text).toBe(' + ')
+  await ui.post({ isClicked: true }, { in: 'speedy:new' })
+  expect(commands).toEqual(['clear'])
+  await ui.unmount()
+})
+
 test('the exit button runs /exit', { timeoutMs: 30000 }, async ($, on) => {
   const commands: string[] = []
   on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })

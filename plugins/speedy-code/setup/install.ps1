@@ -115,4 +115,10 @@ Step 'groq' 'Buscando la clave de Groq de la pluma' {
   'GROQ_API_KEY presente'
 }
 
+Step 'prefs' 'Ajustando las preferencias de Claude Code' {
+  $said = (& $python (Join-Path $PSScriptRoot 'claude_prefs.py')) -join ' '
+  if ($LASTEXITCODE -ne 0) { throw $said }
+  $said
+}
+
 Say $(if ($failed) { 'done con avisos' } else { 'done' })

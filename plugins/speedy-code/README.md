@@ -25,6 +25,7 @@ From left to right:
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
+| + | Runs `/clear`: a new conversation in this terminal, its context empty again |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
@@ -137,6 +138,9 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY` (on macOS, exported in `~/.zshrc`); the draft is sent to Groq.
 - Everything else (uv, Python 3.12, edge-tts, transcribe-cpp, the dictation model) is installed by
   ⚙️ → Instalación, or by `setup/install.ps1` (Windows) or `setup/install.sh` (macOS), under `~/.claude/speedy-code`.
+- The setup also sets Claude Code's own preferences the mod wants on every machine (`setup/claude_prefs.py`):
+  `defaultToAgentsView: false` in `~/.claude.json`, so `claude` opens a normal session (`claude agents`
+  still opens the agents view). Only those keys change; the file as it was is kept as `~/.claude.json.bak`.
 
 ## Privacy
 

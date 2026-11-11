@@ -127,6 +127,11 @@ groq_step() {
   echo 'GROQ_API_KEY presente'
 }
 
+# Claude Code's own preferences, the same on every machine: see claude_prefs.py.
+prefs_step() {
+  "$python" "$here/claude_prefs.py"
+}
+
 step uv 'Buscando uv, el administrador de Python' uv_step
 step python 'Creando el entorno con Python 3.12' python_step
 step packages 'Instalando las voces y el dictado' packages_step
@@ -134,5 +139,6 @@ step model 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' model_
 step mics 'Buscando micrófonos' mics_step
 step voices 'Consultando las voces de Edge' voices_step
 step groq 'Buscando la clave de Groq de la pluma' groq_step
+step prefs 'Ajustando las preferencias de Claude Code' prefs_step
 
 if [ "$failed" -ne 0 ]; then echo 'done con avisos'; else echo 'done'; fi
