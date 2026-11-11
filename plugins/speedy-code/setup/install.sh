@@ -54,20 +54,26 @@ python_step() {
 }
 
 packages_step() {
-  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy certifi >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
+  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy certifi truststore >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
   "$python" -c "import edge_tts, transcribe_cpp, sounddevice, numpy" >/dev/null 2>&1 || { echo 'los paquetes no se pueden importar'; return 1; }
-  # uv's Python on macOS has no certificate store of its own, so HTTPS fails (CERTIFICATE_VERIFY_FAILED):
-  # every script the environment runs takes certifi's, unless SSL_CERT_FILE already names one.
+  # uv's Python on macOS does not read the macOS keychain, and edge-tts trusts certifi's list alone: a
+  # network that inspects HTTPS (a company proxy, an antivirus) signs with a root only the keychain has,
+  # and every connection fails (ClientConnectorCertificateError). truststore makes Python verify with the
+  # system's own trust, keychain included, in every script the environment runs; certifi if it is missing.
   local site
   site="$("$python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" || { echo 'no encontré site-packages'; return 1; }
   printf '%s\n' \
-    '# speedy-code: HTTPS with certifi'"'"'s certificates (uv'"'"'s Python on macOS has none of its own).' \
+    '# speedy-code: HTTPS verified by the system'"'"'s trust (the macOS keychain), as the browser does.' \
     'import os' \
     'try:' \
-    '    import certifi' \
-    '    os.environ.setdefault("SSL_CERT_FILE", certifi.where())' \
-    'except ImportError:' \
-    '    pass' > "$site/sitecustomize.py"
+    '    import truststore' \
+    '    truststore.inject_into_ssl()' \
+    'except Exception:' \
+    '    try:' \
+    '        import certifi' \
+    '        os.environ.setdefault("SSL_CERT_FILE", certifi.where())' \
+    '    except ImportError:' \
+    '        pass' > "$site/sitecustomize.py"
   echo 'edge-tts, transcribe-cpp, sounddevice y numpy listos'
 }
 
