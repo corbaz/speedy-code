@@ -430,6 +430,10 @@ test('the 📎 menu with no narration kept says so, and clear is always there', 
   const band = await $.ui.mount(BAND)
   expect(await band.find({ type: 'Text', text: /Todavía no hay audios/ })).toBeDefined()
   expect(await band.find({ type: 'Text', in: 'speedy:clip-clear' })).toBeDefined()
+  // The selection's row plays with ▶, as the narrations kept do; 📎 is in the title.
+  expect((await band.find({ type: 'Text', in: 'speedy:clip-read' }))?.text).toBe(' ▶ ')
+  expect(await band.find({ type: 'Text', text: ' leer selección' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: / 📎 Audios / })).toBeDefined()
   await band.unmount()
   await ui.unmount()
 })

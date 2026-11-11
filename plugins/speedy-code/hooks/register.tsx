@@ -758,7 +758,11 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   )
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row">{action('speedy:clip-read', ' 📎 leer selección ', '#ffd43b')}</Box>
+      {/* The selection plays as the narrations below do: its ▶ in the same column. */}
+      <Box flexDirection="row">
+        {action('speedy:clip-read', ' ▶ ', '#63e6be')}
+        <Text bold color="#ffd43b">{' leer selección'}</Text>
+      </Box>
       {list.length === 0
         ? <Text dimColor>{'  Todavía no hay audios. Se guardan cada vez que se lee una respuesta o una selección.'}</Text>
         : list.map((clip, index) => {
@@ -2591,7 +2595,7 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? 'Audios' : shown === 'images' ? 'Imágenes' : 'Configuración'} `
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : 'Configuración'} `
       const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
