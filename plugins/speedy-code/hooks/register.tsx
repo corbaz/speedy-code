@@ -1504,7 +1504,10 @@ const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`
  * blank uncolored, which showed the glyph in two colors.
  */
 export function nerdText (text: string) {
-  return text.replace(EMOJI, (_found, emoji: string) => `${NERD_ICONS[emoji]}\u00a0`)
+  // The close mark is thin and stays in its cell: it takes no cell more, only its color on the blank after it.
+  return text
+    .replace(EMOJI, (_found, emoji: string) => emoji === '×' ? NERD_ICONS[emoji] : `${NERD_ICONS[emoji]}\u00a0`)
+    .replace(/\uea76 /g, '\uea76\u00a0')
 }
 
 /** Whether everything is drawn with Nerd Fonts glyphs now: the `icons` atom, at hand where nothing is awaited. */
