@@ -48,6 +48,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -292,12 +293,15 @@ def main() -> int:
                 return 1
 
     try:
-        install(family, folder)
+        is_new = install(family, folder)
         names = names_of(os.path.join(folder, files_of(family)[0]))
     except Exception as error:  # pylint: disable=broad-except
         print(f"no pude instalar {FAMILIES[family][0]}: {error}")
         return 1
     face = names.get(16) or names.get(1) or FAMILIES[family][3]
+    # A terminal open since before the font came may not list it yet: Windows gets a moment to tell it.
+    if is_new and sys.platform == "win32":
+        time.sleep(2)
 
     changed, failed = [], []
 
@@ -325,6 +329,8 @@ def main() -> int:
     if "Ghostty" in changed:
         reload_ghostty()
         said += " (Ghostty: si no cambió, Cmd+Shift+, o reiniciarlo)"
+    if is_new and changed:
+        said += " (fuente recién instalada: si la terminal no la encuentra, cerrala y abrila)"
     if failed:
         said += f"; no pude con {', '.join(failed)}"
     print(said)
