@@ -1416,6 +1416,39 @@ export function cells (text: string) {
 /** What footerFit decided: the groups drawn, and those drawn in their short form. */
 export type FooterFit = { shown: Set<string>, compact: Set<string> }
 
+/** The version's color, after the ✕. */
+const VERSION_COLOR = '#b197fc'
+
+/**
+ * The version the footer shows: the moment of the clone's last commit, in Buenos Aires (UTC-3, which
+ * has no summer time), as `v:yy.mmdd-(hhmm)`. It changes with every push, and needs no file kept.
+ */
+export function versionLabel (epochSeconds: number) {
+  if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return ''
+  const local = new Date((epochSeconds - 3 * 3600) * 1000)
+  const two = (value: number) => String(value).padStart(2, '0')
+  const day = `${two(local.getUTCFullYear() % 100)}.${two(local.getUTCMonth() + 1)}${two(local.getUTCDate())}`
+  return `v:${day}-(${two(local.getUTCHours())}${two(local.getUTCMinutes())})`
+}
+
+/** The version, asked of git once: the mod is read from its clone, so its last commit is what runs. */
+let versionKnown: Promise<string> | undefined
+
+function versionNow ($: EngineInterface) {
+  // Forward slashes: a git reached through a shell wrapper loses the backslashes of a Windows path.
+  versionKnown ??= $.process.run(['git', '-C', $.plugin.root.replace(/\\/g, '/'), 'log', '-1', '--format=%ct'])
+    .then(result => result.exitCode === 0 ? versionLabel(Number(result.stdout.trim())) : '', () => '')
+  return versionKnown
+}
+
+/**
+ * The blank after the footer that puts it in the middle: Claude Code draws the footer against the
+ * right edge, so as many cells after it as are left before it center it. None without a width.
+ */
+export function footerBlank (columns: number | undefined, used: number) {
+  return columns === undefined ? 0 : Math.max(0, Math.floor((columns - used) / 2))
+}
+
 /**
  * The footer groups drawn in `room` cells: all of them, whole, when they fit. If not, those ranked 0
  * and the ⋯, the model and then the voice in their short form while that is still too wide, then the
@@ -2472,6 +2505,11 @@ export const register: Register = on => {
     const { shown, compact } = footerFit(groups, room)
     hiddenGroups = groups.filter(group => !shown.has(group.name)).map(group => group.name)
     const drawn = (group: (typeof groups)[number]) => compact.has(group.name) && 'compactNode' in group ? group.compactNode : group.node
+    // The cells the controls take as drawn, and the version after them while it still fits.
+    const taken = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + (compact.has(group.name) && 'compactWidth' in group ? group.compactWidth : group.width), hiddenGroups.length > 0 ? MORE_WIDTH : 0)
+    const version = await versionNow($)
+    const versionText = version && taken + version.length + 2 <= room ? ` ${version} ` : ''
+    const blank = footerBlank(e.viewport?.columns, taken + versionText.length + (modes ? cells(modes) + 3 : 0))
     return (
       <Box flexDirection="row" flexWrap="nowrap">
         {beneath}
@@ -2481,6 +2519,9 @@ export const register: Register = on => {
         {/* What did not fit waits behind ⋯, in a panel above the prompt. */}
         {hiddenGroups.length > 0 ? <Client key="speedy:more" module="./control.tsx" width={MORE_WIDTH} props={{ label: ' ⋯ ', color: '#adb5bd', bold: true }} /> : null}
         {groups.find(group => group.name === 'exit')?.node}
+        {versionText ? <Text key="speedy:version" bold color={VERSION_COLOR}>{versionText}</Text> : null}
+        {/* Claude Code sets the footer against the right edge: this blank brings it to the middle. */}
+        {blank > 0 ? <Box key="speedy:blank" width={blank} flexShrink={0} /> : null}
       </Box>
     )
   })

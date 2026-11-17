@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Footer and status line: both are drawn in the middle of the terminal's width. Claude Code sets the footer against the right edge, so a blank as wide as the room left before it follows it; the status line starts with its blanks after a reset code, since Claude Code strips the ones a line starts with.
+- Footer: after ✕, the version, `v:yy.mmdd-(hhmm)`: the moment of the clone's last commit in Buenos Aires time (UTC-3), asked of git once. It is the first thing to go when the row is short, and is not drawn where the mod is not a git clone.
 - Footer: + beside ⏎ runs `/clear`, a new conversation in the same terminal with its context empty.
 - Setup: a last step sets `defaultToAgentsView: false` in `~/.claude.json` (`setup/claude_prefs.py`), so `claude` opens a normal session; only that key changes, and the file as it was is kept as `~/.claude.json.bak`.
 - Install from a clone on macOS: `install.sh` at the root, as `install.ps1` on Windows. The README says step by step how a person or an AI agent installs and updates it on either system.

@@ -175,4 +175,8 @@ foreach ($part in $ranked) {
 $shown = @($parts | Where-Object { $_.Shown } | ForEach-Object { $_.Shown })
 # The folder is set off by », the rest by │.
 $line = if ($parts[0].Shown) { $parts[0].Shown + ' ' + (Paint '»' $C_DIM) + ' ' + (($shown | Select-Object -Skip 1) -join $bar) } else { $shown -join $bar }
+# In the middle of the width: Claude Code strips the blanks a line starts with, so they go after a
+# reset code, which draws nothing; it also sets the line two cells in.
+$pad = if ([int]$env:COLUMNS -gt 0) { [int][math]::Floor(([int]$env:COLUMNS - (Visible $line)) / 2) - 2 } else { 0 }
+if ($pad -gt 0) { $line = "$e[0m" + (' ' * $pad) + $line }
 Write-Output $line

@@ -29,6 +29,7 @@ From left to right:
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
+| `v:26.1116-(2114)` | The version: the moment of the clone's last commit, in Buenos Aires time, as `v:yy.mmdd-(hhmm)`. Not a button; the first thing to go when the row is short |
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
 that image in the popup, with no menu.
@@ -71,6 +72,8 @@ their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model 
 `/effort <level>`, as if you typed them.
 
 ## Status line
+
+The line and the footer are both drawn in the middle of the terminal's width.
 
 ```
 C:/cli » v2.1.316 ◆ Opus 5.5 · medium │ ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40

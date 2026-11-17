@@ -4,7 +4,10 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, accountsOf, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, accountsOf, footerBlank, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+
+/** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
+const GIT = { stamp: '' }
 
 const PANE = {
   plugin: 'speedy-code',
@@ -143,6 +146,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   on('process.run', (_, e) => {
     ran.push([...e.argv])
     // macOS: pbpaste answers the clipboard; System Events presses the keys.
+    // git says when the clone's last commit was made: the footer's version.
+    if (e.argv[0] === 'git') return { value: { exitCode: GIT.stamp ? 0 : 1, stdout: GIT.stamp ? `${GIT.stamp}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'pbpaste') return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('key code 36'))) return { value: { exitCode: 0, stdout: 'sent\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1552,4 +1557,41 @@ test('a fresh install shows the author’s networks; names saved before are kept
   expect((await band.findAll({ type: 'Text', text: /^usuario ✎$/ })).length).toBe(0)
   await band.unmount()
   await ui.unmount()
+})
+
+test('versionLabel: the last commit’s moment in Buenos Aires, as v:yy.mmdd-(hhmm); nothing of a moment not given', () => {
+  // 2026-11-17 00:05 UTC is 2026-11-16 21:05 in Buenos Aires (UTC-3, no summer time).
+  expect(versionLabel(Date.UTC(2026, 10, 17, 0, 5) / 1000)).toBe('v:26.1116-(2105)')
+  expect(versionLabel(Date.UTC(2027, 0, 1, 2, 59) / 1000)).toBe('v:26.1231-(2359)')
+  expect(versionLabel(Date.UTC(2027, 0, 1, 3, 0) / 1000)).toBe('v:27.0101-(0000)')
+  expect(versionLabel(Number.NaN)).toBe('')
+  expect(versionLabel(0)).toBe('')
+})
+
+test('footerBlank: as many cells after the footer as are left before it; none without a width or without room', () => {
+  expect(footerBlank(160, 100)).toBe(30)
+  expect(footerBlank(161, 100)).toBe(30)
+  expect(footerBlank(100, 100)).toBe(0)
+  expect(footerBlank(80, 100)).toBe(0)
+  expect(footerBlank(undefined, 100)).toBe(0)
+})
+
+test('the footer ends with the version after ✕ and the blank that centers it; a narrow one drops the version first', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
+  try {
+    const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await ui.unmount()
+    const wide = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
+    expect((await wide.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
+    expect(blank === undefined).toBe(false)
+    await wide.unmount()
+    // Narrow: the controls keep their room, and the version goes before any of them.
+    const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
+    expect(await narrow.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
+    expect(await narrow.find({ type: 'Text', in: 'speedy:exit' }).then(found => found !== undefined, () => false)).toBe(true)
+    await narrow.unmount()
+  } finally {
+    GIT.stamp = ''
+  }
 })

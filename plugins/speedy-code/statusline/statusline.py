@@ -219,6 +219,13 @@ def line_of(data, columns, levels, priority, home):
     return bar.join(shown)
 
 
+def centered(line, columns):
+    """The line set in the middle of `columns`. Claude Code strips the blanks a line starts with, so
+    they go after a reset code, which draws nothing; it also sets the line two cells in."""
+    pad = (columns - visible(line)) // 2 - 2 if columns > 0 else 0
+    return f"{ESC}[0m{' ' * pad}{line}" if pad > 0 else line
+
+
 def main():
     raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     if not raw.strip():
@@ -230,7 +237,7 @@ def main():
         columns = int(os.environ.get("COLUMNS", "0"))
     except ValueError:
         columns = 0
-    sys.stdout.buffer.write((line_of(data, columns, levels, priority, home) + "\n").encode("utf-8"))
+    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, home), columns) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":
