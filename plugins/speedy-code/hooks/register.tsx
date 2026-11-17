@@ -2077,22 +2077,35 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const sizeNow = await read($, fontSize)
   const familyNow = await read($, fontFamily)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
+  // Wide, the steps go in two columns: Claude Code caps the band at half the terminal, and a row saved is a row seen.
+  const STEP_WIDTH = 50
+  const isTwoColumns = !narrow && inside >= 2 * (STEP_WIDTH + 20) + 2
+  const stepColumn = isTwoColumns ? Math.floor((inside - 2) / 2) : inside
+  const stepRow = ([name, label]: readonly [string, string]) => {
+    const check = checks[name] ?? { state: '', detail: '' }
+    const [glyph, tint] = mark[check.state]
+    return (
+      <Box key={`setup-row:${name}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow ? 1 : 0}>
+        <Box flexDirection="row">
+          {/* A column of its own: ✔ is drawn two cells wide where it is counted as one. */}
+          <Box width={4} flexShrink={0}><Text bold color={tint}>{` ${glyph}`}</Text></Box>
+          <Box width={narrow ? inside - 4 : STEP_WIDTH - 4}><Text bold color={check.state === 'fail' ? tint : '#74c0fc'}>{label}</Text></Box>
+        </Box>
+        <Box paddingLeft={narrow ? 4 : 0}><Text color={tint} dimColor={check.state === ''}>{isTwoColumns ? fit(check.detail, stepColumn - STEP_WIDTH).trimEnd() : check.detail}</Text></Box>
+      </Box>
+    )
+  }
+  const stepHalf = Math.ceil(SETUP_STEPS.length / 2)
   const setupTab = (
     <Box flexDirection="column">
-      {SETUP_STEPS.map(([name, label]) => {
-        const check = checks[name] ?? { state: '', detail: '' }
-        const [glyph, tint] = mark[check.state]
-        return (
-          <Box key={`setup-row:${name}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow ? 1 : 0}>
-            <Box flexDirection="row">
-              {/* A column of its own: ✔ is drawn two cells wide where it is counted as one. */}
-              <Box width={4} flexShrink={0}><Text bold color={tint}>{` ${glyph}`}</Text></Box>
-              <Box width={narrow ? inside - 4 : 46}><Text bold color={check.state === 'fail' ? tint : '#74c0fc'}>{label}</Text></Box>
-            </Box>
-            <Box paddingLeft={narrow ? 4 : 0}><Text color={tint} dimColor={check.state === ''}>{check.detail}</Text></Box>
+      {isTwoColumns
+        ? (
+          <Box flexDirection="row" columnGap={2}>
+            <Box flexDirection="column" width={stepColumn} flexShrink={0}>{SETUP_STEPS.slice(0, stepHalf).map(stepRow)}</Box>
+            <Box flexDirection="column" width={stepColumn} flexShrink={0}>{SETUP_STEPS.slice(stepHalf).map(stepRow)}</Box>
           </Box>
-        )
-      })}
+          )
+        : SETUP_STEPS.map(stepRow)}
       <Box flexDirection="row" marginTop={1}>
         <Button key="setup:run" plain onPress={() => { void runSetup($) }}>
           <Text bold color="black" backgroundColor={installing ? '#ffd43b' : '#51cf66'}>{installing ? ' Instalando… ' : ' Instalar / reparar todo '}</Text>
@@ -2149,6 +2162,13 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Box flexDirection="row" columnGap={1} paddingLeft={narrow ? 1 : 0} flexShrink={0}>{actions}</Box>
     </Box>
   )
+  const resetButton = (
+    <Box flexDirection="row" marginTop={1}>
+      <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
+        <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
+      </Button>
+    </Box>
+  )
   const familyName = FONT_FAMILIES.find(([id]) => id === familyNow)?.[1] ?? familyNow
   const barTab = (
     <Box flexDirection="column">
@@ -2183,17 +2203,15 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
           {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
           {level('Límite usado · amarillo desde', 'limitYellow', '')}
           {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
+          {/* Beside the priorities there is room under the levels: the button takes no rows of its own. */}
+          {isSideBySide ? resetButton : null}
         </Box>
         <Box flexDirection="column" flexShrink={0} marginTop={isSideBySide ? 0 : 1}>
           <Text bold dimColor>PRIORIDAD AL ACHICARSE</Text>
           {order.map((key, index) => priorityRow(key, index))}
         </Box>
       </Box>
-      <Box flexDirection="row" marginTop={1}>
-        <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
-          <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
-        </Button>
-      </Box>
+      {isSideBySide ? null : resetButton}
     </Box>
   )
   // The column titles on a band of the tab's color, as wide as the table.

@@ -26,7 +26,8 @@ The terminals it knows, each changed only where it is found:
   Windows Terminal   `font.face` and `font.size` of the defaults, and of each profile with a font
                      of its own (settings.json)
   Terminal (macOS)   the font of the default and the startup profiles, while it is open
-  Ghostty            `font-family` and `font-size` in its config
+  Ghostty            `font-family` and `font-size` in its config, made if it has none; it reads
+                     the config again on Cmd+Shift+, which on macOS is pressed for it
   kitty              `font_family` and `font_size` in kitty.conf
 A file changed keeps a copy as it was before the first change, beside it: `<file>.speedy-font.bak`.
 Any other terminal (iTerm2, Warp, WezTerm, Alacritty, an editor's) takes the font in its own
@@ -215,9 +216,27 @@ def config_files(home: str) -> list:
         if os.path.isdir(folder):
             named = [os.path.join(folder, name) for name in ("config", "config.ghostty") if os.path.exists(os.path.join(folder, name))]
             found.append(("Ghostty", ghostty, named[0] if named else os.path.join(folder, "config")))
+    # Ghostty with no config of its own yet: it is here if this runs in it or its app is, and it gets one.
+    is_here = os.environ.get("TERM_PROGRAM") == "ghostty" or os.path.isdir("/Applications/Ghostty.app")
+    if not found and is_here:
+        found.append(("Ghostty", ghostty, os.path.join(config, "ghostty", "config")))
     if os.path.isdir(os.path.join(config, "kitty")):
         found.append(("kitty", kitty, os.path.join(config, "kitty", "kitty.conf")))
     return found
+
+
+def reload_ghostty() -> None:
+    """Ghostty reads its config again on Cmd+Shift+, and not by itself: pressed for it while it is in front."""
+    if sys.platform != "darwin":
+        return
+    front = 'tell application "System Events" to get name of first process whose frontmost is true'
+    press = 'tell application "System Events" to keystroke "," using {command down, shift down}'
+    try:
+        asked = subprocess.run(["osascript", "-e", front], capture_output=True, text=True, check=False, timeout=5)
+        if asked.stdout.strip().lower() == "ghostty":
+            subprocess.run(["osascript", "-e", press], capture_output=True, check=False, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def option(name: str) -> str:
@@ -303,6 +322,9 @@ def main() -> int:
 
     said = f"{face}, {size} pt"
     said += f": {', '.join(dict.fromkeys(changed))}" if changed else f": no encontré una terminal que sepa cambiar; elegí '{face}' en la tuya"
+    if "Ghostty" in changed:
+        reload_ghostty()
+        said += " (Ghostty: si no cambió, Cmd+Shift+, o reiniciarlo)"
     if failed:
         said += f"; no pude con {', '.join(failed)}"
     print(said)
