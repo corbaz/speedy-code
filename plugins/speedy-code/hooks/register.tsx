@@ -1519,16 +1519,21 @@ const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`
 /**
  * `text` with every emoji and sign replaced by its Nerd Fonts glyph. A terminal draws a glyph wider
  * than its cell, so each one is followed by a cell of its own to spill over: a text with a two-cell
- * emoji keeps its width, one with a one-cell sign grows by a cell. That cell is an en space (U+2002):
- * Ghostty draws a glyph whole only before a blank, which to it is a space or this one; a terminal paints what a glyph spills in the next cell's color, and Claude Code leaves a plain
- * blank uncolored, which showed the glyph in two colors.
+ * emoji keeps its width, one with a one-cell sign grows by a cell. That cell is a no-break space:
+ * a terminal paints what a glyph spills in the next cell's color, and Claude Code leaves a plain
+ * blank uncolored, which showed the glyph in two colors. On macOS it is a plain blank, `gap`: Ghostty
+ * draws a glyph whole only before a space, shrinks it into its cell before anything else, and paints
+ * what it spills in the glyph's own color.
  */
-export function nerdText (text: string) {
+export function nerdText (text: string, gap = glyphGap) {
   // The close mark is thin and stays in its cell: it takes no cell more, only its color on the blank after it.
   return text
-    .replace(EMOJI, (_found, emoji: string) => emoji === '×' ? NERD_ICONS[emoji] : `${NERD_ICONS[emoji]}\2002`)
-    .replace(/\uea76 /g, '\uea76\2002')
+    .replace(EMOJI, (_found, emoji: string) => emoji === '×' ? NERD_ICONS[emoji] : `${NERD_ICONS[emoji]}${gap}`)
+    .replace(/\uea76 /g, `\uea76${gap}`)
 }
+
+/** The cell after a glyph, for it to spill over: a no-break space, or a plain one on macOS. See nerdText. */
+let glyphGap = '\u00a0'
 
 /** Whether everything is drawn with Nerd Fonts glyphs now: the `icons` atom, at hand where nothing is awaited. */
 let isGlyphs = false
@@ -2641,6 +2646,7 @@ export const register: Register = on => {
     if (typeof savedSize === 'number') await update($, fontSize, () => savedSize)
     const savedFamily = await $.store.get('fontFamily')
     if (FONT_FAMILIES.some(([id]) => id === savedFamily)) await update($, fontFamily, () => savedFamily as FontFamily)
+    if ((await osNow($)) === 'mac') glyphGap = ' '
     isGlyphs = (await $.store.get('icons')) === 'nerd'
     if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
     const savedMic = await $.store.get('mic')
