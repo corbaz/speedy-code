@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Icons: with Nerd Fonts the menus and the status line are drawn in glyphs too, not the footer alone: the checks, warnings, play and pause of every menu, and the status line's folder, branch, model, clock and reset signs (the mod writes the icon set to `levels.json`, which both status line scripts read). The exit and the close mark are Codicons' thin `close`, `/compact` is two arrows meeting, and the blank after a glyph is a no-break space in the glyph's color, so a glyph drawn wider than its cell shows one color.
 - Icons: a second icon set, Nerd Fonts glyphs, beside the emojis. ⚙️ → Barra de estado → **Usar Nerd Fonts** draws the footer and the ⋯ panel with Font Awesome glyphs, one color each and as wide as the emoji they replace; the row shows five glyphs to tell whether the terminal draws them. The setup has a `font` step (`setup/nerd_font.py`) that installs Symbols Nerd Font Mono in the user's own fonts, with no administrator rights. The menus keep their emojis.
 - Footer and menus: the exit and the menus' close mark are `×`, in every font, one cell and one color.
 - Footer and menus: the exit and the menus' close mark are `╳`, a box-drawing character the terminal draws itself in one color; `✕` came from a fallback font on Windows and showed two tones.

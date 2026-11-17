@@ -759,7 +759,7 @@ async function clipPress ($: EngineInterface, clip: HistoryClip) {
 
 /** The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. */
 async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Client, Text } = elements
   const list = await read($, clips)
   const playing = await read($, clipNow)
@@ -1033,7 +1033,7 @@ async function openView ($: EngineInterface, image: PastedImage) {
 
 /** The 👁 menu: the images kept, newest first, each with 👁️ to see it and 🖼️ to paste it again. */
 async function imagesMenu ($: EngineInterface, e: Drawn) {
-  const { Box, Client, Text } = $.ui.resolve(e)
+  const { Box, Client, Text } = glyphed($.ui.resolve(e))
   const list = await read($, pastedImages)
   if (list.length === 0) return <Text dimColor>{'  Todavía no hay imágenes en el historial.'}</Text>
   const clear = ' 🗑️ limpiar historial '
@@ -1139,7 +1139,9 @@ async function stopListening ($: EngineInterface) {
 async function switchIcons ($: EngineInterface) {
   const next: IconSet = (await read($, icons)) === 'nerd' ? 'emoji' : 'nerd'
   await update($, icons, () => next)
+  isGlyphs = next === 'nerd'
   await $.store.set('icons', next)
+  await writeBarFile($)
   $.ui.invalidate('ui.render')
 }
 
@@ -1442,7 +1444,7 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   '👁': '\uf06e', // fa-eye
   '🗑': '\uf1f8', // fa-trash
   '🗣': '\uf075', // fa-comment
-  '🗜': '\uf066', // fa-compress
+  '🗜': '\ued4d', // fa-down_left_and_up_right_to_center
   '🔊': '\uf028', // fa-volume_high
   '🔇': '\uf026', // fa-volume_off
   '📎': '\uf0c6', // fa-paperclip
@@ -1453,17 +1455,74 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   '⏳': '\uf252', // fa-hourglass_half
   '🔄': '\uf021', // fa-refresh
   '⚙': '\uf013', // fa-gear
-  '×': '\uf00d' // fa-xmark
+  '×': '\uea76', // cod-close: thin, and no wider than its cell
+  // Signs a terminal may draw as emojis, in a color and a width of their own.
+  '✔': '\uf00c', // fa-check
+  '✘': '\uf00d', // fa-xmark
+  '⚠': '\uf071', // fa-triangle_exclamation
+  '▶': '\uf04b', // fa-play
+  '⏵': '\uf04b', // fa-play
+  '⏸': '\uf04c', // fa-pause
+  '⧗': '\uf252', // fa-hourglass_half
+  '⋯': '\uf141', // fa-ellipsis
+  '♀': '\uf221', // fa-venus
+  '♂': '\uf222', // fa-mars
+  '♪': '\uf001', // fa-music
+  '✦': '\uf005', // fa-star
+  '✎': '\uf044', // fa-edit
+  '▤': '\uf1de', // fa-sliders
+  '◈': '\uefcc' // fa-palette
 }
 
-const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})\ufe0f?`, 'gu')
+const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`, 'gu')
+/** A glyph and the blank after it. */
+const GLYPH_GAP = /([\ue000-\uf8ff]) /g
 
 /**
  * `text` with every emoji replaced by its Nerd Fonts glyph. A glyph is one cell, so one that replaces
  * a two-cell emoji is followed by a blank: every label keeps its width, and a glyph drawn wide has the room.
+ * The blank after a glyph is a no-break space: a terminal paints what a wide glyph spills over its
+ * cell in the next cell's color, and Claude Code leaves a plain blank uncolored.
  */
 export function nerdText (text: string) {
-  return text.replace(EMOJI, (found, emoji: string) => `${NERD_ICONS[emoji]}${cells(found) === 2 ? ' ' : ''}`)
+  return text
+    .replace(EMOJI, (found, emoji: string) => `${NERD_ICONS[emoji]}${cells(found) === 2 ? ' ' : ''}`)
+    .replace(GLYPH_GAP, '$1\u00a0')
+}
+
+/** Whether everything is drawn with Nerd Fonts glyphs now: the `icons` atom, at hand where nothing is awaited. */
+let isGlyphs = false
+
+/** The props an element is drawn with, their texts in glyphs: its label, its children, a Client's label. */
+function glyphProps (props: Record<string, unknown> | null | undefined) {
+  if (!props) return props
+  const next = { ...props }
+  for (const key of ['label', 'submitLabel', 'title']) {
+    const value = next[key]
+    if (typeof value === 'string') next[key] = nerdText(value)
+  }
+  const { children, props: inner } = next
+  if (typeof children === 'string') next.children = nerdText(children)
+  else if (Array.isArray(children)) next.children = children.map(child => typeof child === 'string' ? nerdText(child) : child)
+  if (inner && typeof inner === 'object' && typeof (inner as { label?: unknown }).label === 'string') {
+    next.props = { ...inner, label: nerdText((inner as { label: string }).label) }
+  }
+  return next
+}
+
+/**
+ * The host's elements, drawing every text with the icon set in use: with Nerd Fonts each one turns
+ * the emojis of its own texts into glyphs, so a menu writes its labels once, in emojis.
+ */
+function glyphed<T extends object> (elements: T): T {
+  if (!isGlyphs) return elements
+  const drawn: Record<string, unknown> = {}
+  for (const [name, element] of Object.entries(elements)) {
+    drawn[name] = typeof element === 'function'
+      ? (props: Record<string, unknown>) => (element as (props: unknown) => unknown)(glyphProps(props))
+      : element
+  }
+  return drawn as T
 }
 
 /** The colors the footer's tools take with Nerd Fonts glyphs: with emojis they are gray, since an emoji takes none. */
@@ -1554,7 +1613,7 @@ export function footerFit (groups: ReadonlyArray<{ name: string, width: number, 
  * two cells where the layout may count one, and the next control would be drawn over it.
  */
 async function footerGroups ($: EngineInterface, e: Drawn) {
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   // Only the terminal and the desktop draw a Client.
   if (!('Client' in elements)) return []
   const { Box, Client, Text } = elements
@@ -1580,6 +1639,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   // A Client drawing `label` in `color`, as wide as the label is on a terminal.
   // With Nerd Fonts every emoji is its glyph, as wide as the emoji was, in the color a glyph can take.
   const isNerd = (await read($, icons)) === 'nerd'
+  isGlyphs = isNerd
   const control = (key: string, label: string, color: string, bold = false) => (
     <Client key={key} module="./control.tsx" width={cells(label)} props={{ label: isNerd ? nerdText(label) : label, color: isNerd ? NERD_COLORS[key] ?? color : color, bold }} />
   )
@@ -1707,7 +1767,7 @@ function resetWhen (iso: string | undefined) {
  * Clients: a control that opens something replaces the panel; one that switches keeps it open.
  */
 async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Text } = elements
   const usage = await $.session.usage().catch(() => undefined)
   const levels = await read($, barLevels)
@@ -1795,9 +1855,9 @@ export function barOrderOf (saved: unknown): BarPart[] {
   return [...order, ...DEFAULT_ORDER.filter(key => !order.includes(key))]
 }
 
-/** Writes the file the status line reads: the levels, and the parts by priority. */
+/** Writes the file the status line reads: the levels, the parts by priority and the icon set. */
 async function writeBarFile ($: EngineInterface) {
-  const content = { ...(await read($, barLevels)), priority: await read($, barOrder) }
+  const content = { ...(await read($, barLevels)), priority: await read($, barOrder), icons: await read($, icons) }
   await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(content, null, 2)}\n`)
 }
 
@@ -1896,7 +1956,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const users = await read($, socials)
   const generation = await read($, settingsOpened)
   const edited = await read($, editing)
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Button, Text } = elements
   // A field to type in: every surface but the mobile app draws one.
   const Input = 'Input' in elements ? elements.Input : undefined
@@ -2157,7 +2217,7 @@ async function micMenu ($: EngineInterface, e: Drawn) {
   const picked = await read($, mic)
   const chosenMic = connected.includes(picked) ? picked : ''
   const systemDefault = `Predeterminado de ${systemName(await osNow($))}`
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Button, Text } = elements
   return (
     <Box flexDirection="column">
@@ -2236,7 +2296,7 @@ async function modelMenu ($: EngineInterface, e: Drawn, room = 90) {
   const [picked, level, applied] = [await read($, modelPick), await read($, effortPick), await read($, effort)]
   const chosenModel = picked || current
   // The one chosen is a Client: a Button inverts under the pointer, and its fill would go.
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Button, Text } = elements
   const width = Math.max(...MODELS.map(([, name]) => name.length)) + 4
   // Narrow: the use goes on the line below its model, so neither is cut.
@@ -2311,7 +2371,7 @@ async function voiceMenu ($: EngineInterface, e: Drawn, width = 90, rows = 40) {
   const all = await read($, voices)
   const known = distinctVoices(all.filter(v => v.lang === lang), current)
   const accent = languageColor(lang)
-  const elements = $.ui.resolve(e)
+  const elements = glyphed($.ui.resolve(e))
   const { Box, Button, Text } = elements
 
   const pick = async (picked: Voice) => {
@@ -2492,7 +2552,8 @@ export const register: Register = on => {
     const saved = await loadPicks($)
     await update($, picks, () => saved)
     void loadVoices($)
-    if ((await $.store.get('icons')) === 'nerd') await update($, icons, () => 'nerd' as IconSet)
+    isGlyphs = (await $.store.get('icons')) === 'nerd'
+    if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
     void loadMics($)
@@ -2580,7 +2641,7 @@ export const register: Register = on => {
     if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
     const groups = (await footerGroups($, e)).filter(group => group.width > 0)
     const beneath = await next(e)
-    const { Box, Client, Text } = $.ui.resolve(e)
+    const { Box, Client, Text } = glyphed($.ui.resolve(e))
     // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
     const modes = e.props.modes.join(' & ')
     const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
@@ -2726,7 +2787,7 @@ export const register: Register = on => {
     const shown = await read($, menu)
     if (shown && !e.props.hasSurvey) {
       if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
-      const { Box, Client, Text } = $.ui.resolve(e)
+      const { Box, Client, Text } = glyphed($.ui.resolve(e))
       const chosen = await read($, picks)
       // The model menu's title says what is in use now: the model, and the effort when it is known.
       const inUse = shown === 'models'
@@ -2760,7 +2821,7 @@ export const register: Register = on => {
     // The draft's images, a chip each: only where a Client is drawn.
     const ids = e.surface === 'terminal' || e.surface === 'desktop' ? await read($, draftIds) : []
     if (e.props.hasSurvey || (now === 'off' && list.length === 0 && ids.length === 0)) return next(e)
-    const elements = $.ui.resolve(e)
+    const elements = glyphed($.ui.resolve(e))
     const { Box, Text } = elements
     const chips = ids.length > 0 && 'Client' in elements
       ? (

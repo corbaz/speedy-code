@@ -73,7 +73,7 @@ their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model 
 
 ## Icons
 
-The footer has two icon sets: emojis, which every terminal has, and Nerd Fonts glyphs, one color each
+The footer, the menus and the status line have two icon sets: emojis, which every terminal has, and Nerd Fonts glyphs, one color each
 and all the same width. ⚙️ → **Barra de estado** → **Usar Nerd Fonts** switches, and the row shows five
 glyphs to tell whether the terminal draws them. The setup installs Symbols Nerd Font Mono in the user's
 fonts; a terminal whose font is not a Nerd Font, and that does not fall back to the fonts installed,

@@ -36,6 +36,13 @@ EFFORT_COLORS = {"low": "38;5;114", "medium": "38;5;149", "high": "38;5;221", "x
 DEFAULT_PRIORITY = ["core", "five_hour", "seven_day", "context", "time", "cost", "tokens", "folder"]
 DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 ANSI = re.compile(ESC + r"\[[0-9;]*m")
+# The signs of the line, in each icon set: the one chosen in ⚙️ → Barra de estado. The Nerd Fonts
+# ones are Font Awesome's glyphs (folder, code_branch, microchip, clock, arrow_rotate_right,
+# triangle_exclamation), which need a Nerd Font in the terminal.
+SIGNS = {
+    "emoji": {"folder": "", "branch": "⎇", "model": "◆", "time": "⏱ ", "reset": "↻", "warning": "⚠"},
+    "nerd": {"folder": "\uf07b ", "branch": "\uf126", "model": "\uf2db", "time": "\uf017", "reset": "\uf01e", "warning": "\uf071"},
+}
 
 
 def paint(text, color):
@@ -100,6 +107,7 @@ def format_reset(epoch, now=None):
 def load_levels(path):
     levels = {"contextYellow": 60, "contextRed": 80, "limitYellow": 75, "limitRed": 90}
     priority = list(DEFAULT_PRIORITY)
+    icons = "emoji"
     try:
         with open(path, encoding="utf-8-sig") as source:
             saved = json.load(source)
@@ -113,12 +121,16 @@ def load_levels(path):
                 if key in priority and key not in known:
                     known.append(key)
             priority = known + [key for key in priority if key not in known]
+        if saved.get("icons") in SIGNS:
+            icons = saved["icons"]
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    return levels, priority
+    return levels, priority, icons
 
 
-def line_of(data, columns, levels, priority, home):
+def line_of(data, columns, levels, priority, home, icons="emoji"):
+    sign = SIGNS[icons]
+
     def rank(key):
         return priority.index(key) + 1
 
@@ -140,10 +152,10 @@ def line_of(data, columns, levels, priority, home):
     effort = (data.get("effort") or {}).get("level")
     version = data.get("version")
 
-    left = paint(cwd, C_FOLDER)
+    left = paint(sign["folder"] + cwd, C_FOLDER)
     branch = (data.get("git") or {}).get("branch")
     if branch:
-        left = f"{left} {paint(f'⎇ {branch}', C_BRANCH)}"
+        left = f"{left} {paint(f'{sign["branch"]} {branch}', C_BRANCH)}"
 
     window = data.get("context_window") or {}
     usage = window.get("current_usage") or {}
@@ -162,15 +174,15 @@ def line_of(data, columns, levels, priority, home):
     used = round(number(used))
     ctx_color = level_color(used, "contextYellow", "contextRed")
     amount = " " + paint(f"{format_tokens(held)}/{format_tokens(size)}", ctx_color) if size else ""
-    warning = " " + paint("⚠  compactar", C_RED) if used >= levels["contextRed"] else ""
+    warning = " " + paint(f"{sign['warning']}  compactar", C_RED) if used >= levels["contextRed"] else ""
     context = paint("ctx:", C_LABEL) + " " + meter(used, ctx_color) + " " + paint(f"{used}%", ctx_color) + amount + warning
 
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
-    core = (paint(f"v{version}", C_TIME) + " " if version else "") + paint(f"◆ {model}", C_MODEL)
+    core = (paint(f"v{version}", C_TIME) + " " if version else "") + paint(f"{sign['model']} {model}", C_MODEL)
     if effort:
         core += " " + paint("·", C_LABEL) + " " + paint(effort, EFFORT_COLORS.get(effort, C_LABEL))
-    time = paint(f"⏱  {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
+    time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [
         {"rank": rank("folder"), "full": left},
@@ -189,8 +201,8 @@ def line_of(data, columns, levels, priority, home):
             limit_color = level_color(limit_used, "limitYellow", "limitRed")
             short = paint(label, color) + " " + meter(limit_used, limit_color) + " " + paint(f"{limit_used}%", limit_color)
             if limit_used >= levels["limitRed"]:
-                short += " " + paint("⚠", C_RED) + " "
-            parts.append({"rank": rank(key), "full": short + " " + paint(f"↻ {format_reset(limit.get('resets_at'))}", C_LABEL), "short": short})
+                short += " " + paint(sign["warning"], C_RED) + " "
+            parts.append({"rank": rank(key), "full": short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL), "short": short})
 
     # The parts in rank order, each in its short form, until one does not fit; then the limits get their
     # reset time back with the room left. The first by priority always goes. Nothing is cut with "…".
@@ -232,12 +244,12 @@ def main():
         return
     data = json.loads(raw)
     home = os.path.expanduser("~")
-    levels, priority = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
+    levels, priority, icons = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
     try:
         columns = int(os.environ.get("COLUMNS", "0"))
     except ValueError:
         columns = 0
-    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, home), columns) + "\n").encode("utf-8"))
+    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, home, icons), columns) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

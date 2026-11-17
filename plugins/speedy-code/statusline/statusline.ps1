@@ -34,6 +34,9 @@ $EFFORT_COLORS = @{ low = '38;5;114'; medium = '38;5;149'; high = '38;5;221'; xh
 $levels = @{ contextYellow = 60; contextRed = 80; limitYellow = 75; limitRed = 90 }
 # The parts by priority, also set there: where the width is short, the first ones go in, each in its place.
 $priority = @('core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder')
+# The signs of the line, in the icon set chosen there too: emojis, or Font Awesome's glyphs in a Nerd Font
+# (folder, code_branch, microchip, clock, arrow_rotate_right, triangle_exclamation).
+$sign = @{ folder = ''; branch = '⎇'; model = '◆'; time = '⏱ '; reset = '↻'; warning = '⚠' }
 $levelsFile = Join-Path $HOME '.claude\speedy-code\levels.json'
 if (Test-Path -LiteralPath $levelsFile) {
   try {
@@ -43,6 +46,9 @@ if (Test-Path -LiteralPath $levelsFile) {
       # The parts it knows in its order, once each; any it lacks after them, in the default order.
       $known = @(@($saved.priority) | Where-Object { $priority -contains $_ } | Select-Object -Unique)
       $priority = @($known) + @($priority | Where-Object { $known -notcontains $_ })
+    }
+    if ($saved.icons -eq 'nerd') {
+      $sign = @{ folder = "$([char]0xf07b) "; branch = "$([char]0xf126)"; model = "$([char]0xf2db)"; time = "$([char]0xf017)"; reset = "$([char]0xf01e)"; warning = "$([char]0xf071)" }
     }
   } catch { }
 }
@@ -105,8 +111,8 @@ $effort = $data.effort.level
 # The Claude Code running this session: the version installed, as it reports itself.
 $version = $data.version
 
-$left = Paint $cwd $C_FOLDER
-if ($data.git.branch) { $left = "$left $(Paint "⎇ $($data.git.branch)" $C_BRANCH)" }
+$left = Paint "$($sign.folder)$cwd" $C_FOLDER
+if ($data.git.branch) { $left = "$left $(Paint "$($sign.branch) $($data.git.branch)" $C_BRANCH)" }
 
 $usage = $data.context_window.current_usage
 $tokens = (Part 'in' (Format-Tokens $usage.input_tokens) $C_IN) + ' ' + (Part 'out' (Format-Tokens $usage.output_tokens) $C_OUT) + ' ' + (Part 'caché' (Format-Tokens $usage.cache_read_input_tokens) $C_CACHE)
@@ -124,12 +130,12 @@ $contextUsed = [math]::Round([double]$contextUsed)
 $ctxColor = Context-Color $contextUsed
 # The amount needs the size; with no request yet it is 0 of it. Without the size, the percentage goes alone.
 $amount = if ($size) { ' ' + (Paint "$(Format-Tokens $held)/$(Format-Tokens $size)" $ctxColor) } else { '' }
-$context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $amount + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint '⚠  compactar' $C_RED) } else { '' })
+$context = (Paint 'ctx:' $C_LABEL) + ' ' + (Meter $contextUsed $ctxColor) + ' ' + (Paint "$contextUsed%" $ctxColor) + $amount + $(if ($contextUsed -ge $levels.contextRed) { ' ' + (Paint "$($sign.warning)  compactar" $C_RED) } else { '' })
 
 $cost = Part 'sesión' ('$' + ([double]$data.cost.total_cost_usd).ToString('N2')) $C_COST
 
-$core = $(if ($version) { (Paint "v$version" $C_TIME) + ' ' } else { '' }) + (Paint "◆ $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' })
-$time = Paint "⏱  $(Format-Duration $data.cost.total_duration_ms)" $C_TIME
+$core = $(if ($version) { (Paint "v$version" $C_TIME) + ' ' } else { '' }) + (Paint "$($sign.model) $model" $C_MODEL) + $(if ($effort) { ' ' + (Paint '·' $C_LABEL) + ' ' + (Paint $effort $(if ($EFFORT_COLORS[$effort]) { $EFFORT_COLORS[$effort] } else { $C_LABEL })) } else { '' })
+$time = Paint "$($sign.time) $(Format-Duration $data.cost.total_duration_ms)" $C_TIME
 
 # Each part in the order it is drawn, with its rank when the width is short (1 goes first) and,
 # for the limits, a short form without the reset time.
@@ -146,8 +152,8 @@ foreach ($window in @(@('five_hour', '5hs', $C_FIVE), @('seven_day', 'semana', $
   if ($limit -and $null -ne $limit.used_percentage) {
     $used = [math]::Round($limit.used_percentage)
     $usedColor = Limit-Color $used
-    $short = (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint '⚠' $C_RED) + ' ' } else { '' })
-    [void]$parts.Add(@{ Rank = (Rank-Of $window[0]); Full = $short + ' ' + (Paint "↻ $(Format-Reset $limit.resets_at)" $C_LABEL); Short = $short })
+    $short = (Paint $window[1] $window[2]) + ' ' + (Meter $used $usedColor) + ' ' + (Paint "$used%" $usedColor) + $(if ($used -ge $levels.limitRed) { ' ' + (Paint $sign.warning $C_RED) + ' ' } else { '' })
+    [void]$parts.Add(@{ Rank = (Rank-Of $window[0]); Full = $short + ' ' + (Paint "$($sign.reset) $(Format-Reset $limit.resets_at)" $C_LABEL); Short = $short })
   }
 }
 
