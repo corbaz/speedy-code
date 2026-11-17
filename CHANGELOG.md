@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Footer: the social accounts are one control, **Redes sociales ▾**, whose menu lists them (badge, network, user name); a click opens the profile. The footer no longer holds a button per account.
+- Footer: **+** asks the new conversation's name first, then runs `/clear` and, with a name, `/rename`.
 - Settings: a second font for the terminal, Meslo (MesloLGS Nerd Font), beside JetBrains Mono; the setup installs both, and ⚙️ → Instalación checks them (**Fuentes de texto**). The settings of ⚙️ → Barra de estado are a table: a name, what is in use, and what changes it.
 - Settings: ⚙️ → Barra de estado → **Fuente de la terminal** sets the terminal's font to JetBrains Mono (the Nerd Fonts build, so the icons are in it) at 8 to 16 points. A program in a terminal has no font of its own, so `setup/terminal_font.py` installs the font for the user and changes the terminal's settings: Windows Terminal, macOS Terminal (while open), Ghostty and kitty; each file keeps a copy as it first was (`.speedy-font.bak`). Other terminals take the font in their own settings.
 - Icons: each glyph is followed by a cell of its own, in its color, since a terminal draws a glyph wider than its cell: no icon glued to its text or shown in two colors.

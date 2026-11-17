@@ -728,13 +728,27 @@ test('the image button asks Windows to press Alt+V, only when the clipboard hold
   await ui.unmount()
 })
 
-test('+ beside ⏎ starts a new conversation by /clear', { timeoutMs: 30000 }, async ($, on) => {
-  const commands: string[] = []
-  on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+test('+ beside ⏎ asks the name of the new conversation, then starts it by /clear and names it by /rename', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: Array<[string, string | undefined]> = []
+  on('command.run', (_, e) => { commands.push([e.command, e.args]); return { text: '' } })
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   expect((await ui.find({ type: 'Text', in: 'speedy:new' }))?.text).toBe(' + ')
   await ui.post({ isClicked: true }, { in: 'speedy:new' })
-  expect(commands).toEqual(['clear'])
+  expect(commands).toEqual([])
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Conversación nueva/ }))?.text).toBe(' + Conversación nueva ')
+  const field = (await band.find({ type: 'Input' }))?.key ?? ''
+  // Enter in the field starts it.
+  await band.input({ key: field, text: ' ahorro ', kind: 'submit' })
+  await band.unmount()
+  expect(commands.map(([command, args]) => [command, args || ''])).toEqual([['clear', ''], ['rename', 'ahorro']])
+  // No name, by the button: /clear alone.
+  commands.length = 0
+  await ui.post({ isClicked: true }, { in: 'speedy:new' })
+  const again = await $.ui.mount(BAND)
+  await again.press({ key: 'new:start' })
+  expect(commands.map(([command]) => command)).toEqual(['clear'])
+  await again.unmount()
   await ui.unmount()
 })
 
@@ -1007,12 +1021,23 @@ test('socialLink builds the profile link of each network, and refuses a name no 
   expect(socialLink('discord', '123456789012345678')).toBe('https://discord.com/users/123456789012345678')
 })
 
-test('a network with a user name gets a footer button that opens its profile; one without, none', { timeoutMs: 30000 }, async ($, on) => {
+test('the networks get one footer control, whose menu lists the accounts with a user name; a click opens the profile', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octocat', x: '' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
-  expect(await ui.find({ key: 'speedy:social:x' })).toBeUndefined()
-  await ui.post({ isClicked: true }, { in: 'speedy:social:github' })
+  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes sociales ▾ ')
+  await ui.post({ isClicked: true }, { in: 'speedy:socials' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' Redes sociales ')
+  expect((await band.find({ type: 'Text', text: /octocat/ }))?.text).toBe(' GH  GitHub     octocat')
+  expect(await band.find({ key: 'social-open:x' })).toBeUndefined()
+  await band.press({ key: 'social-open:github' })
   expect(w.opened).toEqual(["Start-Process 'https://github.com/octocat'"])
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('with no network named, the footer has no control for them', { timeoutMs: 30000 }, async ($, on) => {
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: '', x: '' } })
+  expect(await ui.find({ key: 'speedy:socials' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1055,12 +1080,15 @@ test('accountsOf lists the first account, then each one added, in order', () => 
   expect(accountsOf({}, 'x')).toEqual(['x'])
 })
 
-test('every account with a user name has its own footer button, numbered past the first', { timeoutMs: 30000 }, async ($, on) => {
+test('every account with a user name has its own row in the networks menu, numbered past the first', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo', 'github#2': 'trabajo' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
-  expect((await ui.find({ type: 'Text', in: 'speedy:social:github#2' }))?.text).toBe(' GH2 ')
-  await ui.post({ isClicked: true }, { in: 'speedy:social:github#2' })
+  await ui.post({ isClicked: true }, { in: 'speedy:socials' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /octo$/ }))?.text).toBe(' GH  GitHub     octo')
+  expect((await band.find({ type: 'Text', text: /trabajo/ }))?.text).toBe(' GH2 GitHub     trabajo')
+  await band.press({ key: 'social-open:github#2' })
   expect(w.opened).toEqual(["Start-Process 'https://github.com/trabajo'"])
+  await band.unmount()
   await ui.unmount()
 })
 
@@ -1340,17 +1368,17 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo' } })
   const has = async (view: { find: typeof ui.find }, key: string) => view.find({ type: 'Text', in: key }).then(found => found !== undefined, () => false)
   // Wide: everything, and no ⋯.
-  expect(await has(ui, 'speedy:social:github')).toBe(true)
+  expect(await has(ui, 'speedy:socials')).toBe(true)
   expect(await has(ui, 'speedy:more')).toBe(false)
   await ui.unmount()
   const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
   for (const key of ['speedy:copy', 'speedy:send', 'speedy:model', 'speedy:voice', 'speedy:exit', 'speedy:more']) expect(await has(narrow, key)).toBe(true)
-  for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(narrow, key)).toBe(false)
+  for (const key of ['speedy:socials', 'speedy:reload', 'speedy:mic']) expect(await has(narrow, key)).toBe(false)
   await narrow.post({ isClicked: true }, { in: 'speedy:more' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: / Más / }))?.text).toBe(' Más ')
   // The hidden controls, the same Clients; and the figures, whole.
-  for (const key of ['speedy:social:github', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
+  for (const key of ['speedy:socials', 'speedy:reload', 'speedy:mic']) expect(await has(band, key)).toBe(true)
   expect((await band.find({ type: 'Text', text: /172\.4k/ }))?.text).toBe('▰▱▱▱  17%   172.4k / 1M ')
   expect((await band.find({ type: 'Text', text: /^1h 0m$/ }))?.text).toBe('1h 0m')
   expect((await band.find({ type: 'Text', text: /^\$85\.88$/ }))?.text).toBe('$85.88')
@@ -1553,7 +1581,7 @@ test('on macOS, leaving puts the resume command on the clipboard by osascript', 
 
 test('a fresh install shows the author’s networks; names saved before are kept as they are', { timeoutMs: 30000 }, async ($, on) => {
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:social:github' }))?.text).toBe(' GH ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes sociales ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /github\.com/ }))?.text).toBe('https://github.com/corbaz')

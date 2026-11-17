@@ -15,7 +15,7 @@ export type Heard = { number: number; text: string }
 
 /** A menu shown above the prompt: none, the voices, the microphones, the settings, the Claude models, the
  * more panel, the narrations kept (📎), or the images pasted in this session (👁). */
-export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images'
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images' | 'socials' | 'new'
 
 /** A pasted image: its number, as `[Image #N]` names it, and its file; `stamp`, when the mod kept its
  * copy (`yy-mm-dd_hh-mm-ss`), for the mod's own copies. */

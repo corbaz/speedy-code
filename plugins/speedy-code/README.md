@@ -10,7 +10,7 @@ From left to right:
 
 | Control | What it does |
 | --- | --- |
-| `GH` `in` `X` … | One button per social account set in ⚙️ → Redes sociales; opens its profile in the browser |
+| Redes sociales ▾ | Opens the menu of the social accounts set in ⚙️ → Redes sociales; a click on one opens its profile in the browser |
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (the system presses Alt+V on Windows, Ctrl+V on macOS, for you) |
@@ -25,7 +25,7 @@ From left to right:
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
-| + | Runs `/clear`: a new conversation in this terminal, its context empty again |
+| + | Asks the new conversation's name, then runs `/clear` and, with a name, `/rename`: a new conversation in this terminal, its context empty again |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |

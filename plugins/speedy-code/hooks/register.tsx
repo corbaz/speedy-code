@@ -489,7 +489,107 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     const found = await ourImages($)
     await update($, pastedImages, () => found)
   }
+  if (which === 'new') {
+    newName = ''
+    newOpened += 1
+  }
   await update($, menu, () => which)
+}
+
+/** The networks' control in the footer, in the color of their settings tab. */
+const SOCIALS_LABEL = ' Redes sociales ▾ '
+const SOCIALS_COLOR = '#f783ac'
+
+/** The accounts with a user name that makes a link, in SOCIALS' order. */
+function linkedAccounts (users: Socials) {
+  return SOCIALS.flatMap(([id, name, label, color]) => accountsOf(users, id)
+    .filter(key => socialLink(id, users[key] ?? ''))
+    .map(key => ({ key, name, label: accountLabel(label, key), color })))
+}
+
+/** The networks' menu: each account, its badge, its network and its user name; a click opens its profile. */
+async function socialsMenu ($: EngineInterface, e: Drawn, width = 90) {
+  const users = await read($, socials)
+  const { Box, Button, Text } = glyphed($.ui.resolve(e))
+  const accounts = linkedAccounts(users)
+  if (accounts.length === 0) return <Text dimColor>{'  Todavía no hay redes: cargalas en ⚙️ → Redes sociales.'}</Text>
+  // As many columns as the width holds, three at most: badge, network and user name.
+  const [BADGE, NAME, USER] = [5, 11, 28]
+  const cell = BADGE + NAME + USER
+  const columns = Math.max(1, Math.min(3, Math.floor((width - 4 + 2) / (cell + 2))))
+  const per = Math.ceil(accounts.length / columns)
+  return (
+    <Box flexDirection="row" columnGap={2}>
+      {Array.from({ length: columns }, (_, index) => (
+        <Box key={`socials-column:${index}`} flexDirection="column" width={cell} flexShrink={0}>
+          {accounts.slice(index * per, (index + 1) * per).map(one => (
+            <Button key={`social-open:${one.key}`} plain onPress={() => { void openSocial($, one.key) }}>
+              <Text>
+                <Text bold color={one.color}>{fit(` ${one.label}`, BADGE) + fit(one.name, NAME)}</Text>
+                <Text>{fit(users[one.key] ?? '', USER).trimEnd()}</Text>
+              </Text>
+            </Button>
+          ))}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+/** Opens an account's profile in the browser, and closes the networks' menu. */
+async function openSocial ($: EngineInterface, key: string) {
+  const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
+  if (link) await openLink($, link)
+  await closeMenu($, 'socials')
+}
+
+/** The name typed for the new conversation, and how many times its menu opened: a field keyed anew starts empty. */
+let newName = ''
+let newOpened = 0
+
+/** The new conversation's menu: its name, typed in a field; Enter or the button starts it. */
+async function newMenu ($: EngineInterface, e: Drawn) {
+  const elements = glyphed($.ui.resolve(e))
+  const { Box, Button, Text } = elements
+  const Input = 'Input' in elements ? elements.Input : undefined
+  return (
+    <Box flexDirection="column">
+      <Text bold color="#74c0fc">{' Nombre de la conversación '}</Text>
+      {Input
+        ? (
+          <Input
+            key={`new:name:${newOpened}`}
+            value=""
+            placeholder="vacío: sin nombre"
+            submitLabel="↵"
+            autoFocus
+            onInput={value => { newName = value }}
+            onSubmit={value => { void startConversation($, value) }}
+          />
+          )
+        : null}
+      <Box flexDirection="row" marginTop={1}>
+        <Button key="new:start" plain onPress={() => { void startConversation($, newName) }}>
+          <Text bold color="black" backgroundColor={NEW_COLOR}>{' Empezar '}</Text>
+        </Button>
+      </Box>
+    </Box>
+  )
+}
+
+/** The color of a new conversation: the footer's own `+`. */
+const NEW_COLOR = '#51cf66'
+
+/** As the person typing /clear, then /rename with the name given: a new conversation in this terminal, named. */
+async function startConversation ($: EngineInterface, name: string) {
+  await closeMenu($, 'new')
+  const title = name.trim()
+  const cleared = await $.command.run({ command: 'clear' }).then(() => true, () => false)
+  if (!cleared) {
+    $.ui.toast('speedy-code: no pude empezar otra conversación; escribí /clear.')
+    return
+  }
+  if (title) await $.command.run({ command: 'rename', args: title }).catch(() => { $.ui.toast(`speedy-code: no pude nombrarla; escribí /rename ${title}`) })
 }
 
 /** The voice menu's title: `Voz: Natasha (Inglés - Australia)`, the voice narrating now. */
@@ -1672,9 +1772,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   const [enabled, now, listen, polishing] = [await read($, isEnabled), await read($, speech), await read($, listening), await read($, isPolishing)]
   // The networks with a user name set, in SOCIALS' order.
   const users = await read($, socials)
-  const linked = SOCIALS.flatMap(([id, , label, color]) => accountsOf(users, id)
-    .filter(key => socialLink(id, users[key] ?? ''))
-    .map(key => ({ key, label: accountLabel(label, key), color })))
+  const linked = linkedAccounts(users)
   const current = (await read($, modelNow)) || (await $.session.model().catch(() => ''))
   const model = modelLabel(current)
   const modelColor = modelOf(current)?.[3] ?? MODEL_COLOR
@@ -1736,15 +1834,16 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     {
       name: 'socials',
       // The bar with no space after it: 📋 brings its own.
-      width: linked.length > 0 ? linked.reduce((sum, one) => sum + one.label.length + 2, 1) : 0,
+      // One control for them all: their menu lists each account, so the footer keeps its room.
+      width: linked.length > 0 ? cells(SOCIALS_LABEL) + 1 : 0,
       node: (
         <Box key="group:socials" flexDirection="row" flexShrink={0}>
-          {linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true))}
+          {linked.length > 0 ? control('speedy:socials', SOCIALS_LABEL, SOCIALS_COLOR, true) : null}
           {bar}
         </Box>
       ),
-      panel: linked.map(({ key, label, color }) => control(`speedy:social:${key}`, ` ${label} `, color, true)),
-      labels: linked.map(({ label }) => label.length + 2)
+      panel: linked.length > 0 ? [control('speedy:socials', SOCIALS_LABEL, SOCIALS_COLOR, true)] : [],
+      labels: linked.length > 0 ? [cells(SOCIALS_LABEL)] : []
     },
     ...['copy', 'paste', 'image', 'clear'].map(namedGroup),
     {
@@ -2775,11 +2874,9 @@ export const register: Register = on => {
       await openPicker($)
     } else if (e.element === 'speedy:switch') {
       await setEnabled($, !(await read($, isEnabled)))
-    } else if (e.element.startsWith('speedy:social:')) {
-      const key = e.element.slice('speedy:social:'.length)
-      const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
-      if (link) await openLink($, link)
+    } else if (e.element === 'speedy:socials') {
       await closeMenu($, 'more')
+      await openMenu($, 'socials')
     } else if (e.element === 'speedy:compact') {
       await closeMenu($, 'more')
       await $.command.run({ command: 'compact' }).catch(() => { $.ui.toast('speedy-code: no pude compactar; escribí /compact.') })
@@ -2855,8 +2952,10 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:send') {
       await sendPrompt($)
     } else if (e.element === 'speedy:new') {
-      // As the person typing /clear: a new conversation in this terminal, its context empty again.
-      await $.command.run({ command: 'clear' }).catch(() => { $.ui.toast('speedy-code: no pude empezar otra conversación; escribí /clear.') })
+      // Its name is asked first, where there is a field to type it in; with none it starts at once.
+      await closeMenu($, 'more')
+      if (e.surface === 'terminal' || e.surface === 'desktop') await openMenu($, 'new')
+      else await startConversation($, '')
     } else if (e.element === 'speedy:image') {
       await pasteImage($)
     } else if (e.element === 'speedy:clear') {
@@ -2888,8 +2987,8 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : shown === 'socials' ? 'Redes sociales' : shown === 'new' ? '+ Conversación nueva' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : shown === 'socials' ? SOCIALS_COLOR : shown === 'new' ? NEW_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -2898,7 +2997,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : shown === 'socials' ? await socialsMenu($, e, width) : shown === 'new' ? await newMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">
