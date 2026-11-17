@@ -112,6 +112,13 @@ Step 'font' 'Instalando la fuente de iconos (Symbols Nerd Font)' {
   $said
 }
 
+# The fonts for the text, JetBrains Mono and Meslo with the icons in them: see terminal_font.py.
+Step 'fonts' 'Instalando las fuentes de texto (JetBrains Mono, Meslo)' {
+  $said = (& $python (Join-Path $PSScriptRoot 'terminal_font.py') --install) -join ' '
+  if ($LASTEXITCODE -ne 0) { throw $said }
+  $said
+}
+
 Step 'groq' 'Buscando la clave de Groq de la pluma' {
   if ($GroqKey) {
     [Environment]::SetEnvironmentVariable('GROQ_API_KEY', $GroqKey, 'User')

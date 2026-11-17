@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Settings: a second font for the terminal, Meslo (MesloLGS Nerd Font), beside JetBrains Mono; the setup installs both, and ⚙️ → Instalación checks them (**Fuentes de texto**). The settings of ⚙️ → Barra de estado are a table: a name, what is in use, and what changes it.
 - Settings: ⚙️ → Barra de estado → **Fuente de la terminal** sets the terminal's font to JetBrains Mono (the Nerd Fonts build, so the icons are in it) at 8 to 16 points. A program in a terminal has no font of its own, so `setup/terminal_font.py` installs the font for the user and changes the terminal's settings: Windows Terminal, macOS Terminal (while open), Ghostty and kitty; each file keeps a copy as it first was (`.speedy-font.bak`). Other terminals take the font in their own settings.
 - Icons: each glyph is followed by a cell of its own, in its color, since a terminal draws a glyph wider than its cell: no icon glued to its text or shown in two colors.
 - Icons: with Nerd Fonts the menus and the status line are drawn in glyphs too, not the footer alone: the checks, warnings, play and pause of every menu, and the status line's folder, branch, model, clock and reset signs (the mod writes the icon set to `levels.json`, which both status line scripts read). The exit and the close mark are Codicons' thin `close`, `/compact` is two arrows meeting, and the blank after a glyph is a no-break space in the glyph's color, so a glyph drawn wider than its cell shows one color.

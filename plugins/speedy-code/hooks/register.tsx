@@ -174,6 +174,7 @@ const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['mics', 'Micrófonos'],
   ['voices', 'Voces de Edge (internet)'],
   ['font', 'Fuente de iconos (Symbols Nerd Font)'],
+  ['fonts', 'Fuentes de texto (JetBrains Mono, Meslo)'],
   ['groq', 'Clave de Groq (la pluma, opcional)'],
   ['prefs', 'Claude Code: sesión normal al iniciar']
 ]
@@ -318,6 +319,12 @@ const icons = atom({ plugin: 'speedy-code', key: 'icons' } as const, 'emoji' as 
 const fontSize = atom({ plugin: 'speedy-code', key: 'fontSize' } as const, 0)
 /** The sizes offered there. */
 const FONT_SIZES = [8, 9, 10, 11, 12, 13, 14, 16] as const
+/** The fonts terminal_font.py knows, by the name it takes: what each is called, and the start of its files' names. */
+const FONT_FAMILIES = [['jetbrains', 'JetBrains Mono', 'JetBrainsMonoNerdFont'], ['meslo', 'Meslo', 'MesloLGSNerdFont']] as const
+type FontFamily = typeof FONT_FAMILIES[number][0]
+const fontFamily = atom({ plugin: 'speedy-code', key: 'fontFamily' } as const, 'jetbrains' as FontFamily)
+/** The size a font is set at when none was picked yet. */
+const DEFAULT_FONT_SIZE = 12
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
 const effort = atom({ plugin: 'speedy-code', key: 'effort' } as const, '')
@@ -1140,19 +1147,22 @@ async function stopListening ($: EngineInterface) {
 }
 
 /**
- * Sets the terminal's font to JetBrains Mono at `size` points. A program in a terminal has no font
+ * Sets the terminal's font to `family` at `size` points. A program in a terminal has no font
  * of its own, so terminal_font.py changes the terminal's settings: the whole of it follows.
  */
-async function setTerminalFont ($: EngineInterface, size: number) {
-  $.ui.toast(`speedy-code: poniendo JetBrains Mono a ${size} pt en tu terminal…`)
-  const result = await $.process.run([await python($), `${$.plugin.root}/setup/terminal_font.py`, '--size', `${size}`], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+async function setTerminalFont ($: EngineInterface, family: FontFamily, size: number) {
+  const name = FONT_FAMILIES.find(([id]) => id === family)?.[1] ?? family
+  $.ui.toast(`speedy-code: poniendo ${name} a ${size} pt en tu terminal…`)
+  const result = await $.process.run([await python($), `${$.plugin.root}/setup/terminal_font.py`, '--family', family, '--size', `${size}`], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   const said = result?.stdout.trim() ?? ''
   if (result?.exitCode !== 0) {
     $.ui.toast(`speedy-code: ${said || 'no pude cambiar la fuente: falta instalar'}`)
     return
   }
   await update($, fontSize, () => size)
+  await update($, fontFamily, () => family)
   await $.store.set('fontSize', size)
+  await $.store.set('fontFamily', family)
   $.ui.toast(`speedy-code: ${said}`)
   $.ui.invalidate('ui.render')
 }
@@ -1393,6 +1403,16 @@ async function checkSetup ($: EngineInterface) {
   await setCheck($, 'mics', found ? { state: 'ok', detail: `${found} conectado(s)` } : { state: 'fail', detail: hasPython ? 'ninguno conectado' : 'se buscan al instalar' })
   const fonts = (await osNow($)) === 'mac' ? await homeFile($, 'Library/Fonts') : await appDataDir($, 'Microsoft/Windows/Fonts')
   await setCheck($, 'font', (await $.fs.exists(`${fonts}/SymbolsNerdFontMono-Regular.ttf`).catch(() => false)) ? { state: 'ok', detail: 'instalada' } : { state: 'fail', detail: 'falta' })
+  // The fonts for the text: each family whole, its four styles.
+  const missing: string[] = []
+  for (const [, name, file] of FONT_FAMILIES) {
+    for (const style of ['Regular', 'Bold', 'Italic', 'BoldItalic']) {
+      if (await $.fs.exists(`${fonts}/${file}-${style}.ttf`).catch(() => false)) continue
+      missing.push(name)
+      break
+    }
+  }
+  await setCheck($, 'fonts', missing.length ? { state: 'fail', detail: `falta ${missing.join(' y ')}` } : { state: 'ok', detail: 'instaladas' })
   await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
 }
 
@@ -2055,6 +2075,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const bar = await read($, statusLine)
   const iconSet = await read($, icons)
   const sizeNow = await read($, fontSize)
+  const familyNow = await read($, fontFamily)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
   const setupTab = (
     <Box flexDirection="column">
@@ -2116,53 +2137,45 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   )
   // The levels row takes 22 or 38 cells, then 3 + 6 + 3 for its stepper; the priority row 3 + name + 7.
   const isSideBySide = !narrow && inside >= 38 + 12 + 4 + 3 + nameWidth + 1 + 7
+  // The settings above the tables are a table too: a name, what is in use, and what changes it.
+  const NAME_WIDTH = 28
+  const STATE_WIDTH = 27
+  const setting = (key: string, name: string, tint: string, state: string, isOn: boolean, actions: unknown, isLast = false) => (
+    <Box key={`bar-row:${key}`} flexDirection={narrow ? 'column' : 'row'} marginBottom={narrow || isLast ? 1 : 0}>
+      <Box flexDirection="row" flexShrink={0}>
+        <Box width={NAME_WIDTH} flexShrink={0}><Text bold color={tint}>{name}</Text></Box>
+        <Box width={narrow ? undefined : STATE_WIDTH} flexShrink={0}><Text bold color={isOn ? '#51cf66' : '#868e96'}>{state}</Text></Box>
+      </Box>
+      <Box flexDirection="row" columnGap={1} paddingLeft={narrow ? 1 : 0} flexShrink={0}>{actions}</Box>
+    </Box>
+  )
+  const familyName = FONT_FAMILIES.find(([id]) => id === familyNow)?.[1] ?? familyNow
   const barTab = (
     <Box flexDirection="column">
-      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
-        <Box width={narrow ? inside : 34} flexShrink={0}>
-          <Text>
-            <Text bold color="#4dabf7">{' ▤  Barra speedy-code '}</Text>
-            <Text bold color={bar === 'on' ? '#51cf66' : '#868e96'}>{bar === 'on' ? '● activa' : '○ inactiva'}</Text>
-          </Text>
-        </Box>
-        <Box marginTop={narrow ? 1 : 0} flexShrink={0}>
-          <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
-            <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Restaurar mi barra ' : ' Usar barra speedy-code '}</Text>
-          </Button>
-        </Box>
-      </Box>
-      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
-        <Box width={narrow ? inside : 34} flexShrink={0}>
-          <Text>
-            <Text bold color="#b197fc">{' ◈  Iconos '}</Text>
-            <Text bold color={iconSet === 'nerd' ? '#51cf66' : '#868e96'}>{iconSet === 'nerd' ? '● Nerd Fonts' : '○ emojis'}</Text>
-          </Text>
-        </Box>
-        <Box marginTop={narrow ? 1 : 0} flexShrink={0}>
-          <Button key="bar:icons" plain onPress={() => { void switchIcons($) }}>
-            <Text bold color="black" backgroundColor={iconSet === 'nerd' ? '#868e96' : '#b197fc'}>{iconSet === 'nerd' ? ' Volver a los emojis ' : ' Usar Nerd Fonts '}</Text>
-          </Button>
-        </Box>
-        {/* The glyphs themselves, whatever the set: they tell whether the terminal's font has them. */}
-        <Text color="#b197fc">{'   prueba: \uf0c5 \uf0ea \uf03e \uf130 \uf013 '}</Text>
-        {narrow ? null : <Text dimColor>(si ves cuadrados, elegí una Nerd Font en tu terminal)</Text>}
-      </Box>
+      {setting('statusline', ' ▤  Barra speedy-code ', '#4dabf7', bar === 'on' ? '● activa' : '○ inactiva', bar === 'on', (
+        <Button key="bar:statusline" plain onPress={() => { void switchStatusLine($, bar === 'on' ? 'off' : 'on') }}>
+          <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Restaurar mi barra ' : ' Usar barra speedy-code '}</Text>
+        </Button>
+      ))}
+      {setting('icons', ' ◈  Iconos ', '#b197fc', iconSet === 'nerd' ? '● Nerd Fonts' : '○ emojis', iconSet === 'nerd', [
+        <Button key="bar:icons" plain onPress={() => { void switchIcons($) }}>
+          <Text bold color="black" backgroundColor={iconSet === 'nerd' ? '#868e96' : '#b197fc'}>{iconSet === 'nerd' ? ' Volver a los emojis ' : ' Usar Nerd Fonts '}</Text>
+        </Button>,
+        // The glyphs themselves, whatever the set: they tell whether the terminal's font has them.
+        <Text key="bar:icons:proof" color="#b197fc">{' prueba: \uf0c5 \uf0ea \uf03e \uf130 \uf013 '}</Text>,
+        narrow ? null : <Text key="bar:icons:hint" dimColor>(¿cuadrados? falta una Nerd Font)</Text>
+      ])}
       {/* The terminal's own font: a program in a terminal has none, so the terminal's settings are changed. */}
-      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
-        <Box width={narrow ? inside : 54} flexShrink={0}>
-          <Text>
-            <Text bold color="#ffa94d">{' Aa  Fuente de la terminal '}</Text>
-            <Text bold color={sizeNow ? '#51cf66' : '#868e96'}>{sizeNow ? `● JetBrains Mono · ${sizeNow} pt` : '○ la de tu terminal'}</Text>
-          </Text>
-        </Box>
-        <Box flexDirection="row" columnGap={1} marginTop={narrow ? 1 : 0} flexShrink={0}>
-          {FONT_SIZES.map(size => (
-            <Button key={`bar:font:${size}`} plain onPress={() => { void setTerminalFont($, size) }}>
-              <Text bold color="black" backgroundColor={sizeNow === size ? '#51cf66' : '#ffa94d'}>{` ${size} `}</Text>
-            </Button>
-          ))}
-        </Box>
-      </Box>
+      {setting('font', ' Aa  Fuente de la terminal ', '#ffa94d', sizeNow ? `● ${familyName} · ${sizeNow} pt` : '○ la de tu terminal', sizeNow > 0, FONT_FAMILIES.map(([id, name]) => (
+        <Button key={`bar:family:${id}`} plain onPress={() => { void setTerminalFont($, id, sizeNow || DEFAULT_FONT_SIZE) }}>
+          <Text bold color="black" backgroundColor={sizeNow && familyNow === id ? '#51cf66' : '#ffa94d'}>{` ${name} `}</Text>
+        </Button>
+      )))}
+      {setting('size', '     Tamaño en puntos ', '#ffa94d', '', false, FONT_SIZES.map(size => (
+        <Button key={`bar:font:${size}`} plain onPress={() => { void setTerminalFont($, familyNow, size) }}>
+          <Text bold color="black" backgroundColor={sizeNow === size ? '#51cf66' : '#ffa94d'}>{` ${`${size}`.padStart(2)} `}</Text>
+        </Button>
+      )), true)}
       <Box flexDirection={isSideBySide ? 'row' : 'column'}>
         <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>
           <Text bold dimColor>COLORES</Text>
@@ -2597,6 +2610,8 @@ export const register: Register = on => {
     void loadVoices($)
     const savedSize = await $.store.get('fontSize')
     if (typeof savedSize === 'number') await update($, fontSize, () => savedSize)
+    const savedFamily = await $.store.get('fontFamily')
+    if (FONT_FAMILIES.some(([id]) => id === savedFamily)) await update($, fontFamily, () => savedFamily as FontFamily)
     isGlyphs = (await $.store.get('icons')) === 'nerd'
     if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
     const savedMic = await $.store.get('mic')

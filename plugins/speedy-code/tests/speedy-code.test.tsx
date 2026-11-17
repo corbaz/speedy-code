@@ -1616,7 +1616,7 @@ test('nerdText: an emoji gives way to its Nerd Fonts glyph and the label keeps i
   for (const label of [' ⏸︎ ', ' ✔ ', ' ⏳ ']) expect(cells(nerdText(label))).toBe(cells(label) + 1)
 })
 
-test('⚙ → Barra de estado → a size sets the font of the terminal by terminal_font.py, and the row says the size kept', { timeoutMs: 30000 }, async ($, on) => {
+test('⚙ → Barra de estado → a size and a family set the font of the terminal by terminal_font.py, and the row says both', { timeoutMs: 30000 }, async ($, on) => {
   const store: Record<string, unknown> = { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }
   const { w, ui } = await footerSession($, on, store)
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
@@ -1630,7 +1630,12 @@ test('⚙ → Barra de estado → a size sets the font of the terminal by termin
   await before.unmount()
   const after = await $.ui.mount(BAND)
   expect((await after.find({ type: 'Text', text: /JetBrains Mono · / }))?.text).toContain('● JetBrains Mono · 14 pt')
+  // The other font, at the size in use.
+  await after.press({ key: 'bar:family:meslo' })
   await after.unmount()
+  const other = await $.ui.mount(BAND)
+  expect((await other.find({ type: 'Text', text: /Meslo · / }))?.text).toContain('● Meslo · 14 pt')
+  await other.unmount()
   await ui.unmount()
 })
 

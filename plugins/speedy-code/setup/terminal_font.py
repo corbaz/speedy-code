@@ -1,6 +1,8 @@
-"""Sets the terminal's font: JetBrains Mono, with the Nerd Fonts icons in it, at the size asked.
+"""Sets the terminal's font: JetBrains Mono or Meslo, with the Nerd Fonts icons in it, at the size asked.
 
-Usage: terminal_font.py --size <points>
+Usage: terminal_font.py --size <points> [--family jetbrains|meslo]
+       terminal_font.py --install
+       terminal_font.py --check [--folder <fonts folder>]
        terminal_font.py --size <points> --face <name> --windows-terminal <settings.json>
        terminal_font.py --size <points> --face <name> --ghostty <config>
        terminal_font.py --size <points> --face <name> --kitty <kitty.conf>
@@ -9,12 +11,16 @@ A program that runs in a terminal has no font of its own: the letters, their siz
 sharpness are the terminal's. So this changes the terminal's own settings, and the whole of it
 follows: messages, answers, menus and bars.
 
-The font is JetBrainsMono Nerd Font: every letter as wide as any other, round and clear, and the
-icons the Nerd Fonts icon set draws, so no second font is needed for them. Not its Mono build,
-which shrinks each icon into one cell: here an icon is as tall as the letters and spills over the
-cell after it, which the plugin leaves for it. Its four styles are
-taken from the Nerd Fonts release on GitHub (about 7 MB) and kept in the user's own fonts folder,
-which needs no administrator rights. A font already there is left as it is.
+The font is JetBrainsMono Nerd Font, or MesloLGS Nerd Font with --family meslo (Meslo is Apple's
+Menlo, made free): in both every letter is as wide as any other, round and clear, and both hold the
+icons the Nerd Fonts icon set draws, so no second font is needed for them. Not their Mono builds,
+which shrink each icon into one cell: here an icon is as tall as the letters and spills over the
+cell after it, which the plugin leaves for it. The four styles of a family are taken from the Nerd
+Fonts release on GitHub (about 7 MB, 5 MB) and kept in the user's own fonts folder, which needs no
+administrator rights. A font already there is left as it is.
+
+--install fetches both families and changes no terminal: the setup's step. --check fetches nothing:
+it prints "ok instaladas", or "fail falta <family>" and exits 1.
 
 The terminals it knows, each changed only where it is found:
   Windows Terminal   `font.face` and `font.size` of the defaults, and of each profile with a font
@@ -46,10 +52,23 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nerd_font  # noqa: E402  pylint: disable=wrong-import-position
 
-URL = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz"
+RELEASE = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download"
 STYLES = ["Regular", "Bold", "Italic", "BoldItalic"]
-FILES = [f"JetBrainsMonoNerdFont-{style}.ttf" for style in STYLES]
+# Each family: the name shown, its archive in the release, the start of its files' names, and the
+# names it gives itself, for where its own name table cannot be read.
+FAMILIES = {
+    "jetbrains": ("JetBrains Mono", "JetBrainsMono.tar.xz", "JetBrainsMonoNerdFont", "JetBrainsMono NF", "JetBrainsMonoNF-Regular"),
+    "meslo": ("Meslo", "Meslo.tar.xz", "MesloLGSNerdFont", "MesloLGS Nerd Font", "MesloLGSNF-Regular"),
+}
 SIZES = (6, 40)
+
+
+def files_of(family: str) -> list:
+    return [f"{FAMILIES[family][2]}-{style}.ttf" for style in STYLES]
+
+
+def has_family(family: str, folder: str) -> bool:
+    return all(os.path.exists(os.path.join(folder, name)) for name in files_of(family))
 
 
 def names_of(path: str) -> dict:
@@ -76,13 +95,13 @@ def names_of(path: str) -> dict:
     return {}
 
 
-def fetch(folder: str) -> list:
-    """Writes the four styles to `folder`, each whole or not at all; says which ones are new."""
-    with urllib.request.urlopen(URL, timeout=120) as answer:
+def fetch(family: str, folder: str) -> list:
+    """Writes the family's four styles to `folder`, each whole or not at all; says which ones are new."""
+    with urllib.request.urlopen(f"{RELEASE}/{FAMILIES[family][1]}", timeout=120) as answer:
         archive = tarfile.open(fileobj=io.BytesIO(answer.read()), mode="r:xz")
     os.makedirs(folder, exist_ok=True)
     written = []
-    for name in FILES:
+    for name in files_of(family):
         target = os.path.join(folder, name)
         if os.path.exists(target):
             continue
@@ -206,8 +225,36 @@ def option(name: str) -> str:
     return arguments[arguments.index(name) + 1] if name in arguments and arguments.index(name) + 1 < len(arguments) else ""
 
 
+def install(family: str, folder: str) -> bool:
+    """Puts the family in `folder` if it is not whole there, naming it to Windows. Says whether it fetched."""
+    if has_family(family, folder):
+        return False
+    for path in fetch(family, folder):
+        if sys.platform == "win32":
+            nerd_font.register_on_windows(path, names_of(path).get(4) or os.path.basename(path))
+    return True
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
+    folder = option("--folder") or nerd_font.fonts_folder()
+    shown = " y ".join(names[0] for names in FAMILIES.values())
+    if "--check" in sys.argv[1:]:
+        missing = [names[0] for family, names in FAMILIES.items() if not has_family(family, folder)]
+        print(f"fail falta {' y '.join(missing)}" if missing else "ok instaladas")
+        return 1 if missing else 0
+    if "--install" in sys.argv[1:]:
+        try:
+            fetched = [install(family, folder) for family in FAMILIES]
+        except Exception as error:  # pylint: disable=broad-except
+            print(f"no pude instalar {shown}: {error}")
+            return 1
+        print(f"{shown} instaladas" if any(fetched) else "ya estaban instaladas")
+        return 0
+    family = option("--family") or "jetbrains"
+    if family not in FAMILIES:
+        print(f"la fuente es una de: {', '.join(FAMILIES)}")
+        return 1
     try:
         size = int(option("--size"))
     except ValueError:
@@ -225,17 +272,13 @@ def main() -> int:
                 print(f"no pude cambiar la fuente: {error}")
                 return 1
 
-    folder = nerd_font.fonts_folder()
     try:
-        if not all(os.path.exists(os.path.join(folder, name)) for name in FILES):
-            for path in fetch(folder):
-                if sys.platform == "win32":
-                    nerd_font.register_on_windows(path, names_of(path).get(4) or os.path.basename(path))
-        names = names_of(os.path.join(folder, FILES[0]))
+        install(family, folder)
+        names = names_of(os.path.join(folder, files_of(family)[0]))
     except Exception as error:  # pylint: disable=broad-except
-        print(f"no pude instalar JetBrains Mono: {error}")
+        print(f"no pude instalar {FAMILIES[family][0]}: {error}")
         return 1
-    face = names.get(16) or names.get(1) or "JetBrainsMono NF"
+    face = names.get(16) or names.get(1) or FAMILIES[family][3]
 
     changed, failed = [], []
 
@@ -251,7 +294,7 @@ def main() -> int:
             attempt("Windows Terminal", lambda settings=settings: windows_terminal(settings, face, size))
     if sys.platform == "darwin":
         try:
-            if mac_terminal(names.get(6) or "JetBrainsMonoNF-Regular", size):
+            if mac_terminal(names.get(6) or FAMILIES[family][4], size):
                 changed.append("Terminal")
         except OSError as error:
             failed.append(f"Terminal ({error})")

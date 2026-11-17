@@ -132,6 +132,11 @@ font_step() {
   "$python" "$here/nerd_font.py"
 }
 
+# The fonts for the text, JetBrains Mono and Meslo with the icons in them: see terminal_font.py.
+fonts_step() {
+  "$python" "$here/terminal_font.py" --install
+}
+
 # Claude Code's own preferences, the same on every machine: see claude_prefs.py.
 prefs_step() {
   "$python" "$here/claude_prefs.py"
@@ -144,6 +149,7 @@ step model 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' model_
 step mics 'Buscando micrófonos' mics_step
 step voices 'Consultando las voces de Edge' voices_step
 step font 'Instalando la fuente de iconos (Symbols Nerd Font)' font_step
+step fonts 'Instalando las fuentes de texto (JetBrains Mono, Meslo)' fonts_step
 step groq 'Buscando la clave de Groq de la pluma' groq_step
 step prefs 'Ajustando las preferencias de Claude Code' prefs_step
 
