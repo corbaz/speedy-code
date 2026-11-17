@@ -8,8 +8,6 @@ import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu,
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
-/** The new conversation's dialog: a pane, since only a pane takes the keyboard as it opens. */
-const NEW_PANE = 'speedy-code-new'
 const DEFAULT_LANG = 'es'
 const DEFAULT_PICKS: Picks = { es: 'es-AR-ElenaNeural' }
 /** How fast the voice speaks, as a multiple of its own pace. */
@@ -556,7 +554,7 @@ async function newMenu ($: EngineInterface, e: Drawn) {
   const Input = 'Input' in elements ? elements.Input : undefined
   return (
     <Box flexDirection="column">
-      <Text bold color="#74c0fc">{' Nombre de la conversación '}</Text>
+      <Text bold color="#74c0fc">{' Nombre de la conversación '}<Text dimColor>(clic en el campo para escribirlo)</Text></Text>
       {Input
         ? (
           <Input
@@ -585,7 +583,6 @@ const NEW_COLOR = '#51cf66'
 /** As the person typing /clear, then /rename with the name given: a new conversation in this terminal, named. */
 async function startConversation ($: EngineInterface, name: string) {
   await closeMenu($, 'new')
-  await $.ui.close({ id: NEW_PANE }).catch(() => undefined)
   const title = name.trim()
   const cleared = await $.command.run({ command: 'clear' }).then(() => true, () => false)
   if (!cleared) {
@@ -1603,6 +1600,7 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   '×': '\uea76', // cod-close: thin, and no wider than its cell
   // Signs a terminal may draw as emojis, in a color and a width of their own.
   '✔': '\uf00c', // fa-check
+  '⏎': '\uf1d8', // fa-paper_plane: the prompt, sent
   '✘': '\uf00d', // fa-xmark
   '⚠': '\uf071', // fa-triangle_exclamation
   '▶': '\uf04b', // fa-play
@@ -2956,16 +2954,11 @@ export const register: Register = on => {
       await sendPrompt($)
     } else if (e.element === 'speedy:new') {
       // Its name is asked first, where there is a field to type it in; with none it starts at once.
-      // In a pane that takes the keyboard as it opens, so the name is typed straight away; where the
-      // surface seats none, in the band above the prompt, whose field a click focuses.
+      // In a menu above the prompt, as the others: the band takes the keyboard on a click, so the
+      // field is clicked before the name is typed. A pane takes it as it opens, but docks at the side.
       await closeMenu($, 'more')
-      if (e.surface !== 'terminal' && e.surface !== 'desktop') await startConversation($, '')
-      else {
-        newName = ''
-        newOpened += 1
-        const opened = await $.ui.open({ id: NEW_PANE, title: '+ Conversación nueva', focus: true, closeOnEscape: true, rows: 5, columns: 44 }).catch(() => undefined)
-        if (!opened?.isPlaced) await openMenu($, 'new')
-      }
+      if (e.surface === 'terminal' || e.surface === 'desktop') await openMenu($, 'new')
+      else await startConversation($, '')
     } else if (e.element === 'speedy:image') {
       await pasteImage($)
     } else if (e.element === 'speedy:clear') {
@@ -3054,6 +3047,5 @@ export const register: Register = on => {
 
   // The menus, in their panes.
   on('ui.render', { component: 'Pane', requestId: MIC_PANE }, ($, e) => micMenu($, e))
-  on('ui.render', { component: 'Pane', requestId: NEW_PANE }, ($, e) => newMenu($, e))
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => voiceMenu($, e))
 }

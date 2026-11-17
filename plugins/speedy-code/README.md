@@ -25,7 +25,7 @@ From left to right:
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
-| + | Asks the new conversation's name, then runs `/clear` and, with a name, `/rename`: a new conversation in this terminal, its context empty again |
+| + | Asks the new conversation's name in a menu above the prompt, then runs `/clear` and, with a name, `/rename`: a new conversation in this terminal, its context empty again |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
