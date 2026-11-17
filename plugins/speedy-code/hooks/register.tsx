@@ -2162,13 +2162,16 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Box flexDirection="row" columnGap={1} paddingLeft={narrow ? 1 : 0} flexShrink={0}>{actions}</Box>
     </Box>
   )
+  // Claude Code caps the band at half the terminal, so the tables take as few rows as the width lets them:
+  // side by side, the button that resets them goes on the titles' row, and wider still the priorities are two columns.
   const resetButton = (
-    <Box flexDirection="row" marginTop={1}>
-      <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
-        <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
-      </Button>
-    </Box>
+    <Button key="bar:reset" plain onPress={() => { void resetLevels($) }}>
+      <Text bold color="black" backgroundColor="#4dabf7">{' Restaurar los valores por defecto '}</Text>
+    </Button>
   )
+  const priorityWidth = 3 + nameWidth + 1 + 7
+  const isTwoPriorities = isSideBySide && inside >= 38 + 12 + 4 + 2 * priorityWidth + 3
+  const priorityHalf = Math.ceil(order.length / 2)
   const familyName = FONT_FAMILIES.find(([id]) => id === familyNow)?.[1] ?? familyNow
   const barTab = (
     <Box flexDirection="column">
@@ -2198,20 +2201,28 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       )), true)}
       <Box flexDirection={isSideBySide ? 'row' : 'column'}>
         <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>
-          <Text bold dimColor>COLORES</Text>
+          <Box flexDirection="row" columnGap={2}>
+            <Text bold dimColor>COLORES</Text>
+            {isSideBySide ? resetButton : null}
+          </Box>
           {level('Contexto usado · amarillo desde', 'contextYellow', '')}
           {level('Contexto usado · rojo desde', 'contextRed', '⚠  compactar, y el aviso')}
           {level('Límite usado · amarillo desde', 'limitYellow', '')}
           {level('Límite usado · rojo desde', 'limitRed', '⚠  y el aviso')}
-          {/* Beside the priorities there is room under the levels: the button takes no rows of its own. */}
-          {isSideBySide ? resetButton : null}
         </Box>
         <Box flexDirection="column" flexShrink={0} marginTop={isSideBySide ? 0 : 1}>
           <Text bold dimColor>PRIORIDAD AL ACHICARSE</Text>
-          {order.map((key, index) => priorityRow(key, index))}
+          {isTwoPriorities
+            ? (
+              <Box flexDirection="row" columnGap={3}>
+                <Box flexDirection="column" flexShrink={0}>{order.slice(0, priorityHalf).map((key, index) => priorityRow(key, index))}</Box>
+                <Box flexDirection="column" flexShrink={0}>{order.slice(priorityHalf).map((key, index) => priorityRow(key, index + priorityHalf))}</Box>
+              </Box>
+              )
+            : order.map((key, index) => priorityRow(key, index))}
         </Box>
       </Box>
-      {isSideBySide ? null : resetButton}
+      {isSideBySide ? null : <Box flexDirection="row" marginTop={1}>{resetButton}</Box>}
     </Box>
   )
   // The column titles on a band of the tab's color, as wide as the table.
