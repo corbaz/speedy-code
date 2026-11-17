@@ -173,6 +173,7 @@ const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['model', 'Modelo de dictado Nemotron (~750 MB, local)'],
   ['mics', 'Micrófonos'],
   ['voices', 'Voces de Edge (internet)'],
+  ['font', 'Fuente de iconos (Symbols Nerd Font)'],
   ['groq', 'Clave de Groq (la pluma, opcional)'],
   ['prefs', 'Claude Code: sesión normal al iniciar']
 ]
@@ -311,6 +312,8 @@ const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '
 const barLevels = atom({ plugin: 'speedy-code', key: 'barLevels' } as const, DEFAULT_LEVELS, { shape: 'bar-1' })
 const barOrder = atom({ plugin: 'speedy-code', key: 'barOrder' } as const, DEFAULT_ORDER, { shape: 'order-1' })
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
+/** The icons the footer is drawn with, as set in ⚙ → Barra de estado. */
+const icons = atom({ plugin: 'speedy-code', key: 'icons' } as const, 'emoji' as IconSet)
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
 const effort = atom({ plugin: 'speedy-code', key: 'effort' } as const, '')
@@ -1132,6 +1135,14 @@ async function stopListening ($: EngineInterface) {
   await update($, listening, () => 'loading')
 }
 
+/** Changes the icon set, kept for the next sessions, and draws the footer again with it. */
+async function switchIcons ($: EngineInterface) {
+  const next: IconSet = (await read($, icons)) === 'nerd' ? 'emoji' : 'nerd'
+  await update($, icons, () => next)
+  await $.store.set('icons', next)
+  $.ui.invalidate('ui.render')
+}
+
 /** The microphone dictation listens to, kept for the next sessions. */
 async function pickMic ($: EngineInterface, name: string) {
   await update($, mic, () => name)
@@ -1356,6 +1367,8 @@ async function checkSetup ($: EngineInterface) {
   if (hasPackages) await loadMics($)
   const found = (await read($, mics)).length
   await setCheck($, 'mics', found ? { state: 'ok', detail: `${found} conectado(s)` } : { state: 'fail', detail: hasPython ? 'ninguno conectado' : 'se buscan al instalar' })
+  const fonts = (await osNow($)) === 'mac' ? await homeFile($, 'Library/Fonts') : await appDataDir($, 'Microsoft/Windows/Fonts')
+  await setCheck($, 'font', (await $.fs.exists(`${fonts}/SymbolsNerdFontMono-Regular.ttf`).catch(() => false)) ? { state: 'ok', detail: 'instalada' } : { state: 'fail', detail: 'falta' })
   await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
 }
 
@@ -1414,6 +1427,55 @@ export function cells (text: string) {
 }
 
 /** What footerFit decided: the groups drawn, and those drawn in their short form. */
+/** Which icons the footer is drawn with. */
+export type IconSet = 'emoji' | 'nerd'
+
+/**
+ * Each emoji the footer writes, with the Nerd Fonts glyph that stands for it: Font Awesome's code
+ * points in Nerd Fonts 3 (`glyphnames.json`), all in the basic private use area. A glyph is one
+ * color, takes the color of its control and is as wide as any other; it needs a Nerd Font in the terminal.
+ */
+export const NERD_ICONS: Readonly<Record<string, string>> = {
+  '📋': '\uf0c5', // fa-copy
+  '📥': '\uf0ea', // fa-paste
+  '🖼': '\uf03e', // fa-image
+  '👁': '\uf06e', // fa-eye
+  '🗑': '\uf1f8', // fa-trash
+  '🗣': '\uf075', // fa-comment
+  '🗜': '\uf066', // fa-compress
+  '🔊': '\uf028', // fa-volume_high
+  '🔇': '\uf026', // fa-volume_off
+  '📎': '\uf0c6', // fa-paperclip
+  '🎙': '\uf130', // fa-microphone
+  '🔵': '\uf130', // the microphone loading: its color says so
+  '🔴': '\uf130', // the microphone open: its color says so
+  '🖋': '\uf040', // fa-pencil
+  '⏳': '\uf252', // fa-hourglass_half
+  '🔄': '\uf021', // fa-refresh
+  '⚙': '\uf013', // fa-gear
+  '×': '\uf00d' // fa-xmark
+}
+
+const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})\ufe0f?`, 'gu')
+
+/**
+ * `text` with every emoji replaced by its Nerd Fonts glyph. A glyph is one cell, so one that replaces
+ * a two-cell emoji is followed by a blank: every label keeps its width, and a glyph drawn wide has the room.
+ */
+export function nerdText (text: string) {
+  return text.replace(EMOJI, (found, emoji: string) => `${NERD_ICONS[emoji]}${cells(found) === 2 ? ' ' : ''}`)
+}
+
+/** The colors the footer's tools take with Nerd Fonts glyphs: with emojis they are gray, since an emoji takes none. */
+const NERD_COLORS: Readonly<Record<string, string>> = {
+  'speedy:copy': '#74c0fc',
+  'speedy:paste': '#63e6be',
+  'speedy:image': '#b197fc',
+  'speedy:clear': '#ff8787',
+  'speedy:reload': '#4dabf7',
+  'speedy:settings': '#ced4da'
+}
+
 export type FooterFit = { shown: Set<string>, compact: Set<string> }
 
 /** The version's color, after the ✕. */
@@ -1516,8 +1578,10 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   // before the first answer, when there is nothing to read again.
   const canPlay = isPlayable(enabled, now)
   // A Client drawing `label` in `color`, as wide as the label is on a terminal.
+  // With Nerd Fonts every emoji is its glyph, as wide as the emoji was, in the color a glyph can take.
+  const isNerd = (await read($, icons)) === 'nerd'
   const control = (key: string, label: string, color: string, bold = false) => (
-    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold }} />
+    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label: isNerd ? nerdText(label) : label, color: isNerd ? NERD_COLORS[key] ?? color : color, bold }} />
   )
   const modelText = level ? ` ${model} ` : ` ${model} ▾ `
   const effortText = `· ${level} ▾ `
@@ -1606,7 +1670,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     namedGroup('send'),
     namedGroup('reload'),
     namedGroup('settings'),
-    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ╳ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
+    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' × ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
   ]
 }
 
@@ -1903,6 +1967,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const log = await read($, setupLog)
   const installing = await read($, isInstalling)
   const bar = await read($, statusLine)
+  const iconSet = await read($, icons)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
   const setupTab = (
     <Box flexDirection="column">
@@ -1978,6 +2043,22 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
             <Text bold color="black" backgroundColor={bar === 'on' ? '#868e96' : '#4dabf7'}>{bar === 'on' ? ' Restaurar mi barra ' : ' Usar barra speedy-code '}</Text>
           </Button>
         </Box>
+      </Box>
+      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
+        <Box width={narrow ? inside : 34} flexShrink={0}>
+          <Text>
+            <Text bold color="#b197fc">{' ◈  Iconos '}</Text>
+            <Text bold color={iconSet === 'nerd' ? '#51cf66' : '#868e96'}>{iconSet === 'nerd' ? '● Nerd Fonts' : '○ emojis'}</Text>
+          </Text>
+        </Box>
+        <Box marginTop={narrow ? 1 : 0} flexShrink={0}>
+          <Button key="bar:icons" plain onPress={() => { void switchIcons($) }}>
+            <Text bold color="black" backgroundColor={iconSet === 'nerd' ? '#868e96' : '#b197fc'}>{iconSet === 'nerd' ? ' Volver a los emojis ' : ' Usar Nerd Fonts '}</Text>
+          </Button>
+        </Box>
+        {/* The glyphs themselves, whatever the set: they tell whether the terminal's font has them. */}
+        <Text color="#b197fc">{'   prueba: \uf0c5 \uf0ea \uf03e \uf130 \uf013 '}</Text>
+        {narrow ? null : <Text dimColor>(si ves cuadrados, elegí una Nerd Font en tu terminal)</Text>}
       </Box>
       <Box flexDirection={isSideBySide ? 'row' : 'column'}>
         <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>
@@ -2411,6 +2492,7 @@ export const register: Register = on => {
     const saved = await loadPicks($)
     await update($, picks, () => saved)
     void loadVoices($)
+    if ((await $.store.get('icons')) === 'nerd') await update($, icons, () => 'nerd' as IconSet)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
     void loadMics($)
@@ -2668,7 +2750,7 @@ export const register: Register = on => {
             </Box>
             {/* A Client, not a Button: no background under the pointer. Two empty cells after it
                 leave the border's last line and its corner showing. */}
-            <Client key="speedy:menu-close" module="./control.tsx" width={3} props={{ label: ' ╳ ', color: '#ff6b6b', bold: true }} />
+            <Client key="speedy:menu-close" module="./control.tsx" width={3} props={{ label: ' × ', color: '#ff6b6b', bold: true }} />
             <Box width={2} />
           </Box>
         </Box>

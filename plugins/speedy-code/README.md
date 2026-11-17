@@ -28,7 +28,7 @@ From left to right:
 | + | Runs `/clear`: a new conversation in this terminal, its context empty again |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
-| ✕ | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
+| × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
 | `v:26.1116-(2114)` | The version: the moment of the clone's last commit, in Buenos Aires time, as `v:yy.mmdd-(hhmm)`. Not a button; the first thing to go when the row is short |
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
@@ -70,6 +70,14 @@ Sonnet 5.5, Haiku 5.5), each with what it is for, and the effort levels. The men
 is in use (`Modelo de Claude (Opus 5.5 · medium)`); the model and effort in use are filled with
 their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model <id>` and then
 `/effort <level>`, as if you typed them.
+
+## Icons
+
+The footer has two icon sets: emojis, which every terminal has, and Nerd Fonts glyphs, one color each
+and all the same width. ⚙️ → **Barra de estado** → **Usar Nerd Fonts** switches, and the row shows five
+glyphs to tell whether the terminal draws them. The setup installs Symbols Nerd Font Mono in the user's
+fonts; a terminal whose font is not a Nerd Font, and that does not fall back to the fonts installed,
+needs a Nerd Font picked in its settings.
 
 ## Status line
 

@@ -127,6 +127,11 @@ groq_step() {
   echo 'GROQ_API_KEY presente'
 }
 
+# The icon font of the Nerd Fonts icon set, in the user's own fonts: see nerd_font.py.
+font_step() {
+  "$python" "$here/nerd_font.py"
+}
+
 # Claude Code's own preferences, the same on every machine: see claude_prefs.py.
 prefs_step() {
   "$python" "$here/claude_prefs.py"
@@ -138,6 +143,7 @@ step packages 'Instalando las voces y el dictado' packages_step
 step model 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' model_step
 step mics 'Buscando micrófonos' mics_step
 step voices 'Consultando las voces de Edge' voices_step
+step font 'Instalando la fuente de iconos (Symbols Nerd Font)' font_step
 step groq 'Buscando la clave de Groq de la pluma' groq_step
 step prefs 'Ajustando las preferencias de Claude Code' prefs_step
 

@@ -89,6 +89,8 @@ declare module 'claude-code' {
       isPolishing: boolean
       /** The microphones connected, as the system names them. */
       mics: string[]
+      /** The icons the footer is drawn with: emojis, or Nerd Fonts glyphs. */
+      icons: 'emoji' | 'nerd'
       /** The microphone dictation listens to; empty: the system's default. */
       mic: string
       /** The model picked in the model menu, not applied yet: an id `/model` takes. */

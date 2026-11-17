@@ -105,6 +105,13 @@ Step 'voices' 'Consultando las voces de Edge' {
   "$count voces"
 }
 
+# The icon font of the Nerd Fonts icon set, in the user's own fonts: see nerd_font.py.
+Step 'font' 'Instalando la fuente de iconos (Symbols Nerd Font)' {
+  $said = (& $python (Join-Path $PSScriptRoot 'nerd_font.py')) -join ' '
+  if ($LASTEXITCODE -ne 0) { throw $said }
+  $said
+}
+
 Step 'groq' 'Buscando la clave de Groq de la pluma' {
   if ($GroqKey) {
     [Environment]::SetEnvironmentVariable('GROQ_API_KEY', $GroqKey, 'User')

@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, accountsOf, footerBlank, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, NERD_ICONS, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 const GIT = { stamp: '' }
@@ -1594,4 +1594,46 @@ test('the footer ends with the version after ✕ and the blank that centers it; 
   } finally {
     GIT.stamp = ''
   }
+})
+
+test('nerdText: an emoji gives way to its Nerd Fonts glyph and the label keeps its width; other text is left alone', () => {
+  for (const glyph of Object.values(NERD_ICONS)) {
+    expect(glyph.length).toBe(1)
+    const code = glyph.codePointAt(0) ?? 0
+    expect(code >= 0xe000 && code <= 0xf8ff).toBe(true)
+  }
+  expect(nerdText(' 📋 ')).toBe(' \uf0c5  ')
+  expect(nerdText(' 🖼️ imagen ')).toBe(' \uf03e  imagen ')
+  expect(nerdText(' × ')).toBe(' \uf00d ')
+  expect(nerdText(' Fable 5.2 ▾ ')).toBe(' Fable 5.2 ▾ ')
+  for (const label of [' 📋 ', ' 🖼️ imagen ', ' ⚙️ ', ' 🗣  Elena · ES ▾', ' 👁️ ver imágenes ', ' × ', ' ⏳ ']) expect(cells(nerdText(label))).toBe(cells(label))
+})
+
+test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, keeps the choice, and switches back', { timeoutMs: 30000 }, async ($, on) => {
+  const store: Record<string, unknown> = { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }
+  const { w, ui } = await footerSession($, on, store)
+  const label = async (view: { find: typeof ui.find }, key: string) => (await view.find({ type: 'Text', in: key }))?.text
+  expect(await label(ui, 'speedy:copy')).toBe(' 📋 ')
+  expect(await label(ui, 'speedy:exit')).toBe(' × ')
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:bar' })
+  await band.unmount()
+  const setup = await $.ui.mount(BAND)
+  expect((await setup.find({ type: 'Text', text: /Usar Nerd Fonts/ }))?.text).toBe(' Usar Nerd Fonts ')
+  await setup.press({ key: 'bar:icons' })
+  await setup.unmount()
+  await ui.unmount()
+  const nerd = await $.ui.mount(FOOTER)
+  expect(await label(nerd, 'speedy:copy')).toBe('   ')
+  expect(await label(nerd, 'speedy:exit')).toBe('  ')
+  await nerd.unmount()
+  const again = await $.ui.mount(BAND)
+  expect((await again.find({ type: 'Text', text: /Volver a los emojis/ }))?.text).toBe(' Volver a los emojis ')
+  await again.press({ key: 'bar:icons' })
+  await again.unmount()
+  const back = await $.ui.mount(FOOTER)
+  expect(await label(back, 'speedy:copy')).toBe(' 📋 ')
+  await back.unmount()
 })

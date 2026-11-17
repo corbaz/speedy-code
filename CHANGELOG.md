@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Icons: a second icon set, Nerd Fonts glyphs, beside the emojis. ⚙️ → Barra de estado → **Usar Nerd Fonts** draws the footer and the ⋯ panel with Font Awesome glyphs, one color each and as wide as the emoji they replace; the row shows five glyphs to tell whether the terminal draws them. The setup has a `font` step (`setup/nerd_font.py`) that installs Symbols Nerd Font Mono in the user's own fonts, with no administrator rights. The menus keep their emojis.
+- Footer and menus: the exit and the menus' close mark are `×`, in every font, one cell and one color.
 - Footer and menus: the exit and the menus' close mark are `╳`, a box-drawing character the terminal draws itself in one color; `✕` came from a fallback font on Windows and showed two tones.
 - Footer and status line: both are drawn in the middle of the terminal's width. Claude Code sets the footer against the right edge, so a blank as wide as the room left before it follows it; the status line starts with its blanks after a reset code, since Claude Code strips the ones a line starts with.
 - Footer: after ✕, the version, `v:yy.mmdd-(hhmm)`: the moment of the clone's last commit in Buenos Aires time (UTC-3), asked of git once. It is the first thing to go when the row is short, and is not drawn where the mod is not a git clone.
