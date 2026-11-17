@@ -1464,10 +1464,8 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   '⏵': '\uf04b', // fa-play
   '⏸': '\uf04c', // fa-pause
   '⧗': '\uf252', // fa-hourglass_half
-  '⋯': '\uf141', // fa-ellipsis
   '♀': '\uf221', // fa-venus
   '♂': '\uf222', // fa-mars
-  '♪': '\uf001', // fa-music
   '✦': '\uf005', // fa-star
   '✎': '\uf044', // fa-edit
   '▤': '\uf1de', // fa-sliders
@@ -1475,19 +1473,16 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
 }
 
 const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`, 'gu')
-/** A glyph and the blank after it. */
-const GLYPH_GAP = /([\ue000-\uf8ff]) /g
 
 /**
- * `text` with every emoji replaced by its Nerd Fonts glyph. A glyph is one cell, so one that replaces
- * a two-cell emoji is followed by a blank: every label keeps its width, and a glyph drawn wide has the room.
- * The blank after a glyph is a no-break space: a terminal paints what a wide glyph spills over its
- * cell in the next cell's color, and Claude Code leaves a plain blank uncolored.
+ * `text` with every emoji and sign replaced by its Nerd Fonts glyph. A terminal draws a glyph wider
+ * than its cell, so each one is followed by a cell of its own to spill over: a text with a two-cell
+ * emoji keeps its width, one with a one-cell sign grows by a cell. That cell is a no-break space:
+ * a terminal paints what a glyph spills in the next cell's color, and Claude Code leaves a plain
+ * blank uncolored, which showed the glyph in two colors.
  */
 export function nerdText (text: string) {
-  return text
-    .replace(EMOJI, (found, emoji: string) => `${NERD_ICONS[emoji]}${cells(found) === 2 ? ' ' : ''}`)
-    .replace(GLYPH_GAP, '$1\u00a0')
+  return text.replace(EMOJI, (_found, emoji: string) => `${NERD_ICONS[emoji]}\u00a0`)
 }
 
 /** Whether everything is drawn with Nerd Fonts glyphs now: the `icons` atom, at hand where nothing is awaited. */
@@ -1505,7 +1500,11 @@ function glyphProps (props: Record<string, unknown> | null | undefined) {
   if (typeof children === 'string') next.children = nerdText(children)
   else if (Array.isArray(children)) next.children = children.map(child => typeof child === 'string' ? nerdText(child) : child)
   if (inner && typeof inner === 'object' && typeof (inner as { label?: unknown }).label === 'string') {
-    next.props = { ...inner, label: nerdText((inner as { label: string }).label) }
+    // A Client is as wide as it was told: a label that grew takes its width along.
+    const before = (inner as { label: string }).label
+    const label = nerdText(before)
+    next.props = { ...inner, label }
+    if (typeof next.width === 'number') next.width += cells(label) - cells(before)
   }
   return next
 }
@@ -1640,8 +1639,10 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   // With Nerd Fonts every emoji is its glyph, as wide as the emoji was, in the color a glyph can take.
   const isNerd = (await read($, icons)) === 'nerd'
   isGlyphs = isNerd
+  // How wide a label is as it is drawn: a sign's glyph takes a cell more than the sign.
+  const wide = (label: string) => cells(isNerd ? nerdText(label) : label)
   const control = (key: string, label: string, color: string, bold = false) => (
-    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label: isNerd ? nerdText(label) : label, color: isNerd ? NERD_COLORS[key] ?? color : color, bold }} />
+    <Client key={key} module="./control.tsx" width={wide(label)} props={{ label: isNerd ? nerdText(label) : label, color: isNerd ? NERD_COLORS[key] ?? color : color, bold }} />
   )
   const modelText = level ? ` ${model} ` : ` ${model} ▾ `
   const effortText = `· ${level} ▾ `
@@ -1675,7 +1676,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     const members = named.filter(one => one.group === name)
     return {
       name,
-      width: members.reduce((sum, one) => sum + cells(one.footer), 0),
+      width: members.reduce((sum, one) => sum + wide(one.footer), 0),
       node: <Box key={`group:${name}`} flexDirection="row" flexShrink={0}>{members.map(one => control(one.key, one.footer, one.color))}</Box>,
       labels: members.map(one => cells(one.panel)),
       panel: members.map(one => control(one.key, one.panel, one.color))
@@ -1730,7 +1731,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     namedGroup('send'),
     namedGroup('reload'),
     namedGroup('settings'),
-    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' × ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
+    { name: 'exit', width: wide(' × '), node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' × ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
   ]
 }
 

@@ -48,7 +48,9 @@ if (Test-Path -LiteralPath $levelsFile) {
       $priority = @($known) + @($priority | Where-Object { $known -notcontains $_ })
     }
     if ($saved.icons -eq 'nerd') {
-      $sign = @{ folder = "$([char]0xf07b) "; branch = "$([char]0xf126)"; model = "$([char]0xf2db)"; time = "$([char]0xf017)"; reset = "$([char]0xf01e)"; warning = "$([char]0xf071)" }
+      # A terminal draws a glyph wider than its cell: each is followed by a no-break space to spill over.
+      $gap = [char]0xa0
+      $sign = @{ folder = "$([char]0xf07b)$gap "; branch = "$([char]0xf126)$gap"; model = "$([char]0xf2db)$gap"; time = "$([char]0xf017)$gap"; reset = "$([char]0xf01e)$gap"; warning = "$([char]0xf071)$gap" }
     }
   } catch { }
 }

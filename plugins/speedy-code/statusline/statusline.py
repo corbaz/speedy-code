@@ -38,10 +38,11 @@ DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 ANSI = re.compile(ESC + r"\[[0-9;]*m")
 # The signs of the line, in each icon set: the one chosen in ⚙️ → Barra de estado. The Nerd Fonts
 # ones are Font Awesome's glyphs (folder, code_branch, microchip, clock, arrow_rotate_right,
-# triangle_exclamation), which need a Nerd Font in the terminal.
+# triangle_exclamation), which need a Nerd Font in the terminal. A terminal draws a glyph wider than its
+# cell, so each is followed by a no-break space to spill over, in its own color.
 SIGNS = {
     "emoji": {"folder": "", "branch": "⎇", "model": "◆", "time": "⏱ ", "reset": "↻", "warning": "⚠"},
-    "nerd": {"folder": "\uf07b ", "branch": "\uf126", "model": "\uf2db", "time": "\uf017", "reset": "\uf01e", "warning": "\uf071"},
+    "nerd": {"folder": "\uf07b\u00a0 ", "branch": "\uf126\u00a0", "model": "\uf2db\u00a0", "time": "\uf017\u00a0", "reset": "\uf01e\u00a0", "warning": "\uf071\u00a0"},
 }
 
 

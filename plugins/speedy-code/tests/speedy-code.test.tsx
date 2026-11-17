@@ -1604,11 +1604,13 @@ test('nerdText: an emoji gives way to its Nerd Fonts glyph and the label keeps i
   }
   expect(nerdText(' 📋 ')).toBe(' \uf0c5\u00a0 ')
   expect(nerdText(' 🖼️ imagen ')).toBe(' \uf03e\u00a0 imagen ')
-  expect(nerdText(' × ')).toBe(' \uea76\u00a0')
-  expect(nerdText(' ⏸︎ ')).toBe(' \uf04c\u00a0')
-  expect(nerdText('✔ listo · ⚠  compactar')).toBe('\uf00c\u00a0listo · \uf071\u00a0 compactar')
+  expect(nerdText(' × ')).toBe(' \uea76\u00a0 ')
+  expect(nerdText(' ⏸︎ ')).toBe(' \uf04c\u00a0 ')
+  expect(nerdText('✔ listo · ⚠  compactar')).toBe('\uf00c\u00a0 listo · \uf071\u00a0  compactar')
   expect(nerdText(' Fable 5.2 ▾ ')).toBe(' Fable 5.2 ▾ ')
-  for (const label of [' 📋 ', ' 🖼️ imagen ', ' ⚙️ ', ' 🗣  Elena · ES ▾', ' 👁️ ver imágenes ', ' × ', ' ⏳ ', ' ⏸︎ ', ' ✔ ', '⚠  compactar']) expect(cells(nerdText(label))).toBe(cells(label))
+  for (const label of [' 📋 ', ' 🖼️ imagen ', ' ⚙️ ', ' 🗣  Elena · ES ▾', ' 👁️ ver imágenes ']) expect(cells(nerdText(label))).toBe(cells(label))
+  // A one-cell sign's glyph brings the cell it spills over.
+  for (const label of [' × ', ' ⏸︎ ', ' ✔ ', ' ⏳ ']) expect(cells(nerdText(label))).toBe(cells(label) + 1)
 })
 
 test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, keeps the choice, and switches back', { timeoutMs: 30000 }, async ($, on) => {
@@ -1629,12 +1631,12 @@ test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, 
   await ui.unmount()
   const nerd = await $.ui.mount(FOOTER)
   expect(await label(nerd, 'speedy:copy')).toBe(' \uf0c5\u00a0 ')
-  expect(await label(nerd, 'speedy:exit')).toBe(' \uea76\u00a0')
+  expect(await label(nerd, 'speedy:exit')).toBe(' \uea76\u00a0 ')
   await nerd.unmount()
   const again = await $.ui.mount(BAND)
   expect((await again.find({ type: 'Text', text: /Volver a los emojis/ }))?.text).toBe(' Volver a los emojis ')
   // The menus too: each element turns its own texts into glyphs.
-  expect((await again.find({ type: 'Text', text: /Iconos/ }))?.text.startsWith('   Iconos ')).toBe(true)
+  expect((await again.find({ type: 'Text', text: /Iconos/ }))?.text.startsWith(' \uefcc\u00a0  Iconos ')).toBe(true)
   await again.press({ key: 'bar:icons' })
   await again.unmount()
   const back = await $.ui.mount(FOOTER)
