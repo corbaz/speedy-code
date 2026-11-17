@@ -2963,7 +2963,7 @@ export const register: Register = on => {
       else {
         newName = ''
         newOpened += 1
-        const opened = await $.ui.open({ id: NEW_PANE, title: '+ Conversación nueva', focus: true, closeOnEscape: true, rows: 5 }).catch(() => undefined)
+        const opened = await $.ui.open({ id: NEW_PANE, title: '+ Conversación nueva', focus: true, closeOnEscape: true, rows: 5, columns: 44 }).catch(() => undefined)
         if (!opened?.isPlaced) await openMenu($, 'new')
       }
     } else if (e.element === 'speedy:image') {
