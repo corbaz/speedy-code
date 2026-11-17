@@ -26,6 +26,7 @@ From left to right:
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
 | + | Asks the new conversation's name in a menu above the prompt, then runs `/clear` and, with a name, `/rename`: a new conversation in this terminal, its context empty again |
+| ☰ | Opens the menu of the conversations Claude Code keeps for this folder, newest first, each with when it last changed; a click goes back to one, as `/resume` |
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |

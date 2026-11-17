@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Footer: **☰** after + opens the conversations kept for the session's folder, newest first (the name given by `/rename`, else Claude Code's own title, else what was first asked); a click goes back to one, as `/resume`. `hooks/sessions.py` reads them.
 - Footer: the social accounts are one control, **Redes sociales ▾**, whose menu lists them (badge, network, user name); a click opens the profile. The footer no longer holds a button per account.
 - Footer: **+** asks the new conversation's name first, then runs `/clear` and, with a name, `/rename`.
 - Settings: a second font for the terminal, Meslo (MesloLGS Nerd Font), beside JetBrains Mono; the setup installs both, and ⚙️ → Instalación checks them (**Fuentes de texto**). The settings of ⚙️ → Barra de estado are a table: a name, what is in use, and what changes it.
