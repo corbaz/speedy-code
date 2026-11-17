@@ -1606,7 +1606,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     namedGroup('send'),
     namedGroup('reload'),
     namedGroup('settings'),
-    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ✕ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
+    { name: 'exit', width: 3, node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' ╳ ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
   ]
 }
 
@@ -2668,7 +2668,7 @@ export const register: Register = on => {
             </Box>
             {/* A Client, not a Button: no background under the pointer. Two empty cells after it
                 leave the border's last line and its corner showing. */}
-            <Client key="speedy:menu-close" module="./control.tsx" width={3} props={{ label: ' ✕ ', color: '#ff6b6b', bold: true }} />
+            <Client key="speedy:menu-close" module="./control.tsx" width={3} props={{ label: ' ╳ ', color: '#ff6b6b', bold: true }} />
             <Box width={2} />
           </Box>
         </Box>
