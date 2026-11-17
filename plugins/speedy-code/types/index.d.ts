@@ -15,7 +15,7 @@ export type Heard = { number: number; text: string }
 
 /** A menu shown above the prompt: none, the voices, the microphones, the settings, the Claude models, the
  * more panel, the narrations kept (📎), or the images pasted in this session (👁). */
-export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images' | 'socials' | 'new'
+export type Menu = '' | 'voices' | 'mic' | 'settings' | 'models' | 'more' | 'history' | 'images' | 'socials' | 'new' | 'sessions'
 
 /** A pasted image: its number, as `[Image #N]` names it, and its file; `stamp`, when the mod kept its
  * copy (`yy-mm-dd_hh-mm-ss`), for the mod's own copies. */
@@ -23,6 +23,9 @@ export type PastedImage = { id: number; path: string; stamp?: string; session?: 
 
 /** A narration kept in the history: its MP3 file, whole path, and its name without the extension. */
 export type HistoryClip = { path: string; name: string }
+
+/** A conversation kept for the session's folder: its id, its title and when it last changed, in seconds since 1970. */
+export type SessionRow = { id: string; title: string; updated: number }
 
 /** The person's user name on each social network, by the network's id (`github`, `x`, ...). */
 export type Socials = Record<string, string>
@@ -89,6 +92,12 @@ declare module 'claude-code' {
       isPolishing: boolean
       /** The microphones connected, as the system names them. */
       mics: string[]
+      /** The conversations kept for the session's folder, newest first, as their menu lists them. */
+      sessionRows: SessionRow[]
+      /** The size, in points, the terminal's font was last set to from here; 0 while it never was. */
+      fontSize: number
+      /** The font the terminal was last set to from here. */
+      fontFamily: 'jetbrains' | 'meslo'
       /** The icons the footer is drawn with: emojis, or Nerd Fonts glyphs. */
       icons: 'emoji' | 'nerd'
       /** The microphone dictation listens to; empty: the system's default. */

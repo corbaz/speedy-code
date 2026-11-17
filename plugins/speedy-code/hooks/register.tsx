@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, Picks, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -280,6 +280,7 @@ const heard = atom({ plugin: 'speedy-code', key: 'heard' } as const, [] as Heard
 const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const, false)
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
+const sessionRows = atom({ plugin: 'speedy-code', key: 'sessionRows' } as const, [] as SessionRow[])
 /** The images the mod keeps, newest first, as the 👁 menu lists them. */
 const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as const, [] as PastedImage[])
 /** The image numbers the draft names, in order: a chip each above the prompt. */
@@ -489,6 +490,11 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     const found = await ourImages($)
     await update($, pastedImages, () => found)
   }
+  // The conversations kept, read as the menu opens: one just left is listed.
+  if (which === 'sessions') {
+    const found = await listSessions($)
+    await update($, sessionRows, () => found)
+  }
   if (which === 'new') {
     newName = ''
     newOpened += 1
@@ -541,6 +547,62 @@ async function openSocial ($: EngineInterface, key: string) {
   const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
   if (link) await openLink($, link)
   await closeMenu($, 'socials')
+}
+
+/** The conversations' control and menu: the color of what was said before. */
+const SESSIONS_COLOR = '#63e6be'
+
+/** The conversations Claude Code keeps for this session's folder, newest first: sessions.py reads them. */
+async function listSessions ($: EngineInterface): Promise<SessionRow[]> {
+  const folder = await $.session.cwd().catch(() => '')
+  if (!folder) return []
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/sessions.py`, folder], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  if (result?.exitCode !== 0) return []
+  return result.stdout.split(/\r?\n/).flatMap(line => {
+    try {
+      const row = JSON.parse(line) as Partial<SessionRow>
+      return typeof row.id === 'string' && typeof row.title === 'string' && typeof row.updated === 'number' ? [{ id: row.id, title: row.title, updated: row.updated }] : []
+    } catch {
+      return []
+    }
+  })
+}
+
+/** When a conversation last changed, as the menu writes it: `dd/mm hh:mm`, in this machine's time. */
+export function sessionStamp (seconds: number) {
+  const at = new Date(seconds * 1000)
+  const two = (value: number) => String(value).padStart(2, '0')
+  return `${two(at.getDate())}/${two(at.getMonth() + 1)} ${two(at.getHours())}:${two(at.getMinutes())}`
+}
+
+/** The conversations' menu: each one's title and when it last changed; a click goes back to it, as /resume. */
+async function sessionsMenu ($: EngineInterface, e: Drawn, width = 90) {
+  const { Box, Button, Text } = glyphed($.ui.resolve(e))
+  const list = await read($, sessionRows)
+  if (list.length === 0) return <Text dimColor>{'  No hay conversaciones guardadas de esta carpeta (o falta instalar: ⚙️ → Instalación).'}</Text>
+  const current = await $.session.id().catch(() => '')
+  // The title takes the room left after the mark and the stamp, so every stamp starts in one column.
+  const titleWidth = Math.max(10, width - 4 - 3 - 12)
+  return (
+    <Box flexDirection="column">
+      {list.map(row => (
+        <Button key={`session-open:${row.id}`} plain onPress={() => { void openSession($, row.id) }}>
+          <Text>
+            <Text bold color={row.id === current ? '#51cf66' : '#868e96'}>{row.id === current ? ' ● ' : ' ○ '}</Text>
+            <Text bold={row.id === current}>{fit(row.title, titleWidth)}</Text>
+            <Text color={SESSIONS_COLOR}>{` ${sessionStamp(row.updated)}`}</Text>
+          </Text>
+        </Button>
+      ))}
+    </Box>
+  )
+}
+
+/** Goes back to a conversation, as the person typing /resume with its id; the one open stays. */
+async function openSession ($: EngineInterface, id: string) {
+  await closeMenu($, 'sessions')
+  if (id === await $.session.id().catch(() => '')) return
+  await $.command.run({ command: 'resume', args: id }).catch(() => { $.ui.toast(`speedy-code: no pude volver a esa conversación; escribí /resume ${id}`) })
 }
 
 /** The name typed for the new conversation, and how many times its menu opened: a field keyed anew starts empty. */
@@ -1601,6 +1663,7 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   // Signs a terminal may draw as emojis, in a color and a width of their own.
   '✔': '\uf00c', // fa-check
   '⏎': '\uf1d8', // fa-paper_plane: the prompt, sent
+  '☰': '\uf1da', // fa-clock_rotate_left: the conversations before
   '✘': '\uf00d', // fa-xmark
   '⚠': '\uf071', // fa-triangle_exclamation
   '▶': '\uf04b', // fa-play
@@ -1811,6 +1874,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
     { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
     { group: 'send', key: 'speedy:new', footer: ' + ', panel: ' + conversación nueva ', color: '#51cf66' },
+    { group: 'send', key: 'speedy:sessions', footer: ' ☰ ', panel: ' ☰ conversaciones ', color: SESSIONS_COLOR },
     { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
@@ -2875,6 +2939,9 @@ export const register: Register = on => {
       await openPicker($)
     } else if (e.element === 'speedy:switch') {
       await setEnabled($, !(await read($, isEnabled)))
+    } else if (e.element === 'speedy:sessions') {
+      await closeMenu($, 'more')
+      await openMenu($, 'sessions')
     } else if (e.element === 'speedy:socials') {
       await closeMenu($, 'more')
       await openMenu($, 'socials')
@@ -2990,8 +3057,8 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : shown === 'socials' ? 'Redes sociales' : shown === 'new' ? '+ Conversación nueva' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : shown === 'socials' ? SOCIALS_COLOR : shown === 'new' ? NEW_COLOR : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : shown === 'socials' ? 'Redes sociales' : shown === 'new' ? '+ Conversación nueva' : shown === 'sessions' ? 'Conversaciones' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : shown === 'socials' ? SOCIALS_COLOR : shown === 'new' ? NEW_COLOR : shown === 'sessions' ? SESSIONS_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -3000,7 +3067,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : shown === 'socials' ? await socialsMenu($, e, width) : shown === 'new' ? await newMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : shown === 'socials' ? await socialsMenu($, e, width) : shown === 'new' ? await newMenu($, e) : shown === 'sessions' ? await sessionsMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">
