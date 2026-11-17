@@ -180,6 +180,9 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       if (e.argv.at(-1) === 'off') line.on = false
       return { value: { exitCode: 0, stdout: `${line.on ? 'on' : 'off'}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    // The terminal's font: the script says the font, the size and the terminals it changed.
+    if (e.argv.some(arg => arg.endsWith('terminal_font.py'))) return { value: { exitCode: 0, stdout: `JetBrainsMono NFM, ${e.argv.at(-1)} pt: Windows Terminal
+`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('--list')) return { value: { exitCode: 0, stdout: `mic ${JBL}\r\nmic ${G432}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -1611,6 +1614,24 @@ test('nerdText: an emoji gives way to its Nerd Fonts glyph and the label keeps i
   for (const label of [' 📋 ', ' 🖼️ imagen ', ' ⚙️ ', ' 🗣  Elena · ES ▾', ' 👁️ ver imágenes ']) expect(cells(nerdText(label))).toBe(cells(label))
   // A one-cell sign's glyph brings the cell it spills over.
   for (const label of [' × ', ' ⏸︎ ', ' ✔ ', ' ⏳ ']) expect(cells(nerdText(label))).toBe(cells(label) + 1)
+})
+
+test('⚙ → Barra de estado → a size sets the font of the terminal by terminal_font.py, and the row says the size kept', { timeoutMs: 30000 }, async ($, on) => {
+  const store: Record<string, unknown> = { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }
+  const { w, ui } = await footerSession($, on, store)
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:bar' })
+  await band.unmount()
+  const before = await $.ui.mount(BAND)
+  expect((await before.find({ type: 'Text', text: /la de tu terminal/ }))?.text).toContain('○ la de tu terminal')
+  await before.press({ key: 'bar:font:14' })
+  await before.unmount()
+  const after = await $.ui.mount(BAND)
+  expect((await after.find({ type: 'Text', text: /JetBrains Mono · / }))?.text).toContain('● JetBrains Mono · 14 pt')
+  await after.unmount()
+  await ui.unmount()
 })
 
 test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, keeps the choice, and switches back', { timeoutMs: 30000 }, async ($, on) => {

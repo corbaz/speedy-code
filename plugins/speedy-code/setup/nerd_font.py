@@ -62,13 +62,13 @@ def fetch(target: str) -> None:
         raise
 
 
-def register_on_windows(path: str) -> None:
-    """Names the font in the user's registry, and tells the open programs a font came."""
+def register_on_windows(path: str, name: str = NAME) -> None:
+    """Names the font, `name`, in the user's registry, and tells the open programs a font came."""
     import ctypes
     import winreg
 
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows NT\CurrentVersion\Fonts") as key:
-        winreg.SetValueEx(key, f"{NAME} (TrueType)", 0, winreg.REG_SZ, path)
+        winreg.SetValueEx(key, f"{name} (TrueType)", 0, winreg.REG_SZ, path)
     try:
         ctypes.windll.gdi32.AddFontResourceW(path)
         # HWND_BROADCAST, WM_FONTCHANGE; it returns at once, whoever does not answer.

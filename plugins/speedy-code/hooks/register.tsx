@@ -314,6 +314,10 @@ const barOrder = atom({ plugin: 'speedy-code', key: 'barOrder' } as const, DEFAU
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
 /** The icons the footer is drawn with, as set in ⚙ → Barra de estado. */
 const icons = atom({ plugin: 'speedy-code', key: 'icons' } as const, 'emoji' as IconSet)
+/** The size, in points, the terminal's font was last set to from ⚙ → Barra de estado; 0 while it never was. */
+const fontSize = atom({ plugin: 'speedy-code', key: 'fontSize' } as const, 0)
+/** The sizes offered there. */
+const FONT_SIZES = [11, 12, 13, 14, 16] as const
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
 const effort = atom({ plugin: 'speedy-code', key: 'effort' } as const, '')
@@ -1133,6 +1137,24 @@ async function stopListening ($: EngineInterface) {
   await $.fs.write(listenFile, 'stop')
   // Blue again while the last phrases are written: it ends, and turns gray, once they are in the prompt.
   await update($, listening, () => 'loading')
+}
+
+/**
+ * Sets the terminal's font to JetBrains Mono at `size` points. A program in a terminal has no font
+ * of its own, so terminal_font.py changes the terminal's settings: the whole of it follows.
+ */
+async function setTerminalFont ($: EngineInterface, size: number) {
+  $.ui.toast(`speedy-code: poniendo JetBrains Mono a ${size} pt en tu terminal…`)
+  const result = await $.process.run([await python($), `${$.plugin.root}/setup/terminal_font.py`, '--size', `${size}`], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  const said = result?.stdout.trim() ?? ''
+  if (result?.exitCode !== 0) {
+    $.ui.toast(`speedy-code: ${said || 'no pude cambiar la fuente: falta instalar'}`)
+    return
+  }
+  await update($, fontSize, () => size)
+  await $.store.set('fontSize', size)
+  $.ui.toast(`speedy-code: ${said}`)
+  $.ui.invalidate('ui.render')
 }
 
 /** Changes the icon set, kept for the next sessions, and draws the footer again with it. */
@@ -2029,6 +2051,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const installing = await read($, isInstalling)
   const bar = await read($, statusLine)
   const iconSet = await read($, icons)
+  const sizeNow = await read($, fontSize)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
   const setupTab = (
     <Box flexDirection="column">
@@ -2120,6 +2143,23 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         {/* The glyphs themselves, whatever the set: they tell whether the terminal's font has them. */}
         <Text color="#b197fc">{'   prueba: \uf0c5 \uf0ea \uf03e \uf130 \uf013 '}</Text>
         {narrow ? null : <Text dimColor>(si ves cuadrados, elegí una Nerd Font en tu terminal)</Text>}
+      </Box>
+      {/* The terminal's own font: a program in a terminal has none, so the terminal's settings are changed. */}
+      <Box flexDirection={narrow ? 'column' : 'row'} marginBottom={1}>
+        <Box width={narrow ? inside : 54} flexShrink={0}>
+          <Text>
+            <Text bold color="#ffa94d">{' Aa  Fuente de la terminal '}</Text>
+            <Text bold color={sizeNow ? '#51cf66' : '#868e96'}>{sizeNow ? `● JetBrains Mono · ${sizeNow} pt` : '○ la de tu terminal'}</Text>
+          </Text>
+        </Box>
+        <Box flexDirection="row" columnGap={1} marginTop={narrow ? 1 : 0} flexShrink={0}>
+          {FONT_SIZES.map(size => (
+            <Button key={`bar:font:${size}`} plain onPress={() => { void setTerminalFont($, size) }}>
+              <Text bold color="black" backgroundColor={sizeNow === size ? '#51cf66' : '#ffa94d'}>{` ${size} `}</Text>
+            </Button>
+          ))}
+        </Box>
+        {narrow ? null : <Text dimColor>{'  JetBrains Mono en toda la terminal, a ese tamaño en puntos'}</Text>}
       </Box>
       <Box flexDirection={isSideBySide ? 'row' : 'column'}>
         <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>
@@ -2553,6 +2593,8 @@ export const register: Register = on => {
     const saved = await loadPicks($)
     await update($, picks, () => saved)
     void loadVoices($)
+    const savedSize = await $.store.get('fontSize')
+    if (typeof savedSize === 'number') await update($, fontSize, () => savedSize)
     isGlyphs = (await $.store.get('icons')) === 'nerd'
     if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
     const savedMic = await $.store.get('mic')

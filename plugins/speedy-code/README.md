@@ -79,6 +79,12 @@ glyphs to tell whether the terminal draws them. The setup installs Symbols Nerd 
 fonts; a terminal whose font is not a Nerd Font, and that does not fall back to the fonts installed,
 needs a Nerd Font picked in its settings.
 
+The same tab sets the terminal's font: **Fuente de la terminal** puts JetBrains Mono (its Nerd Fonts
+build, so the icons are in it) at 11 to 16 points in Windows Terminal, macOS Terminal (while open),
+Ghostty and kitty, by `setup/terminal_font.py`. A program in a terminal has no font of its own: the
+terminal's settings change, and each file keeps a copy as it first was (`.speedy-font.bak`). iTerm2,
+Warp, WezTerm, Alacritty and editors take the font, `JetBrainsMono NFM`, in their own settings.
+
 ## Status line
 
 The line and the footer are both drawn in the middle of the terminal's width.
