@@ -80,10 +80,10 @@ fonts; a terminal whose font is not a Nerd Font, and that does not fall back to 
 needs a Nerd Font picked in its settings.
 
 The same tab sets the terminal's font: **Fuente de la terminal** puts JetBrains Mono (its Nerd Fonts
-build, so the icons are in it) at 11 to 16 points in Windows Terminal, macOS Terminal (while open),
+build, so the icons are in it) at 8 to 16 points in Windows Terminal, macOS Terminal (while open),
 Ghostty and kitty, by `setup/terminal_font.py`. A program in a terminal has no font of its own: the
 terminal's settings change, and each file keeps a copy as it first was (`.speedy-font.bak`). iTerm2,
-Warp, WezTerm, Alacritty and editors take the font, `JetBrainsMono NFM`, in their own settings.
+Warp, WezTerm, Alacritty and editors take the font, `JetBrainsMono NF`, in their own settings.
 
 ## Status line
 

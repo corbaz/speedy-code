@@ -317,7 +317,7 @@ const icons = atom({ plugin: 'speedy-code', key: 'icons' } as const, 'emoji' as 
 /** The size, in points, the terminal's font was last set to from ⚙ → Barra de estado; 0 while it never was. */
 const fontSize = atom({ plugin: 'speedy-code', key: 'fontSize' } as const, 0)
 /** The sizes offered there. */
-const FONT_SIZES = [11, 12, 13, 14, 16] as const
+const FONT_SIZES = [8, 9, 10, 11, 12, 13, 14, 16] as const
 const modelPick = atom({ plugin: 'speedy-code', key: 'modelPick' } as const, '')
 const effortPick = atom({ plugin: 'speedy-code', key: 'effortPick' } as const, '')
 const effort = atom({ plugin: 'speedy-code', key: 'effort' } as const, '')
@@ -2159,7 +2159,6 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
             </Button>
           ))}
         </Box>
-        {narrow ? null : <Text dimColor>{'  JetBrains Mono en toda la terminal, a ese tamaño en puntos'}</Text>}
       </Box>
       <Box flexDirection={isSideBySide ? 'row' : 'column'}>
         <Box flexDirection="column" flexShrink={0} marginRight={isSideBySide ? 4 : 0}>

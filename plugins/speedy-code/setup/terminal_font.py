@@ -9,8 +9,10 @@ A program that runs in a terminal has no font of its own: the letters, their siz
 sharpness are the terminal's. So this changes the terminal's own settings, and the whole of it
 follows: messages, answers, menus and bars.
 
-The font is JetBrainsMono Nerd Font Mono: every letter as wide as any other, round and clear, and
-the icons the Nerd Fonts icon set draws, so no second font is needed for them. Its four styles are
+The font is JetBrainsMono Nerd Font: every letter as wide as any other, round and clear, and the
+icons the Nerd Fonts icon set draws, so no second font is needed for them. Not its Mono build,
+which shrinks each icon into one cell: here an icon is as tall as the letters and spills over the
+cell after it, which the plugin leaves for it. Its four styles are
 taken from the Nerd Fonts release on GitHub (about 7 MB) and kept in the user's own fonts folder,
 which needs no administrator rights. A font already there is left as it is.
 
@@ -46,7 +48,7 @@ import nerd_font  # noqa: E402  pylint: disable=wrong-import-position
 
 URL = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz"
 STYLES = ["Regular", "Bold", "Italic", "BoldItalic"]
-FILES = [f"JetBrainsMonoNerdFontMono-{style}.ttf" for style in STYLES]
+FILES = [f"JetBrainsMonoNerdFont-{style}.ttf" for style in STYLES]
 SIZES = (6, 40)
 
 
@@ -233,7 +235,7 @@ def main() -> int:
     except Exception as error:  # pylint: disable=broad-except
         print(f"no pude instalar JetBrains Mono: {error}")
         return 1
-    face = names.get(16) or names.get(1) or "JetBrainsMono NFM"
+    face = names.get(16) or names.get(1) or "JetBrainsMono NF"
 
     changed, failed = [], []
 
@@ -249,7 +251,7 @@ def main() -> int:
             attempt("Windows Terminal", lambda settings=settings: windows_terminal(settings, face, size))
     if sys.platform == "darwin":
         try:
-            if mac_terminal(names.get(6) or "JetBrainsMonoNFM-Regular", size):
+            if mac_terminal(names.get(6) or "JetBrainsMonoNF-Regular", size):
                 changed.append("Terminal")
         except OSError as error:
             failed.append(f"Terminal ({error})")
