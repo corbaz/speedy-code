@@ -1519,15 +1519,15 @@ const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`
 /**
  * `text` with every emoji and sign replaced by its Nerd Fonts glyph. A terminal draws a glyph wider
  * than its cell, so each one is followed by a cell of its own to spill over: a text with a two-cell
- * emoji keeps its width, one with a one-cell sign grows by a cell. That cell is a no-break space:
- * a terminal paints what a glyph spills in the next cell's color, and Claude Code leaves a plain
+ * emoji keeps its width, one with a one-cell sign grows by a cell. That cell is an en space (U+2002):
+ * Ghostty draws a glyph whole only before a blank, which to it is a space or this one; a terminal paints what a glyph spills in the next cell's color, and Claude Code leaves a plain
  * blank uncolored, which showed the glyph in two colors.
  */
 export function nerdText (text: string) {
   // The close mark is thin and stays in its cell: it takes no cell more, only its color on the blank after it.
   return text
-    .replace(EMOJI, (_found, emoji: string) => emoji === '×' ? NERD_ICONS[emoji] : `${NERD_ICONS[emoji]}\u00a0`)
-    .replace(/\uea76 /g, '\uea76\u00a0')
+    .replace(EMOJI, (_found, emoji: string) => emoji === '×' ? NERD_ICONS[emoji] : `${NERD_ICONS[emoji]}\2002`)
+    .replace(/\uea76 /g, '\uea76\2002')
 }
 
 /** Whether everything is drawn with Nerd Fonts glyphs now: the `icons` atom, at hand where nothing is awaited. */
