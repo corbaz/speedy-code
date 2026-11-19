@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Footer: the permission mode in force beside the voice, with a menu that explains each mode and changes to it. No call tells a mod the mode nor sets it: it is put together from the settings, the mode the line under the prompt names as it is left and what a prompt sent says, and it is changed by pressing shift+tab.
 - Footer: **☰** after + opens the conversations kept for the session's folder, newest first (the name given by `/rename`, else Claude Code's own title, else what was first asked); a click goes back to one, as `/resume`. `hooks/sessions.py` reads them.
 - Footer: the social accounts are one control, **Redes sociales ▾**, whose menu lists them (badge, network, user name); a click opens the profile. The footer no longer holds a button per account.
 - Footer: **+** asks the new conversation's name first, then runs `/clear` and, with a name, `/rename`.

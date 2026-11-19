@@ -18,6 +18,7 @@ From left to right:
 | 🗑️ | Clears the draft |
 | │ *Model* · *effort* ▾ | Opens the model menu (see below); a bar sets it apart from the tools |
 | 🗣 *Voice* · *LANG* ▾ | Opens the voice menu |
+| *Mode* ▾ | The permission mode in force (Manual, Ediciones, Plan, Sin permisos, Auto). Opens the menu that explains what each lets Claude Code do without asking; a click on one changes to it, by pressing shift+tab until it is reached. shift+tab itself works as ever, and Claude Code's own line under the prompt stays |
 | 🗜️ | Runs `/compact`; always shown, whatever the context used |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
