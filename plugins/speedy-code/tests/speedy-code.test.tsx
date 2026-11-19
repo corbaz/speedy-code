@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, NERD_ICONS, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeOfHint, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 const GIT = { stamp: '' }
@@ -157,6 +157,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.startsWith('Start-Process'))) {
       opened.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // A mode of the menu: shift+tab pressed, by PowerShell or by System Events.
+    if (e.argv.some(arg => arg.includes("SendWait('+{TAB}')") || arg.includes('key code 48'))) {
+      pressed.push('shift+tab')
+      return { value: { exitCode: 0, stdout: 'sent\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The send button: PowerShell presses Enter.
     if (e.argv.some(arg => arg.includes("SendWait('{ENTER}')"))) {
@@ -1699,4 +1704,78 @@ test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, 
   const back = await $.ui.mount(FOOTER)
   expect(await label(back, 'speedy:copy')).toBe(' 📋 ')
   await back.unmount()
+})
+
+test('modeOfHint: the mode the line under the prompt names; none while it names none', () => {
+  expect(modeOfHint('bypass permissions on (shift+tab to cycle)')).toBe('bypassPermissions')
+  expect(modeOfHint('auto mode on (shift+tab to cycle)')).toBe('auto')
+  expect(modeOfHint('accept edits on (shift+tab to cycle) · esc to interrupt')).toBe('acceptEdits')
+  expect(modeOfHint('plan mode on (shift+tab to cycle)')).toBe('plan')
+  expect(modeOfHint('manual mode on')).toBe('default')
+  expect(modeOfHint('')).toBe('default')
+  expect(modeOfHint('? for shortcuts')).toBe('default')
+  // Between two modes the line shows its hint alone: no mode is taken from it.
+  expect(modeOfHint('(shift+tab to cycle)')).toBeUndefined()
+  expect(modeOfHint('esc to interrupt')).toBeUndefined()
+})
+
+const hintOf = (hint: string) => ({ plugin: 'speedy-code', component: 'PromptHint', requestId: 'hint', props: { isDraft: false, isWorking: false, hint }, surface: 'terminal' }) as const
+const realWait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+test('the footer names the permission mode in force; its menu explains each one, and a click presses shift+tab until the line names it', { timeoutMs: 30000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  // Before the line is read, the control names no mode.
+  expect((await ui.find({ type: 'Text', in: 'speedy:mode' }))?.text).toBe(' Modo ▾ ')
+  let hint = await $.ui.mount(hintOf('bypass permissions on (shift+tab to cycle)'))
+  // The line is left as Claude Code draws it.
+  expect((await hint.find({ type: 'Text' }))?.text).toBe('modes')
+  await w.clock.advance(300)
+  expect((await ui.find({ type: 'Text', in: 'speedy:mode' }))?.text).toBe(' Sin permisos ▾ ')
+  await ui.post({ isClicked: true }, { in: 'speedy:mode' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Modo de permisos/ }))?.text).toBe(' Modo de permisos ')
+  for (const [id, , , , what] of MODES) {
+    expect(await band.find({ key: `mode-set:${id}` })).toBeDefined()
+    expect((await band.find({ type: 'Text', text: what }))?.text).toBe(`    ${what}`)
+  }
+  // The mode in use: a click on it presses nothing.
+  await band.press({ key: 'mode-set:bypassPermissions' })
+  await realWait(200)
+  expect(w.pressed).toEqual([])
+  // Another one: shift+tab, once for each mode the session passes through.
+  await ui.post({ isClicked: true }, { in: 'speedy:mode' })
+  await band.press({ key: 'mode-set:default' })
+  await realWait(300)
+  expect(w.pressed).toEqual(['shift+tab'])
+  await hint.unmount()
+  hint = await $.ui.mount(hintOf('auto mode on (shift+tab to cycle)'))
+  await realWait(400)
+  expect(w.pressed).toEqual(['shift+tab', 'shift+tab'])
+  await hint.unmount()
+  hint = await $.ui.mount(hintOf('manual mode on'))
+  await realWait(400)
+  expect(w.pressed).toEqual(['shift+tab', 'shift+tab'])
+  await w.clock.advance(300)
+  expect((await ui.find({ type: 'Text', in: 'speedy:mode' }))?.text).toBe(' Manual ▾ ')
+  await hint.unmount()
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('on macOS the mode is cycled by System Events', { timeoutMs: 30000 }, async ($, on) => {
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, { reply: '', sent: [] }, 'mac')
+  const hint = await $.ui.mount(hintOf('manual mode on'))
+  await w.clock.advance(300)
+  await ui.post({ isClicked: true }, { in: 'speedy:mode' })
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'mode-set:acceptEdits' })
+  await realWait(300)
+  await hint.unmount()
+  const next = await $.ui.mount(hintOf('accept edits on (shift+tab to cycle)'))
+  await realWait(300)
+  expect(w.ran).toContainEqual(MAC.cycleMode)
+  expect(w.ran.filter(argv => argv[0] === 'powershell')).toEqual([])
+  await next.unmount()
+  await band.unmount()
+  await ui.unmount()
 })

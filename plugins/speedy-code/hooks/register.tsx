@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, PermissionMode, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -80,6 +80,7 @@ export const MAC = {
     'osascript -e \'on run argv\' -e "set the clipboard to (read (POSIX file (item 1 of argv)) as $kind)" -e \'end run\' "$SPEEDY_IMAGE" >/dev/null &&',
     '  osascript -e \'tell application "System Events" to keystroke "v" using control down\' >/dev/null && echo pasted'
   ].join('\n')],
+  cycleMode: ['osascript', '-e', 'tell application "System Events" to key code 48 using shift down', '-e', 'return "sent"'],
   sendEnter: ['osascript', '-e', 'tell application "System Events" to key code 36', '-e', 'return "sent"'],
   /** Quick Look shows the image; a dot each tenth of a second, as view.ps1 says them, so the mod can end it. */
   view: ['/bin/sh', '-c', [
@@ -281,6 +282,7 @@ const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const,
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
 const sessionRows = atom({ plugin: 'speedy-code', key: 'sessionRows' } as const, [] as SessionRow[])
+const permissionMode = atom({ plugin: 'speedy-code', key: 'permissionMode' } as const, '' as PermissionMode)
 /** The images the mod keeps, newest first, as the 👁 menu lists them. */
 const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as const, [] as PastedImage[])
 /** The image numbers the draft names, in order: a chip each above the prompt. */
@@ -547,6 +549,110 @@ async function openSocial ($: EngineInterface, key: string) {
   const link = socialLink(networkOf(key), (await read($, socials))[key] ?? '')
   if (link) await openLink($, link)
   await closeMenu($, 'socials')
+}
+
+/**
+ * The permission modes shift+tab cycles, in its order: the id, the name, the name short for the footer,
+ * the color, and what the mode lets Claude Code do without asking.
+ */
+export const MODES: ReadonlyArray<readonly [Exclude<PermissionMode, ''>, string, string, string, string]> = [
+  ['default', 'Manual', 'Manual', '#e9ecef', 'Pregunta antes de editar un archivo o de correr un comando: vos aprobás cada acción.'],
+  ['acceptEdits', 'Aceptar ediciones', 'Ediciones', '#b197fc', 'Edita los archivos sin preguntar; los comandos y lo demás siguen pidiendo permiso.'],
+  ['plan', 'Plan', 'Plan', '#38d9a9', 'Solo lee e investiga, y propone un plan: no cambia nada hasta que lo aprobás.'],
+  ['bypassPermissions', 'Sin permisos (YOLO)', 'Sin permisos', '#ff6b6b', 'No pregunta nada: edita y ejecuta todo. Solo para carpetas de confianza.'],
+  ['auto', 'Auto', 'Auto', '#ffd43b', 'No te pregunta: otro modelo revisa cada acción, deja pasar lo seguro y frena lo riesgoso.']
+]
+const MODE_COLOR = '#ffa94d'
+const modeOf = (id: PermissionMode) => MODES.find(([one]) => one === id)
+
+/** The words the line under the prompt names each mode with. */
+const MODE_WORDS: ReadonlyArray<readonly [string, Exclude<PermissionMode, ''>]> = [
+  ['bypass permissions on', 'bypassPermissions'], ['auto mode on', 'auto'], ['accept edits on', 'acceptEdits'],
+  ['plan mode on', 'plan'], ['manual mode on', 'default']
+]
+
+/**
+ * The permission mode the line under the prompt tells, or undefined when it tells none: the line
+ * blinks to its hint alone between two modes, and a mode is not taken from that.
+ */
+export function modeOfHint (hint: string): Exclude<PermissionMode, ''> | undefined {
+  const said = MODE_WORDS.find(([words]) => hint.startsWith(words))
+  if (said) return said[1]
+  // No mode named and nothing else said, or the shortcuts' hint alone: the mode that asks.
+  return hint === '' || hint.startsWith('? for shortcuts') ? 'default' : undefined
+}
+
+/** The mode the line under the prompt last named; empty before it named one. */
+let hintMode: PermissionMode = ''
+/** How often the mode read from the line is handed to the footer. */
+const MODE_FOLLOW_MS = 300
+
+/** Hands the mode read while drawing to the footer and the menu, which draw it from the state. */
+async function followMode ($: EngineInterface) {
+  if (hintMode !== (await read($, permissionMode))) await update($, permissionMode, () => hintMode)
+}
+
+/** The modes' menu: each one with what it lets Claude Code do; a click on one changes to it. */
+async function modeMenu ($: EngineInterface, e: Drawn) {
+  const { Box, Button, Text } = glyphed($.ui.resolve(e))
+  const current = await read($, permissionMode)
+  return (
+    <Box flexDirection="column">
+      {MODES.map(([id, name, , color, what]) => (
+        <Box key={`mode:${id}`} flexDirection="column">
+          <Button key={`mode-set:${id}`} plain onPress={() => { void setMode($, id) }}>
+            <Text>
+              <Text bold color={id === current ? '#51cf66' : '#868e96'}>{id === current ? ' ● ' : ' ○ '}</Text>
+              <Text bold color={color}>{name}</Text>
+              {id === current ? <Text dimColor>{'  (en uso)'}</Text> : null}
+            </Text>
+          </Button>
+          <Text dimColor>{`    ${what}`}</Text>
+        </Box>
+      ))}
+      <Box marginTop={1}>
+        <Text dimColor>{'  shift+tab también lo cambia. Auto y Sin permisos solo están si la sesión los tiene habilitados.'}</Text>
+      </Box>
+    </Box>
+  )
+}
+
+/** Presses shift+tab, as the person would: no mod can set the mode, the key cycles it. */
+async function pressCycle ($: EngineInterface) {
+  const script = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('+{TAB}'); 'sent'"
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-STA', '-Command', script] : MAC.cycleMode
+  const result = await $.process.run(argv).catch(() => undefined)
+  return result?.stdout.trim() === 'sent'
+}
+
+/** How long a press is waited for to show in the line under the prompt, and how often it is looked at. */
+const MODE_WAIT_MS = 2000
+const MODE_LOOK_MS = 100
+
+/**
+ * Changes to a mode: shift+tab pressed until the line under the prompt names it. A session cycles
+ * only the modes it has, so one that comes back to where it began has not got the mode asked.
+ */
+async function setMode ($: EngineInterface, target: Exclude<PermissionMode, ''>) {
+  // The menu closes first: its band holds the keyboard after a click, and the key is for the prompt.
+  await closeMenu($, 'mode')
+  const start = hintMode
+  if (start === target) return
+  for (let presses = 0; presses < MODES.length; presses++) {
+    const before = hintMode
+    if (!(await pressCycle($))) break
+    for (let waited = 0; waited < MODE_WAIT_MS && hintMode === before; waited += MODE_LOOK_MS) {
+      await new Promise(resolve => setTimeout(resolve, MODE_LOOK_MS))
+    }
+    const now = hintMode
+    if (now === target) return
+    if (now === before) break
+    if (now === start) {
+      $.ui.toast(`speedy-code: esta sesión no tiene el modo ${modeOf(target)?.[1] ?? target}.`)
+      return
+    }
+  }
+  $.ui.toast('speedy-code: no pude cambiar el modo; usá shift+tab.')
 }
 
 /** The conversations' control and menu: the color of what was said before. */
@@ -1608,7 +1714,7 @@ async function followModel ($: EngineInterface) {
  */
 const FOOTER_RANKS: Record<string, number> = {
   copy: 0, paste: 0, image: 0, polish: 0, send: 0, clear: 0, model: 0, voice: 0, compact: 0, exit: 0,
-  settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5
+  mode: 1, settings: 1, reload: 2, mic: 3, narrator: 4, socials: 5
 }
 /**
  * The groups always drawn that give way, in this order, when even their short forms do not fit: they
@@ -1862,6 +1968,11 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   const modelShort = ` ${model.split(' ')[0] ?? model} ▾ `
   // No trailing space: the 🗜️ beside it brings its own, so the gap is one cell like the others.
   const voiceText = ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} ▾`
+  // The permission mode in force, as the line under the prompt says it; a click opens its menu.
+  const modeNow = modeOf(await read($, permissionMode))
+  const modeName = modeNow?.[2] ?? 'Modo'
+  const modeColor = modeNow?.[3] ?? '#adb5bd'
+  const modeText = ` ${modeName} ▾ `
   const voiceShort = ` 🗣  ${active.toUpperCase()} ▾`
   // The bar between the tools and the model, as the networks have theirs.
   const bar = <Text dimColor>│</Text>
@@ -1935,6 +2046,13 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       compactNode: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceShort, languageColor(active))}</Box>,
       panel: [control('speedy:voice', ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `, languageColor(active))],
       labels: [cells(` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `)]
+    },
+    {
+      name: 'mode',
+      width: cells(modeText),
+      node: <Box key="group:mode" flexShrink={0}>{control('speedy:mode', modeText, modeColor, true)}</Box>,
+      panel: [control('speedy:mode', ` modo: ${modeName} `, modeColor, true)],
+      labels: [cells(` modo: ${modeName} `)]
     },
     // /compact, always in the footer: at hand whatever the context, as the ⋯ panel has it beside the context.
     namedGroup('compact'),
@@ -2794,6 +2912,8 @@ export const register: Register = on => {
     $.clock.every(1500, () => followImages($))
     // The draft's [Image #N], painted and with a chip each above the prompt: see followDraft.
     if (e.isInteractive) $.clock.every(500, () => followDraft($))
+    // The permission mode the line under the prompt names, handed to the footer: see followMode.
+    $.clock.every(MODE_FOLLOW_MS, () => followMode($))
     await $.command.register({
       name: 'speedy',
       description: 'Lee en voz alta las respuestas · sin argumento: prende o apaga',
@@ -2928,6 +3048,13 @@ export const register: Register = on => {
     )
   })
 
+  // The line under the prompt names the permission mode: it is read from there, and left as it is.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    // Drawing writes no state: the mode is kept here, and followMode hands it to the footer.
+    hintMode = modeOfHint(e.props.hint) ?? hintMode
+    return next(e)
+  })
+
   // A footer control was clicked.
   on('ui.message', async ($, e, next) => {
     const result = await next(e)
@@ -2939,6 +3066,9 @@ export const register: Register = on => {
       await openPicker($)
     } else if (e.element === 'speedy:switch') {
       await setEnabled($, !(await read($, isEnabled)))
+    } else if (e.element === 'speedy:mode') {
+      await closeMenu($, 'more')
+      await openMenu($, 'mode')
     } else if (e.element === 'speedy:sessions') {
       await closeMenu($, 'more')
       await openMenu($, 'sessions')
@@ -3057,8 +3187,8 @@ export const register: Register = on => {
       const inUse = shown === 'models'
         ? [modelLabel((await read($, modelNow)) || (await $.session.model().catch(() => ''))), await read($, effort)].filter(Boolean).join(' · ')
         : ''
-      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : shown === 'socials' ? 'Redes sociales' : shown === 'new' ? '+ Conversación nueva' : shown === 'sessions' ? 'Conversaciones' : 'Configuración'} `
-      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : shown === 'socials' ? SOCIALS_COLOR : shown === 'new' ? NEW_COLOR : shown === 'sessions' ? SESSIONS_COLOR : '#adb5bd'
+      const title = ` ${shown === 'voices' ? voiceTitle(chosen) : shown === 'mic' ? 'Micrófono para dictar' : shown === 'models' ? `Modelo de Claude (${inUse})` : shown === 'more' ? 'Más' : shown === 'history' ? '📎 Audios' : shown === 'images' ? 'Imágenes' : shown === 'socials' ? 'Redes sociales' : shown === 'new' ? '+ Conversación nueva' : shown === 'sessions' ? 'Conversaciones' : shown === 'mode' ? 'Modo de permisos' : 'Configuración'} `
+      const color = shown === 'voices' ? languageColor(chosen.active ?? DEFAULT_LANG) : shown === 'mic' ? MIC_COLORS.on : shown === 'models' ? MODEL_COLOR : shown === 'history' ? '#ffd43b' : shown === 'images' ? '#74c0fc' : shown === 'socials' ? SOCIALS_COLOR : shown === 'new' ? NEW_COLOR : shown === 'sessions' ? SESSIONS_COLOR : shown === 'mode' ? MODE_COLOR : '#adb5bd'
       // A frame around the menu, its title in the middle of the top border and the close button at
       // its right end. Absolute positions are clipped, so the title row comes after the frame in the
       // tree (drawn over it) and column-reverse puts it on top, pulled one row down onto the border:
@@ -3067,7 +3197,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column-reverse" width={width}>
           <Box flexDirection="column" width={width} borderStyle="single" borderColor={color} paddingX={1} paddingTop={1}>
-            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : shown === 'socials' ? await socialsMenu($, e, width) : shown === 'new' ? await newMenu($, e) : shown === 'sessions' ? await sessionsMenu($, e, width) : await settingsMenu($, e, width, e.props.maxRows)}
+            {shown === 'voices' ? await voiceMenu($, e, width, e.props.maxRows) : shown === 'mic' ? await micMenu($, e) : shown === 'models' ? await modelMenu($, e, width) : shown === 'more' ? await moreMenu($, e, width) : shown === 'history' ? await historyMenu($, e, width) : shown === 'images' ? await imagesMenu($, e) : shown === 'socials' ? await socialsMenu($, e, width) : shown === 'new' ? await newMenu($, e) : shown === 'sessions' ? await sessionsMenu($, e, width) : shown === 'mode' ? await modeMenu($, e) : await settingsMenu($, e, width, e.props.maxRows)}
           </Box>
           <Box flexDirection="row" width={width} marginBottom={-1}>
             <Box flexGrow={1} justifyContent="center">
