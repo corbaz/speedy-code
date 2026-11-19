@@ -571,25 +571,69 @@ const MODE_WORDS: ReadonlyArray<readonly [string, Exclude<PermissionMode, ''>]> 
   ['plan mode on', 'plan'], ['manual mode on', 'default']
 ]
 
-/**
- * The permission mode the line under the prompt tells, or undefined when it tells none: the line
- * blinks to its hint alone between two modes, and a mode is not taken from that.
- */
-export function modeOfHint (hint: string): Exclude<PermissionMode, ''> | undefined {
-  const said = MODE_WORDS.find(([words]) => hint.startsWith(words))
-  if (said) return said[1]
-  // No mode named and nothing else said, or the shortcuts' hint alone: the mode that asks.
-  return hint === '' || hint.startsWith('? for shortcuts') ? 'default' : undefined
+/** The mode the line under the prompt names as its first words, if it names one. */
+export function namedMode (hint: string): Exclude<PermissionMode, ''> | undefined {
+  return MODE_WORDS.find(([words]) => hint.startsWith(words))?.[1]
 }
 
-/** The mode the line under the prompt last named; empty before it named one. */
-let hintMode: PermissionMode = ''
-/** How often the mode read from the line is handed to the footer. */
+/**
+ * Where shift+tab goes from a mode. The cycle is manual, accept edits, plan, then no permissions and
+ * auto where the session has them, and manual again. `isCycling`: the line still offers the cycle,
+ * which it does in every mode but manual. `hasBypass`: the session was seen without permissions.
+ */
+export function nextMode (left: Exclude<PermissionMode, ''>, isCycling: boolean, hasBypass: boolean): Exclude<PermissionMode, ''> {
+  if (left === 'default') return 'acceptEdits'
+  if (left === 'acceptEdits') return 'plan'
+  if (!isCycling || left === 'auto') return 'default'
+  return left === 'plan' && hasBypass ? 'bypassPermissions' : 'auto'
+}
+
+/**
+ * What is known of the permission mode. No call tells a mod the mode in force, so it is put together:
+ * the settings say where a session starts, the line under the prompt names the mode it leaves as
+ * shift+tab is pressed, and a prompt sent or an answer ended say it outright.
+ */
+export type ModeKnown = { now: PermissionMode, left?: Exclude<PermissionMode, ''>, start: PermissionMode, hasBypass: boolean }
+
+/** What a line under the prompt adds to what is known of the mode. */
+export function modeAfterHint (known: ModeKnown, hint: string): ModeKnown {
+  const named = namedMode(hint)
+  // The line names the mode only as it is left: the next line tells where it went.
+  if (named) return { ...known, left: named, hasBypass: known.hasBypass || named === 'bypassPermissions' }
+  const isCycling = hint.includes('shift+tab to cycle')
+  if (known.left) return { ...known, left: undefined, now: nextMode(known.left, isCycling, known.hasBypass) }
+  // Nothing said, or the shortcuts alone: the mode that asks.
+  if (hint === '' || hint.startsWith('? for shortcuts')) return { ...known, now: 'default' }
+  // The cycle offered and no mode known: the one the settings start in, when that is not manual.
+  if (isCycling && known.now === '') return { ...known, now: known.start === 'default' ? '' : known.start }
+  // The cycle offered while manual was taken to be in force: it is not, and which one is, is not known.
+  if (isCycling && known.now === 'default') return { ...known, now: '' }
+  return known
+}
+
+/** What is known of the mode in this session. */
+let modeKnown: ModeKnown = { now: '', start: '', hasBypass: false }
+
+/** A mode said outright, by a prompt sent or an answer ended: it stands over what was put together. */
+function modeSaid (mode: unknown) {
+  const said = MODES.find(([id]) => id === mode)?.[0]
+  // A mode with no row here (dontAsk) is in no cycle: not known as one of these.
+  modeKnown = { ...modeKnown, left: undefined, now: said ?? '', hasBypass: modeKnown.hasBypass || said === 'bypassPermissions' }
+}
+
+/** The mode a session starts in, by the settings as Claude Code merges them. */
+async function settingsMode ($: EngineInterface): Promise<PermissionMode> {
+  const settings = await $.settings.read().catch(() => undefined) as { permissions?: { defaultMode?: unknown } } | undefined
+  const mode = settings?.permissions?.defaultMode
+  return MODES.find(([id]) => id === mode)?.[0] ?? (mode === undefined ? 'default' : '')
+}
+
+/** How often the mode put together is handed to the footer. */
 const MODE_FOLLOW_MS = 300
 
-/** Hands the mode read while drawing to the footer and the menu, which draw it from the state. */
+/** Hands the mode known to the footer and the menu, which draw it from the state. */
 async function followMode ($: EngineInterface) {
-  if (hintMode !== (await read($, permissionMode))) await update($, permissionMode, () => hintMode)
+  if (modeKnown.now !== (await read($, permissionMode))) await update($, permissionMode, () => modeKnown.now)
 }
 
 /** The modes' menu: each one with what it lets Claude Code do; a click on one changes to it. */
@@ -636,15 +680,15 @@ const MODE_LOOK_MS = 100
 async function setMode ($: EngineInterface, target: Exclude<PermissionMode, ''>) {
   // The menu closes first: its band holds the keyboard after a click, and the key is for the prompt.
   await closeMenu($, 'mode')
-  const start = hintMode
+  const start = modeKnown.now
   if (start === target) return
   for (let presses = 0; presses < MODES.length; presses++) {
-    const before = hintMode
+    const before = modeKnown.now
     if (!(await pressCycle($))) break
-    for (let waited = 0; waited < MODE_WAIT_MS && hintMode === before; waited += MODE_LOOK_MS) {
+    for (let waited = 0; waited < MODE_WAIT_MS && modeKnown.now === before; waited += MODE_LOOK_MS) {
       await new Promise(resolve => setTimeout(resolve, MODE_LOOK_MS))
     }
-    const now = hintMode
+    const now = modeKnown.now
     if (now === target) return
     if (now === before) break
     if (now === start) {
@@ -2912,7 +2956,9 @@ export const register: Register = on => {
     $.clock.every(1500, () => followImages($))
     // The draft's [Image #N], painted and with a chip each above the prompt: see followDraft.
     if (e.isInteractive) $.clock.every(500, () => followDraft($))
-    // The permission mode the line under the prompt names, handed to the footer: see followMode.
+    // The mode known before a reload stands; a new session starts where the settings say.
+    modeKnown = { ...modeKnown, now: modeKnown.now || (await read($, permissionMode)), start: await settingsMode($) }
+    // The permission mode as it is put together, handed to the footer: see followMode.
     $.clock.every(MODE_FOLLOW_MS, () => followMode($))
     await $.command.register({
       name: 'speedy',
@@ -3048,10 +3094,14 @@ export const register: Register = on => {
     )
   })
 
-  // The line under the prompt names the permission mode: it is read from there, and left as it is.
+  // A prompt sent and an answer ended say the permission mode outright.
+  on('classic.UserPromptSubmit', async (_, e, next) => { modeSaid(e.permission_mode); return next(e) })
+  on('classic.Stop', async (_, e, next) => { modeSaid(e.permission_mode); return next(e) })
+
+  // The line under the prompt names the permission mode as it is left: read there, and left as it is.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    // Drawing writes no state: the mode is kept here, and followMode hands it to the footer.
-    hintMode = modeOfHint(e.props.hint) ?? hintMode
+    // Drawing writes no state: what is known is kept here, and followMode hands it to the footer.
+    modeKnown = modeAfterHint(modeKnown, e.props.hint)
     return next(e)
   })
 

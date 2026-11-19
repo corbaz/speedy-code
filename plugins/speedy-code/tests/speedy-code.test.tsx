@@ -1,10 +1,11 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
+import type { ModeKnown } from '../hooks/register'
 
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeOfHint, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 const GIT = { stamp: '' }
@@ -1706,27 +1707,49 @@ test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, 
   await back.unmount()
 })
 
-test('modeOfHint: the mode the line under the prompt names; none while it names none', () => {
-  expect(modeOfHint('bypass permissions on (shift+tab to cycle)')).toBe('bypassPermissions')
-  expect(modeOfHint('auto mode on (shift+tab to cycle)')).toBe('auto')
-  expect(modeOfHint('accept edits on (shift+tab to cycle) · esc to interrupt')).toBe('acceptEdits')
-  expect(modeOfHint('plan mode on (shift+tab to cycle)')).toBe('plan')
-  expect(modeOfHint('manual mode on')).toBe('default')
-  expect(modeOfHint('')).toBe('default')
-  expect(modeOfHint('? for shortcuts')).toBe('default')
-  // Between two modes the line shows its hint alone: no mode is taken from it.
-  expect(modeOfHint('(shift+tab to cycle)')).toBeUndefined()
-  expect(modeOfHint('esc to interrupt')).toBeUndefined()
+test('nextMode: where shift+tab goes from each mode, by what the line then offers and what the session has', () => {
+  expect(nextMode('default', true, false)).toBe('acceptEdits')
+  expect(nextMode('acceptEdits', true, false)).toBe('plan')
+  expect(nextMode('plan', false, false)).toBe('default')
+  expect(nextMode('plan', true, false)).toBe('auto')
+  expect(nextMode('plan', true, true)).toBe('bypassPermissions')
+  expect(nextMode('bypassPermissions', true, true)).toBe('auto')
+  expect(nextMode('bypassPermissions', false, true)).toBe('default')
+  expect(nextMode('auto', false, true)).toBe('default')
+})
+
+test('modeAfterHint: the line names the mode it leaves, and the next line tells where it went', () => {
+  let known: ModeKnown = { now: '', start: 'bypassPermissions', hasBypass: false }
+  // A session's first line names no mode: the one the settings start in, as the cycle is offered.
+  known = modeAfterHint(known, '(shift+tab to cycle)')
+  expect(known.now).toBe('bypassPermissions')
+  for (const [left, then, now] of [
+    ['bypass permissions on (shift+tab to cycle)', '(shift+tab to cycle)', 'auto'],
+    ['auto mode on (shift+tab to cycle)', '', 'default'],
+    ['manual mode on', '(shift+tab to cycle)', 'acceptEdits'],
+    ['accept edits on (shift+tab to cycle)', '(shift+tab to cycle)', 'plan'],
+    ['plan mode on (shift+tab to cycle)', '(shift+tab to cycle)', 'bypassPermissions']
+  ] as const) {
+    known = modeAfterHint(known, left)
+    known = modeAfterHint(known, then)
+    expect(known.now).toBe(now)
+  }
+  // A line that names none and follows none changes nothing; nothing said at all is the mode that asks.
+  expect(modeAfterHint(known, '(shift+tab to cycle) · esc to interrupt').now).toBe('bypassPermissions')
+  expect(modeAfterHint(known, '').now).toBe('default')
+  expect(modeAfterHint(known, '? for shortcuts').now).toBe('default')
+  // With settings that start in manual, a cycle offered tells only that the mode is another.
+  expect(modeAfterHint({ now: '', start: 'default', hasBypass: false }, '(shift+tab to cycle)').now).toBe('')
+  expect(modeAfterHint({ now: 'default', start: 'default', hasBypass: false }, '(shift+tab to cycle)').now).toBe('')
 })
 
 const hintOf = (hint: string) => ({ plugin: 'speedy-code', component: 'PromptHint', requestId: 'hint', props: { isDraft: false, isWorking: false, hint }, surface: 'terminal' }) as const
 const realWait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-test('the footer names the permission mode in force; its menu explains each one, and a click presses shift+tab until the line names it', { timeoutMs: 30000 }, async ($, on) => {
+test('the footer names the permission mode in force; its menu explains each one, and a click presses shift+tab until the mode is the one asked', { timeoutMs: 30000 }, async ($, on) => {
+  on('settings.read', () => ({ value: { permissions: { defaultMode: 'bypassPermissions' } } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  // Before the line is read, the control names no mode.
-  expect((await ui.find({ type: 'Text', in: 'speedy:mode' }))?.text).toBe(' Modo ▾ ')
-  let hint = await $.ui.mount(hintOf('bypass permissions on (shift+tab to cycle)'))
+  let hint = await $.ui.mount(hintOf('(shift+tab to cycle)'))
   // The line is left as Claude Code draws it.
   expect((await hint.find({ type: 'Text' }))?.text).toBe('modes')
   await w.clock.advance(300)
@@ -1742,17 +1765,18 @@ test('the footer names the permission mode in force; its menu explains each one,
   await band.press({ key: 'mode-set:bypassPermissions' })
   await realWait(200)
   expect(w.pressed).toEqual([])
-  // Another one: shift+tab, once for each mode the session passes through.
+  // Another one: shift+tab, once for each mode the session passes through. The line names the mode left.
+  const shows = async (text: string) => { await hint.unmount(); hint = await $.ui.mount(hintOf(text)) }
   await ui.post({ isClicked: true }, { in: 'speedy:mode' })
   await band.press({ key: 'mode-set:default' })
   await realWait(300)
   expect(w.pressed).toEqual(['shift+tab'])
-  await hint.unmount()
-  hint = await $.ui.mount(hintOf('auto mode on (shift+tab to cycle)'))
+  await shows('bypass permissions on (shift+tab to cycle)')
+  await shows('(shift+tab to cycle)')
   await realWait(400)
   expect(w.pressed).toEqual(['shift+tab', 'shift+tab'])
-  await hint.unmount()
-  hint = await $.ui.mount(hintOf('manual mode on'))
+  await shows('auto mode on (shift+tab to cycle)')
+  await shows('')
   await realWait(400)
   expect(w.pressed).toEqual(['shift+tab', 'shift+tab'])
   await w.clock.advance(300)
@@ -1762,20 +1786,25 @@ test('the footer names the permission mode in force; its menu explains each one,
   await ui.unmount()
 })
 
-test('on macOS the mode is cycled by System Events', { timeoutMs: 30000 }, async ($, on) => {
+test('a prompt sent says the mode outright; on macOS the cycle is pressed by System Events', { timeoutMs: 30000 }, async ($, on) => {
+  on('classic.UserPromptSubmit', (_, e) => ({ value: e }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, { reply: '', sent: [] }, 'mac')
-  const hint = await $.ui.mount(hintOf('manual mode on'))
+  await $.classic.UserPromptSubmit({ hook_event_name: 'UserPromptSubmit', session_id: 's', transcript_path: '', cwd: '/p', prompt: 'hola', permission_mode: 'plan' })
   await w.clock.advance(300)
+  expect((await ui.find({ type: 'Text', in: 'speedy:mode' }))?.text).toBe(' Plan ▾ ')
+  let hint = await $.ui.mount(hintOf('(shift+tab to cycle)'))
   await ui.post({ isClicked: true }, { in: 'speedy:mode' })
   const band = await $.ui.mount(BAND)
-  await band.press({ key: 'mode-set:acceptEdits' })
+  await band.press({ key: 'mode-set:default' })
   await realWait(300)
   await hint.unmount()
-  const next = await $.ui.mount(hintOf('accept edits on (shift+tab to cycle)'))
+  hint = await $.ui.mount(hintOf('plan mode on (shift+tab to cycle)'))
+  await hint.unmount()
+  hint = await $.ui.mount(hintOf(''))
   await realWait(300)
-  expect(w.ran).toContainEqual(MAC.cycleMode)
+  expect(w.ran.filter(argv => argv[0] === 'osascript')).toEqual([MAC.cycleMode])
   expect(w.ran.filter(argv => argv[0] === 'powershell')).toEqual([])
-  await next.unmount()
+  await hint.unmount()
   await band.unmount()
   await ui.unmount()
 })
