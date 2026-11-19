@@ -2,8 +2,8 @@
 
 Usage: switch.py on|off|status
 
-on:     copies statusline.ps1 (Windows) or statusline.py (macOS, run by this same Python) to
-        ~/.claude/speedy-code and points settings.json's `statusLine` at it;
+on:     copies statusline.py to ~/.claude/speedy-code and points settings.json's `statusLine` at it,
+        run by this same Python;
         the status line set before is kept in ~/.claude/speedy-code/statusline-previous.json.
 off:    puts the kept status line back (or removes `statusLine` when there was none).
 status: says whether speedy-code's status line is the one in use.
@@ -19,14 +19,15 @@ import sys
 HOME = os.path.expanduser('~')
 SETTINGS = os.path.join(HOME, '.claude', 'settings.json')
 DATA = os.path.join(HOME, '.claude', 'speedy-code')
-IS_WINDOWS = os.name == 'nt'
-SCRIPT_NAME = 'statusline.ps1' if IS_WINDOWS else 'statusline.py'
+SCRIPT_NAME = 'statusline.py'
 SCRIPT = os.path.join(DATA, SCRIPT_NAME)
 PREVIOUS = os.path.join(DATA, 'statusline-previous.json')
 OURS = {
     'type': 'command',
-    'command': f'powershell -NoProfile -ExecutionPolicy Bypass -File "{SCRIPT}"' if IS_WINDOWS else f'"{sys.executable}" "{SCRIPT}"',
-    'refreshInterval': 1,
+    # Python, on Windows too: PowerShell takes seconds to start on a busy machine, and a line asked for
+    # again before it is drawn never shows. Minutes are what the line tells, so it is asked every few seconds.
+    'command': f'"{sys.executable}" "{SCRIPT}"',
+    'refreshInterval': 5,
 }
 
 

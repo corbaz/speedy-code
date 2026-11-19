@@ -1,11 +1,11 @@
-"""speedy-code's status line on macOS: the same line statusline.ps1 draws on Windows.
+"""speedy-code's status line, on Windows and on macOS.
 
 Folder, branch, version, model, effort, time, tokens, context used, cost and the 5-hour and weekly limits,
 in color. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on
 stdin; switch.py copies it to ~/.claude/speedy-code and points the settings at it with the mod's Python.
 
 Every part has a color of its own, and its label is gray. Context used and limits used are green, yellow
-or red by the levels set in ⚙️ → Barra de estado (levels.json), as on Windows. Times are local.
+or red by the levels set in ⚙️ → Barra de estado (levels.json). Times are local.
 """
 
 import json
@@ -16,6 +16,10 @@ import sys
 from datetime import datetime, timedelta
 
 ESC = "\x1b"
+
+# What follows a glyph, so the terminal draws it whole: Windows Terminal takes a no-break space for it,
+# Ghostty an en space.
+GAP = "\u00a0" if os.name == "nt" else "\u2002"
 
 C_FOLDER = "1;38;5;81"
 C_BRANCH = "38;5;177"
@@ -42,7 +46,7 @@ ANSI = re.compile(ESC + r"\[[0-9;]*m")
 # cell, so each is followed by a en space (U+2002, which Ghostty takes for a blank and so draws the glyph whole) to spill over, in its own color.
 SIGNS = {
     "emoji": {"folder": "", "branch": "⎇", "model": "◆", "time": "⏱ ", "reset": "↻", "warning": "⚠"},
-    "nerd": {"folder": "\uf07b\2002 ", "branch": "\uf126\2002", "model": "\uf2db\2002", "time": "\uf017\2002", "reset": "\uf01e\2002", "warning": "\uf071\2002"},
+    "nerd": {"folder": f"\uf07b{GAP} ", "branch": f"\uf126{GAP}", "model": f"\uf2db{GAP}", "time": f"\uf017{GAP}", "reset": f"\uf01e{GAP}", "warning": f"\uf071{GAP}"},
 }
 
 
