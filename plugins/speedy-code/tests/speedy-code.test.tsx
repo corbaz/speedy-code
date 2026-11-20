@@ -1619,7 +1619,7 @@ test('footerBlank: as many cells after the footer as are left before it; none wi
   expect(footerBlank(undefined, 100)).toBe(0)
 })
 
-test('the footer ends with the version after ✕ and the blank that centers it; a narrow one drops the version first', { timeoutMs: 30000 }, async ($, on) => {
+test('the footer ends with the version after ✕ and the blank that centers it; it keeps its room before the lowest controls, and only a narrow one drops it', { timeoutMs: 30000 }, async ($, on) => {
   GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
   try {
     const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
@@ -1629,7 +1629,12 @@ test('the footer ends with the version after ✕ and the blank that centers it; 
     const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
     expect(blank === undefined).toBe(false)
     await wide.unmount()
-    // Narrow: the controls keep their room, and the version goes before any of them.
+    // Not so wide: the version stays, and the controls ranked lowest go to ⋯.
+    const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
+    expect((await middle.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    expect(await middle.find({ type: 'Text', in: 'speedy:more' }).then(found => found !== undefined, () => false)).toBe(true)
+    await middle.unmount()
+    // Narrow: the controls always drawn keep their room, and the version goes before any of them.
     const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
     expect(await narrow.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
     expect(await narrow.find({ type: 'Text', in: 'speedy:exit' }).then(found => found !== undefined, () => false)).toBe(true)

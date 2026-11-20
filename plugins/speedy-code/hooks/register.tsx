@@ -3088,12 +3088,16 @@ export const register: Register = on => {
     // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
     const modes = e.props.modes.join(' & ')
     const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
-    const { shown, compact } = footerFit(groups, room)
+    // The version keeps its room: the controls ranked lowest go to ⋯ first. Only when even those always
+    // drawn would give way is the version left out.
+    const version = await versionNow($)
+    const kept = version ? footerFit(groups, room - version.length - 2) : undefined
+    const keepsAll = kept !== undefined && groups.every(group => (FOOTER_RANKS[group.name] ?? 9) !== 0 || kept.shown.has(group.name))
+    const { shown, compact } = keepsAll && kept ? kept : footerFit(groups, room)
     hiddenGroups = groups.filter(group => !shown.has(group.name)).map(group => group.name)
     const drawn = (group: (typeof groups)[number]) => compact.has(group.name) && 'compactNode' in group ? group.compactNode : group.node
     // The cells the controls take as drawn, and the version after them while it still fits.
     const taken = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + (compact.has(group.name) && 'compactWidth' in group ? group.compactWidth : group.width), hiddenGroups.length > 0 ? MORE_WIDTH : 0)
-    const version = await versionNow($)
     const versionText = version && taken + version.length + 2 <= room ? ` ${version} ` : ''
     const blank = footerBlank(e.viewport?.columns, taken + versionText.length + (modes ? cells(modes) + 3 : 0))
     return (
