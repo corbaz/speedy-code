@@ -1,7 +1,7 @@
 """speedy-code's status line, on Windows and on macOS.
 
-Folder, branch, version, model, effort, time, tokens, context used, cost and the 5-hour and weekly limits,
-in color. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on
+Folder, branch, version, time, tokens, context used, cost and the 5-hour and weekly limits, in color;
+the model and the effort are the footer's, where a click changes them. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on
 stdin; switch.py copies it to ~/.claude/speedy-code and points the settings at it with the mod's Python.
 
 Every part has a color of its own, and its label is gray. Context used and limits used are green, yellow
@@ -23,7 +23,6 @@ GAP = "\u00a0" if os.name == "nt" else "\u2002"
 
 C_FOLDER = "1;38;5;81"
 C_BRANCH = "38;5;177"
-C_MODEL = "1;38;5;215"
 C_TIME = "38;5;117"
 C_IN = "38;5;79"
 C_OUT = "38;5;211"
@@ -36,7 +35,6 @@ C_DIM = "38;5;240"
 C_GREEN = "38;5;114"
 C_YELLOW = "38;5;221"
 C_RED = "1;38;5;203"
-EFFORT_COLORS = {"low": "38;5;114", "medium": "38;5;149", "high": "38;5;221", "xhigh": "38;5;215", "max": "1;38;5;203"}
 DEFAULT_PRIORITY = ["core", "five_hour", "seven_day", "context", "time", "cost", "tokens", "folder"]
 DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 ANSI = re.compile(ESC + r"\[[0-9;]*m")
@@ -152,9 +150,6 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
     cwd = data.get("cwd") or (data.get("workspace") or {}).get("current_dir") or ""
     if home:
         cwd = cwd.replace(home, "~")
-    model_data = data.get("model")
-    model = (model_data.get("display_name") if isinstance(model_data, dict) else model_data) or ""
-    effort = (data.get("effort") or {}).get("level")
     version = data.get("version")
 
     left = paint(sign["folder"] + cwd, C_FOLDER)
@@ -184,14 +179,12 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
 
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
-    core = (paint(f"v{version}", C_TIME) + " " if version else "") + paint(f"{sign['model']} {model}", C_MODEL)
-    if effort:
-        core += " " + paint("·", C_LABEL) + " " + paint(effort, EFFORT_COLORS.get(effort, C_LABEL))
+    core = paint(f"v{version}", C_TIME) if version else ""
     time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [
         {"rank": rank("folder"), "full": left},
-        {"rank": rank("core"), "full": core},
+        *([{"rank": rank("core"), "full": core}] if core else []),
         {"rank": rank("time"), "full": time},
         {"rank": rank("tokens"), "full": tokens},
         {"rank": rank("context"), "full": context},
