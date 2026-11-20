@@ -7,6 +7,7 @@ Usage: terminal_font.py --size <points> [--family jetbrains|meslo]
        terminal_font.py --size <points> --face <name> --ghostty <config>
        terminal_font.py --size <points> --face <name> --kitty <kitty.conf>
        terminal_font.py --size <points> --face <PostScript name> --iterm <DynamicProfiles folder>
+       terminal_font.py --size <points> --face <name> --editor <settings.json>
 
 A program that runs in a terminal has no font of its own: the letters, their size and their
 sharpness are the terminal's. So this changes the terminal's own settings, and the whole of it
@@ -30,6 +31,8 @@ The terminals it knows, each changed only where it is found:
   Ghostty            `font-family` and `font-size` in its config, made if it has none; it reads
                      the config again on Cmd+Shift+, which on macOS is pressed for it
   kitty              `font_family` and `font_size` in kitty.conf
+  VS Code, Kiro,     `terminal.integrated.fontFamily` and `fontSize` in the editor's settings.json,
+  Cursor, Windsurf   when this runs in its terminal: then only that editor changes
   iTerm2             a profile of its own, `speedy-code`, in its DynamicProfiles folder, which it
                      reads again by itself; it takes the rest from the default profile. The tab
                      this runs in is put on it; for new ones, set it as the default once
@@ -198,6 +201,65 @@ def kitty(path: str, face: str, size: int) -> bool:
     return line_config(path, {"font_family": face, "font_size": f"{size}.0"}, "{key} {value}")
 
 
+# The editors whose terminal takes its font from their own settings.json, by their settings folder's name:
+# a terminal inside one of them does not use the system terminal's font.
+EDITORS = {"Code": "VS Code", "Code - Insiders": "VS Code Insiders", "Kiro": "Kiro", "Cursor": "Cursor",
+           "Windsurf": "Windsurf", "VSCodium": "VSCodium"}
+# What each one's own paths carry (its program's folder or app), to tell which one this runs in.
+EDITOR_MARKS = {"Code": ("Microsoft VS Code", "Visual Studio Code.app"), "Code - Insiders": ("Insiders",),
+                "Kiro": ("Kiro",), "Cursor": ("Cursor",), "Windsurf": ("Windsurf",), "VSCodium": ("VSCodium",)}
+
+
+def editor_settings(path: str, face: str, size: int) -> bool:
+    """Sets `terminal.integrated.fontFamily` and `fontSize` in an editor's settings.json, which may hold
+    comments: each value is put in place of the one it had, or added first; the rest is left as it is."""
+    try:
+        with open(path, encoding="utf-8") as source:
+            before = source.read()
+    except FileNotFoundError:
+        before = "{}\n"
+    after = before
+    values = {"terminal.integrated.fontFamily": json.dumps(f"'{face}'"), "terminal.integrated.fontSize": str(size)}
+    for key, value in values.items():
+        found = re.compile(r'("' + re.escape(key) + r'"\s*:\s*)("(?:[^"\\]|\\.)*"|[0-9.]+)')
+        if found.search(after):
+            after = found.sub(lambda match, value=value: match.group(1) + value, after, count=1)
+        else:
+            start = after.index("{") + 1
+            rest = after[start:].lstrip()
+            comma = "" if rest.startswith("}") else ","
+            after = after[:start] + f'\n  "{key}": {value}{comma}' + after[start:]
+    if after == before:
+        return False
+    keep_copy(path)
+    write_whole(path, after)
+    return True
+
+
+def editors_here(base: str) -> list:
+    """The editors' settings files to change when this runs in an editor's terminal, as (name, path); None
+    when it does not. The one this runs in when its paths tell, else every one found."""
+    is_editor = os.environ.get("TERM_PROGRAM", "").lower() in ("vscode", "kiro", "cursor", "windsurf") or any(
+        key.startswith("VSCODE_") for key in os.environ)
+    if not is_editor:
+        return None
+    found = [(name, os.path.join(base, folder, "User", "settings.json")) for folder, name in EDITORS.items()
+             if os.path.isdir(os.path.join(base, folder, "User"))]
+    told = " ".join(value for key, value in os.environ.items() if key.startswith(("VSCODE_", "__CF", "TERM_PROGRAM")))
+    mine = [(name, path) for folder, name in EDITORS.items() for one, path in found
+            if one == name and any(mark.lower() in told.lower() for mark in EDITOR_MARKS[folder])]
+    return mine or found
+
+
+def editors_base() -> str:
+    """Where the editors keep their settings: the app data on Windows, Application Support on macOS."""
+    if sys.platform == "win32":
+        return os.environ.get("APPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Roaming"))
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+
+
 # The macOS terminals by the TERM_PROGRAM they set, as this script names them (and as System Events does).
 MAC_TERMINALS = {"Apple_Terminal": "Terminal", "iTerm.app": "iTerm2", "ghostty": "Ghostty"}
 
@@ -270,23 +332,28 @@ function run(argv) {
   const room = screen.visibleFrame;
   const top = whole.size.height - (room.origin.y + room.size.height);
   const window = Application('System Events').processes.byName(argv[0]).windows[0];
-  window.position = [room.origin.x, top];
-  window.size = [room.size.width, room.size.height];
+  for (let turn = 0; turn < 6; turn++) {
+    delay(0.5);
+    window.position = [room.origin.x, top];
+    window.size = [room.size.width, room.size.height];
+  }
   return 'ok';
 }
 """
 
 
 def fill_screen(process: str) -> bool:
-    """A terminal that keeps its rows and columns shrinks its window with a smaller font: the window is
-    made to fill the screen again. Needs System Events, as the plugin's keys do; says whether it could."""
+    """A terminal that keeps its rows and columns shrinks its window with a smaller font and widens it past
+    the screen with a larger one: the window is made to fill the screen again, a few times over three
+    seconds, as the terminal resizes it a moment after the change. In the background, so this returns at
+    once. Needs System Events, as the plugin's keys do."""
     if sys.platform != "darwin":
         return False
     try:
-        time.sleep(0.6)
-        done = subprocess.run(["osascript", "-l", "JavaScript", "-e", FILL_SCRIPT, process], capture_output=True, text=True, check=False, timeout=10)
-        return done.stdout.strip() == "ok"
-    except (OSError, subprocess.SubprocessError):
+        subprocess.Popen(["osascript", "-l", "JavaScript", "-e", FILL_SCRIPT, process],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return True
+    except OSError:
         return False
 
 
@@ -359,6 +426,27 @@ def install(family: str, folder: str) -> bool:
     return True
 
 
+def report(face: str, size: int, changed: list, failed: list, is_new: bool, here: str) -> int:
+    """Prints the one line: the font, the size, the terminals changed and what is left to do."""
+    said = f"{face}, {size} pt"
+    said += f": {', '.join(dict.fromkeys(changed))}" if changed else f": no encontré una terminal que sepa cambiar; elegí '{face}' en la tuya"
+    if "Ghostty" in changed:
+        reload_ghostty()
+        said += " (Ghostty: si no cambió, Cmd+Shift+, o reiniciarlo)"
+    if "iTerm2" in changed:
+        said += " (iTerm2: esta pestaña pasa al perfil speedy-code" if iterm_switch() else " (iTerm2: elegí el perfil speedy-code"
+        said += "; para las nuevas, Settings → Profiles → speedy-code → Other Actions → Set as Default)"
+    # The window the change shrank fills the screen again: the one this runs in.
+    if here in ("Terminal", "iTerm2") and here in changed:
+        fill_screen(here)
+    if is_new and changed:
+        said += " (fuente recién instalada: si la terminal no la encuentra, cerrala y abrila)"
+    if failed:
+        said += f"; no pude con {', '.join(failed)}"
+    print(said)
+    return 0
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     folder = option("--folder") or nerd_font.fonts_folder()
@@ -387,7 +475,8 @@ def main() -> int:
         print(f"el tamaño va de {SIZES[0]} a {SIZES[1]} puntos")
         return 1
     # One file given: that one alone, with the face named, and nothing fetched.
-    for flag, apply in (("--windows-terminal", windows_terminal), ("--ghostty", ghostty), ("--kitty", kitty), ("--iterm", iterm)):
+    for flag, apply in (("--windows-terminal", windows_terminal), ("--ghostty", ghostty), ("--kitty", kitty), ("--iterm", iterm),
+                        ("--editor", editor_settings)):
         if option(flag):
             try:
                 print("cambiada" if apply(option(flag), option("--face"), size) else "ya estaba")
@@ -416,6 +505,12 @@ def main() -> int:
         except (OSError, ValueError) as error:
             failed.append(f"{name} ({error})")
 
+    # In an editor's terminal (VS Code, Kiro, Cursor...) the font is the editor's: only it changes.
+    editors = editors_here(editors_base())
+    for name, path in editors or []:
+        attempt(name, lambda path=path: editor_settings(path, face, size))
+    if editors is not None:
+        return report(face, size, changed, failed, is_new, "")
     if sys.platform == "win32":
         for settings in nerd_font.terminal_settings():
             attempt("Windows Terminal", lambda settings=settings: windows_terminal(settings, face, size))
@@ -436,23 +531,7 @@ def main() -> int:
     if profiles and here in ("", "iTerm2"):
         attempt("iTerm2", lambda: iterm(profiles, postscript, size))
 
-    said = f"{face}, {size} pt"
-    said += f": {', '.join(dict.fromkeys(changed))}" if changed else f": no encontré una terminal que sepa cambiar; elegí '{face}' en la tuya"
-    if "Ghostty" in changed:
-        reload_ghostty()
-        said += " (Ghostty: si no cambió, Cmd+Shift+, o reiniciarlo)"
-    if "iTerm2" in changed:
-        said += " (iTerm2: esta pestaña pasa al perfil speedy-code" if iterm_switch() else " (iTerm2: elegí el perfil speedy-code"
-        said += "; para las nuevas, Settings → Profiles → speedy-code → Other Actions → Set as Default)"
-    # The window the change shrank fills the screen again: the one this runs in.
-    if here in ("Terminal", "iTerm2") and here in changed:
-        fill_screen(here)
-    if is_new and changed:
-        said += " (fuente recién instalada: si la terminal no la encuentra, cerrala y abrila)"
-    if failed:
-        said += f"; no pude con {', '.join(failed)}"
-    print(said)
-    return 0
+    return report(face, size, changed, failed, is_new, here)
 
 
 if __name__ == "__main__":
