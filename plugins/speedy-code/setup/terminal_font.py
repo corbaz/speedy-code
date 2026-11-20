@@ -6,6 +6,7 @@ Usage: terminal_font.py --size <points> [--family jetbrains|meslo]
        terminal_font.py --size <points> --face <name> --windows-terminal <settings.json>
        terminal_font.py --size <points> --face <name> --ghostty <config>
        terminal_font.py --size <points> --face <name> --kitty <kitty.conf>
+       terminal_font.py --size <points> --face <PostScript name> --iterm <DynamicProfiles folder>
 
 A program that runs in a terminal has no font of its own: the letters, their size and their
 sharpness are the terminal's. So this changes the terminal's own settings, and the whole of it
@@ -29,13 +30,16 @@ The terminals it knows, each changed only where it is found:
   Ghostty            `font-family` and `font-size` in its config, made if it has none; it reads
                      the config again on Cmd+Shift+, which on macOS is pressed for it
   kitty              `font_family` and `font_size` in kitty.conf
+  iTerm2             a profile of its own, `speedy-code`, in its DynamicProfiles folder, which it
+                     reads again by itself; it takes the rest from the default profile. The tab
+                     this runs in is put on it; for new ones, set it as the default once
 A file changed keeps a copy as it was before the first change, beside it: `<file>.speedy-font.bak`.
-Any other terminal (iTerm2, Warp, WezTerm, Alacritty, an editor's) takes the font in its own
+Any other terminal (Warp, WezTerm, Alacritty, an editor's) takes the font in its own
 settings: its name is printed.
 
 Prints one line: the font, the size and the terminals changed. Exits 1, with the reason, when the
 font cannot be fetched or written, or the size is not between 6 and 40. The last three forms change
-the one file given and fetch nothing: they are how the tests run it.
+the one file (or folder) given and fetch nothing: they are how the tests run it.
 """
 
 import io
@@ -191,6 +195,65 @@ def kitty(path: str, face: str, size: int) -> bool:
     return line_config(path, {"font_family": face, "font_size": f"{size}.0"}, "{key} {value}")
 
 
+ITERM_PROFILE = "speedy-code"
+ITERM_FILE = "speedy-code.json"
+
+
+def iterm(folder: str, postscript: str, size: int) -> bool:
+    """Writes iTerm2's `speedy-code` profile with the font: iTerm2 reads its DynamicProfiles folder again
+    as soon as it changes, and the tabs on that profile follow. Says whether it changed."""
+    font = f"{postscript} {size}"
+    profile = {
+        "Name": ITERM_PROFILE,
+        "Guid": "speedy-code-font-profile",
+        "Normal Font": font,
+        "Non Ascii Font": font,
+    }
+    path = os.path.join(folder, ITERM_FILE)
+    after = json.dumps({"Profiles": [profile]}, indent=2, ensure_ascii=False) + "\n"
+    try:
+        with open(path, encoding="utf-8") as source:
+            if source.read() == after:
+                return False
+    except FileNotFoundError:
+        pass
+    os.makedirs(folder, exist_ok=True)
+    write_whole(path, after)
+    return True
+
+
+def iterm_folder(home: str) -> str:
+    """iTerm2's folder of dynamic profiles, where it is installed or running; empty where it is not."""
+    if sys.platform != "darwin":
+        return ""
+    if os.environ.get("TERM_PROGRAM") != "iTerm.app" and not os.path.isdir("/Applications/iTerm.app"):
+        return ""
+    return os.path.join(home, "Library", "Application Support", "iTerm2", "DynamicProfiles")
+
+
+def iterm_switch() -> bool:
+    """Puts the tab this runs under on the `speedy-code` profile: iTerm2 takes OSC 1337 SetProfile from
+    what is written to its terminal. The terminal is the first one up the line of processes."""
+    if os.environ.get("TERM_PROGRAM") != "iTerm.app":
+        return False
+    pid = os.getpid()
+    for _ in range(12):
+        asked = subprocess.run(["ps", "-o", "ppid=,tty=", "-p", str(pid)], capture_output=True, text=True, check=False)
+        found = asked.stdout.split()
+        if len(found) < 2:
+            return False
+        parent, tty = found[0], found[1]
+        if tty not in ("??", "-"):
+            try:
+                with open(f"/dev/{tty}", "w", encoding="utf-8") as terminal:
+                    terminal.write(f"\033]1337;SetProfile={ITERM_PROFILE}\a")
+                return True
+            except OSError:
+                return False
+        pid = int(parent)
+    return False
+
+
 def mac_terminal(postscript: str, size: int) -> bool:
     """Sets the font of Terminal's default and startup profiles. Only while it is open: asking would open it."""
     if subprocess.run(["pgrep", "-x", "Terminal"], capture_output=True, check=False).returncode != 0:
@@ -283,7 +346,7 @@ def main() -> int:
         print(f"el tamaño va de {SIZES[0]} a {SIZES[1]} puntos")
         return 1
     # One file given: that one alone, with the face named, and nothing fetched.
-    for flag, apply in (("--windows-terminal", windows_terminal), ("--ghostty", ghostty), ("--kitty", kitty)):
+    for flag, apply in (("--windows-terminal", windows_terminal), ("--ghostty", ghostty), ("--kitty", kitty), ("--iterm", iterm)):
         if option(flag):
             try:
                 print("cambiada" if apply(option(flag), option("--face"), size) else "ya estaba")
@@ -323,12 +386,18 @@ def main() -> int:
             failed.append(f"Terminal ({error})")
     for name, apply, path in config_files(os.path.expanduser("~")):
         attempt(name, lambda apply=apply, path=path: apply(path, face, size))
+    profiles = iterm_folder(os.path.expanduser("~"))
+    if profiles:
+        attempt("iTerm2", lambda: iterm(profiles, names.get(6) or FAMILIES[family][4], size))
 
     said = f"{face}, {size} pt"
     said += f": {', '.join(dict.fromkeys(changed))}" if changed else f": no encontré una terminal que sepa cambiar; elegí '{face}' en la tuya"
     if "Ghostty" in changed:
         reload_ghostty()
         said += " (Ghostty: si no cambió, Cmd+Shift+, o reiniciarlo)"
+    if "iTerm2" in changed:
+        said += " (iTerm2: esta pestaña pasa al perfil speedy-code" if iterm_switch() else " (iTerm2: elegí el perfil speedy-code"
+        said += "; para las nuevas, Settings → Profiles → speedy-code → Other Actions → Set as Default)"
     if is_new and changed:
         said += " (fuente recién instalada: si la terminal no la encuentra, cerrala y abrila)"
     if failed:

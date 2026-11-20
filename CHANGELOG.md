@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Status line: no model nor effort, which the footer shows and changes.
+- Footer: the 📎, 👁 and ☰ menus open at once and fill as what they list is read; they waited for PowerShell or Python, seconds on a busy Windows machine. The narrations kept are read from their folder with no program run.
+- Terminal font: iTerm2, by a dynamic profile of its own (`speedy-code`) the tab is put on.
 - Status line: drawn by `statusline.py` on Windows too, asked for every 5 seconds. The PowerShell script took seconds to start on a busy machine and was asked for every second, so with a few sessions open the line never showed. On macOS the glyphs' gap was written as an octal escape and printed a stray `2`: it is the en space meant.
 - Footer: the permission mode in force beside the voice, with a menu that explains each mode and changes to it. No call tells a mod the mode nor sets it: it is put together from the settings, the mode the line under the prompt names as it is left and what a prompt sent says, and it is changed by pressing shift+tab.
 - Footer: **☰** after + opens the conversations kept for the session's folder, newest first (the name given by `/rename`, else Claude Code's own title, else what was first asked); a click goes back to one, as `/resume`. `hooks/sessions.py` reads them.
