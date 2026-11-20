@@ -2961,6 +2961,8 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive
+    // A reload starts the session again: the version is asked of git again, so a pull shows at once.
+    versionKnown = undefined
     // A session starts with no dictation under way: a state left from before a reload is cleared here.
     if (!listenFile) {
       await update($, listening, () => 'off')
