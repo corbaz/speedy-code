@@ -179,12 +179,12 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
 
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
-    core = paint(f"v{version}", C_TIME) if version else ""
+    # The version closes the line, named: claude:v2.1.329.
+    core = paint("claude:", C_LABEL) + paint(f"v{version}", C_TIME) if version else ""
     time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [
         {"rank": rank("folder"), "full": left},
-        *([{"rank": rank("core"), "full": core}] if core else []),
         {"rank": rank("time"), "full": time},
         {"rank": rank("tokens"), "full": tokens},
         {"rank": rank("context"), "full": context},
@@ -201,6 +201,9 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
             if limit_used >= levels["limitRed"]:
                 short += " " + paint(sign["warning"], C_RED) + " "
             parts.append({"rank": rank(key), "full": short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL), "short": short})
+
+    if core:
+        parts.append({"rank": rank("core"), "full": core})
 
     # The parts in rank order, each in its short form, until one does not fit; then the limits get their
     # reset time back with the room left. The first by priority always goes. Nothing is cut with "…".
