@@ -88,6 +88,8 @@ terminal's settings change, and each file keeps a copy as it first was (`.speedy
 Warp, WezTerm, Alacritty and editors take the font, `JetBrainsMono NF` or `MesloLGS Nerd Font`, in
 their own settings. The setup installs both, and ⚙️ → Instalación says whether they are there.
 
+In VS Code (and its forks) the window's zoom must be a whole level (`window.zoomLevel` 0, 1, 2…): at a fractional one the terminal places the clicks in the wrong cells, and the footer's controls do not answer or answer for their neighbor. A terminal opened before the zoom changed keeps the old measures: open a new one.
+
 ## Status line
 
 The line and the footer are both drawn in the middle of the terminal's width.

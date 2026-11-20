@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Docs: in VS Code the window's zoom must be a whole level, or the footer's clicks land on the wrong cells.
 - Status line: the version closes the line, named (`claude:v2.1.329`).
 - Terminal font: in an editor's terminal (VS Code, Kiro, Cursor, Windsurf) the editor's `terminal.integrated.fontFamily` and `fontSize` are set, and nothing else; there the Nerd Fonts glyphs showed as squares. Terminal's and iTerm2's window fills the screen again over three seconds, larger font or smaller.
 - Terminal font on macOS: only the terminal the session runs in is changed (Terminal, iTerm2 or Ghostty, by TERM_PROGRAM), and Terminal's open tabs too; Terminal's and iTerm2's window, shrunk by a smaller font, fills the screen again.
