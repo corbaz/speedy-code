@@ -9,6 +9,8 @@ import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accou
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 const GIT = { stamp: '' }
+/** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
+const SESSIONS = { rows: '', gate: Promise.resolve() }
 
 const PANE = {
   plugin: 'speedy-code',
@@ -144,8 +146,12 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   })
   on('ui.log', () => ({ value: undefined }))
   // edge-tts lists the voices of VOICES; PowerShell answers the clipboard.
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
     ran.push([...e.argv])
+    if (e.argv.some(arg => arg.endsWith('sessions.py'))) {
+      await SESSIONS.gate
+      return { value: { exitCode: 0, stdout: SESSIONS.rows, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     // macOS: pbpaste answers the clipboard; System Events presses the keys.
     // git says when the clone's last commit was made: the footer's version.
     if (e.argv[0] === 'git') return { value: { exitCode: GIT.stamp ? 0 : 1, stdout: GIT.stamp ? `${GIT.stamp}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1805,6 +1811,43 @@ test('a prompt sent says the mode outright; on macOS the cycle is pressed by Sys
   expect(w.ran.filter(argv => argv[0] === 'osascript')).toEqual([MAC.cycleMode])
   expect(w.ran.filter(argv => argv[0] === 'powershell')).toEqual([])
   await hint.unmount()
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('the conversations menu opens at once, says it is reading them, and lists them as sessions.py answers', { timeoutMs: 30000 }, async ($, on) => {
+  let answer = () => {}
+  SESSIONS.gate = new Promise<void>(resolve => { answer = resolve })
+  SESSIONS.rows = `${JSON.stringify({ id: 'a1', title: 'Facturas', updated: 1763560000 })}\n`
+  on('session.cwd', () => ({ value: 'C:/proyectos/facturas' }))
+  const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:sessions' })
+  const band = await $.ui.mount(BAND)
+  expect((await band.find({ type: 'Text', text: /Leyendo/ }))?.text).toBe('  Leyendo las conversaciones…')
+  answer()
+  await realWait(200)
+  expect(await band.find({ key: 'session-open:a1' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Leyendo/ })).toBeUndefined()
+  SESSIONS.gate = Promise.resolve()
+  SESSIONS.rows = ''
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('the 📎 menu lists the narrations kept from their folder, newest first by the moment in their names, with no program run', { timeoutMs: 30000 }, async ($, on) => {
+  on('fs.list', (_, e) => ({ value: e.path.replace(/\\/g, '/').endsWith('speedy-code/audio') ? [
+    { name: 'Viejo-26-11-01_09-00-00.mp3', kind: 'file', size: 1 },
+    { name: 'Nuevo-26-11-19_20-30-00.mp3', kind: 'file', size: 1 },
+    { name: 'Nuevo-26-11-19_20-30-00.txt', kind: 'file', size: 1 },
+    { name: 'Medio-26-11-10_12-00-00.mp3', kind: 'file', size: 1 }
+  ] : [] }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, isEnabled: true })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  const band = await $.ui.mount(BAND)
+  const rows = []
+  for (const name of ['Nuevo', 'Medio', 'Viejo']) rows.push((await band.find({ type: 'Text', text: new RegExp(`^ ?${name}`) }))?.text?.trim().split(' ')[0])
+  expect(rows).toEqual(['Nuevo', 'Medio', 'Viejo'])
+  expect(w.ran.filter(argv => argv.join(' ').includes('*.mp3'))).toEqual([])
   await band.unmount()
   await ui.unmount()
 })

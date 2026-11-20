@@ -55,7 +55,6 @@ export const MAC = {
   clipboardRead: ['pbpaste'],
   clipboardWrite: (text: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to item 1 of argv', '-e', 'end run', text],
   open: (link: string) => ['open', link],
-  listClips: (count: number) => ['/bin/sh', '-c', `ls -t "$SPEEDY_HISTORY"/*.mp3 2>/dev/null | head -n ${count}`],
   clearClips: ['/bin/sh', '-c', 'rm -f "$SPEEDY_HISTORY"/*.mp3 "$SPEEDY_HISTORY"/*.txt'],
   clearImages: ['/bin/sh', '-c', 'find "$SPEEDY_DIR" -maxdepth 1 -type f -delete 2>/dev/null; true'],
   /** As Windows keeps them: a copy whose bytes are already kept is skipped, and the newest SPEEDY_KEEP by name stay. */
@@ -282,6 +281,7 @@ const isPolishing = atom({ plugin: 'speedy-code', key: 'isPolishing' } as const,
 const menu = atom({ plugin: 'speedy-code', key: 'menu' } as const, '' as Menu)
 const clips = atom({ plugin: 'speedy-code', key: 'clips' } as const, [] as HistoryClip[])
 const sessionRows = atom({ plugin: 'speedy-code', key: 'sessionRows' } as const, [] as SessionRow[])
+const isLoadingSessions = atom({ plugin: 'speedy-code', key: 'isLoadingSessions' } as const, false)
 const permissionMode = atom({ plugin: 'speedy-code', key: 'permissionMode' } as const, '' as PermissionMode)
 /** The images the mod keeps, newest first, as the 👁 menu lists them. */
 const pastedImages = atom({ plugin: 'speedy-code', key: 'pastedImages' } as const, [] as PastedImage[])
@@ -486,16 +486,25 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     const found = await listClips($)
     await update($, clips, () => found)
   }
-  // The images too, kept and read as the menu opens: one pasted a moment ago is listed.
+  // The images too: the copies kept are listed at once, and one pasted a moment ago is copied after
+  // the menu is open, by PowerShell on Windows, slow to start: the menu shows it as it comes.
   if (which === 'images') {
-    await keepImages($)
-    const found = await ourImages($)
-    await update($, pastedImages, () => found)
+    const kept = await ourImages($)
+    await update($, pastedImages, () => kept)
+    void keepImages($).then(async () => {
+      const found = await ourImages($)
+      await update($, pastedImages, () => found)
+    }).catch(() => {})
   }
-  // The conversations kept, read as the menu opens: one just left is listed.
+  // The conversations kept, read by Python after the menu is open: it says so while they are read.
   if (which === 'sessions') {
-    const found = await listSessions($)
-    await update($, sessionRows, () => found)
+    await update($, isLoadingSessions, () => true)
+    // The folder is read here, in the click's own hook: the list is read after it has returned.
+    const folder = await $.session.cwd().catch(() => '')
+    void listSessions($, folder).catch(() => [] as SessionRow[]).then(async found => {
+      await update($, sessionRows, () => found)
+      await update($, isLoadingSessions, () => false)
+    })
   }
   if (which === 'new') {
     newName = ''
@@ -703,8 +712,7 @@ async function setMode ($: EngineInterface, target: Exclude<PermissionMode, ''>)
 const SESSIONS_COLOR = '#63e6be'
 
 /** The conversations Claude Code keeps for this session's folder, newest first: sessions.py reads them. */
-async function listSessions ($: EngineInterface): Promise<SessionRow[]> {
-  const folder = await $.session.cwd().catch(() => '')
+async function listSessions ($: EngineInterface, folder: string): Promise<SessionRow[]> {
   if (!folder) return []
   const result = await $.process.run([await python($), `${$.plugin.root}/hooks/sessions.py`, folder], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   if (result?.exitCode !== 0) return []
@@ -729,6 +737,7 @@ export function sessionStamp (seconds: number) {
 async function sessionsMenu ($: EngineInterface, e: Drawn, width = 90) {
   const { Box, Button, Text } = glyphed($.ui.resolve(e))
   const list = await read($, sessionRows)
+  if (list.length === 0 && await read($, isLoadingSessions)) return <Text dimColor>{'  Leyendo las conversaciones…'}</Text>
   if (list.length === 0) return <Text dimColor>{'  No hay conversaciones guardadas de esta carpeta (o falta instalar: ⚙️ → Instalación).'}</Text>
   const current = await $.session.id().catch(() => '')
   // The title takes the room left after the mark and the stamp, so every stamp starts in one column.
@@ -945,11 +954,17 @@ async function setEnabled ($: EngineInterface, value: boolean) {
   return value
 }
 
-/** What to read from the clip button: the text selected with the mouse, else the clipboard's. */
-async function selectedText ($: EngineInterface) {
+/** The clipboard's text while it is still being read for the 📎 menu: its first row waits for it. */
+let pendingRead: Promise<void> | undefined
+
+/**
+ * What 📎 reads: the text selected with the mouse, taken at once, before the menu opens and the
+ * selection goes; else the clipboard's, read after, as PowerShell is slow to start on Windows.
+ */
+async function takeSelection ($: EngineInterface) {
   const selection = await $.ui.selection().catch(() => undefined)
-  if (selection?.text.trim()) return selection.text.trim()
-  return clipboardText($)
+  pendingSelection = selection?.text.trim() ?? ''
+  pendingRead = pendingSelection ? undefined : clipboardText($).then(text => { pendingSelection = text })
 }
 
 /** The clipboard's text, as Windows holds it: the clip reads it, the paste button puts it in the prompt. */
@@ -989,18 +1004,18 @@ async function historyDir ($: EngineInterface) {
   return appDataDir($, HISTORY_DIR)
 }
 
-/** The newest narrations kept, newest first, as the folder holds them now. */
+/**
+ * The newest narrations kept, newest first, as the folder holds them now: by the moment each one's
+ * name carries. Read with no program started, so the 📎 menu opens at once: PowerShell takes seconds
+ * to start on a busy machine, and the menu waited for it.
+ */
 async function listClips ($: EngineInterface): Promise<HistoryClip[]> {
-  const result = await $.process.run(
-    (await osNow($)) === 'windows'
-      // UTF-8 out, so names with accents read as they are; the console's code page would turn them into ♦.
-      ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-ChildItem -LiteralPath $env:SPEEDY_HISTORY -Filter *.mp3 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First ${HISTORY_LENGTH} -ExpandProperty FullName`]
-      : MAC.listClips(HISTORY_LENGTH),
-    { env: { SPEEDY_HISTORY: await historyDir($) } }
-  ).catch(() => undefined)
-  if (!result || result.exitCode !== 0) return []
-  return result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-    .map(path => ({ path, name: path.split(/[\\/]/).pop()?.replace(/\.mp3$/i, '') ?? path }))
+  const dir = await historyDir($)
+  return (await $.fs.list(dir).catch(() => []))
+    .filter(entry => entry.kind === 'file' && /\.mp3$/i.test(entry.name))
+    .map(entry => ({ path: `${dir}/${entry.name}`, name: entry.name.replace(/\.mp3$/i, '') }))
+    .sort((a, b) => historySplit(b.name).stamp.localeCompare(historySplit(a.name).stamp) || b.name.localeCompare(a.name))
+    .slice(0, HISTORY_LENGTH)
 }
 
 /** Deletes every narration kept, from the disk, and empties the menu's list. */
@@ -1053,6 +1068,7 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
 
 /** The first row of the 📎 menu: reads the selection taken when 📎 was pressed, else says there is none. */
 async function readPending ($: EngineInterface) {
+  await pendingRead?.catch(() => {})
   if (!pendingSelection) {
     $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
@@ -3218,7 +3234,7 @@ export const register: Register = on => {
       else await stopListening($)
     } else if (e.element === 'speedy:clip' && (await read($, isEnabled))) {
       // The selection is taken as 📎 is pressed, before the menu opens, so it is not lost to the menu.
-      if ((await read($, menu)) !== 'history') pendingSelection = await selectedText($)
+      if ((await read($, menu)) !== 'history') await takeSelection($)
       await openMenu($, 'history')
     } else if (e.element === 'speedy:play' && isPlayable(await read($, isEnabled), await read($, speech))) {
       await pressPlay($)

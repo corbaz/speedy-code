@@ -97,6 +97,8 @@ declare module 'claude-code' {
       mics: string[]
       /** The conversations kept for the session's folder, newest first, as their menu lists them. */
       sessionRows: SessionRow[]
+      /** True while the conversations' menu is open and its list is still being read. */
+      isLoadingSessions: boolean
       /** The permission mode in force, read from the line under the prompt. */
       permissionMode: PermissionMode
       /** The size, in points, the terminal's font was last set to from here; 0 while it never was. */
