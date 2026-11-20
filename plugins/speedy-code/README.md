@@ -10,7 +10,7 @@ From left to right:
 
 | Control | What it does |
 | --- | --- |
-| Redes sociales ▾ | Opens the menu of the social accounts set in ⚙️ → Redes sociales; a click on one opens its profile in the browser |
+| Redes ▾ | Opens the menu of the social accounts set in ⚙️ → Redes sociales; a click on one opens its profile in the browser |
 | 📋 | Copies the draft to the clipboard |
 | 📥 | Pastes the clipboard's text at the cursor |
 | 🖼️ | Pastes the clipboard's image (the system presses Alt+V on Windows, Ctrl+V on macOS, for you) |

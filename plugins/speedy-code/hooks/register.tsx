@@ -514,7 +514,7 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
 }
 
 /** The networks' control in the footer, in the color of their settings tab. */
-const SOCIALS_LABEL = ' Redes sociales ▾ '
+const SOCIALS_LABEL = ' Redes ▾ '
 const SOCIALS_COLOR = '#f783ac'
 
 /** The accounts with a user name that makes a link, in SOCIALS' order. */

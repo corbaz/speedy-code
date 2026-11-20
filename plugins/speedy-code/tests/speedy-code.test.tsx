@@ -1035,7 +1035,7 @@ test('socialLink builds the profile link of each network, and refuses a name no 
 
 test('the networks get one footer control, whose menu lists the accounts with a user name; a click opens the profile', { timeoutMs: 30000 }, async ($, on) => {
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octocat', x: '' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes sociales ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:socials' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /Redes sociales/ }))?.text).toBe(' Redes sociales ')
@@ -1593,7 +1593,7 @@ test('on macOS, leaving puts the resume command on the clipboard by osascript', 
 
 test('a fresh install shows the author’s networks; names saved before are kept as they are', { timeoutMs: 30000 }, async ($, on) => {
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes sociales ▾ ')
+  expect((await ui.find({ type: 'Text', in: 'speedy:socials' }))?.text).toBe(' Redes ▾ ')
   await ui.post({ isClicked: true }, { in: 'speedy:settings' })
   const band = await $.ui.mount(BAND)
   expect((await band.find({ type: 'Text', text: /github\.com/ }))?.text).toBe('https://github.com/corbaz')
