@@ -231,7 +231,7 @@ const PAIR: Record<LevelKey, LevelKey> = { contextYellow: 'contextRed', contextR
  * short, the first ones go in. Each keeps its place on the line whatever its priority.
  */
 const BAR_PARTS: ReadonlyArray<readonly [BarPart, string]> = [
-  ['core', 'Versión, modelo y esfuerzo'], ['five_hour', 'Límite de 5 horas'], ['seven_day', 'Límite semanal'],
+  ['core', 'Versión de Claude Code'], ['five_hour', 'Límite de 5 horas'], ['seven_day', 'Límite semanal'],
   ['context', 'Contexto'], ['time', 'Tiempo de sesión'], ['cost', 'Costo de sesión'],
   ['tokens', 'Tokens in, out y caché'], ['folder', 'Carpeta y rama']
 ]
