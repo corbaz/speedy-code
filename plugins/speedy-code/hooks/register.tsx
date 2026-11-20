@@ -1933,11 +1933,17 @@ export function versionLabel (epochSeconds: number) {
 
 /** The version, asked of git once: the mod is read from its clone, so its last commit is what runs. */
 let versionKnown: Promise<string> | undefined
+/** The runs of git cut off so far: a reload of the plugin aborts the runs under way. */
+let versionCuts = 0
 
 function versionNow ($: EngineInterface) {
   // Forward slashes: a git reached through a shell wrapper loses the backslashes of a Windows path.
   versionKnown ??= $.process.run(['git', '-C', $.plugin.root.replace(/\\/g, '/'), 'log', '-1', '--format=%ct'])
-    .then(result => result.exitCode === 0 ? versionLabel(Number(result.stdout.trim())) : '', () => '')
+    .then(result => result.exitCode === 0 ? versionLabel(Number(result.stdout.trim())) : '', () => {
+      // A run cut off is asked again on the next draw, a few times at most: a missing git stays missing.
+      if (++versionCuts < 5) versionKnown = undefined
+      return ''
+    })
   return versionKnown
 }
 
@@ -2963,6 +2969,7 @@ export const register: Register = on => {
     isInteractive = e.isInteractive
     // A reload starts the session again: the version is asked of git again, so a pull shows at once.
     versionKnown = undefined
+    versionCuts = 0
     // A session starts with no dictation under way: a state left from before a reload is cleared here.
     if (!listenFile) {
       await update($, listening, () => 'off')

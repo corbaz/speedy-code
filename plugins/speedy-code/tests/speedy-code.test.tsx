@@ -8,7 +8,7 @@ type On = Parameters<TestBody>[1]
 import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
-const GIT = { stamp: '' }
+const GIT = { stamp: '', aborts: 0 }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -154,6 +154,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     }
     // macOS: pbpaste answers the clipboard; System Events presses the keys.
     // git says when the clone's last commit was made: the footer's version.
+    // A run cut off, as a reload of the plugin cuts the runs under way.
+    if (e.argv[0] === 'git' && GIT.aborts > 0) { GIT.aborts -= 1; throw new Error('$.process.run(git) aborted') }
     if (e.argv[0] === 'git') return { value: { exitCode: GIT.stamp ? 0 : 1, stdout: GIT.stamp ? `${GIT.stamp}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'pbpaste') return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1641,6 +1643,25 @@ test('the footer ends with the version after ✕ and the blank that centers it; 
     await narrow.unmount()
   } finally {
     GIT.stamp = ''
+  }
+})
+
+test('a git run cut off by a reload is asked again on the next draw: the version comes back', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
+  try {
+    const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await ui.unmount()
+    GIT.aborts = 1
+    await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+    const cut = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
+    expect(await cut.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
+    await cut.unmount()
+    const again = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
+    expect((await again.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    await again.unmount()
+  } finally {
+    GIT.stamp = ''
+    GIT.aborts = 0
   }
 })
 
