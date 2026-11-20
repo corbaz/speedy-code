@@ -1933,18 +1933,24 @@ export function versionLabel (epochSeconds: number) {
 
 /** The version, asked of git once: the mod is read from its clone, so its last commit is what runs. */
 let versionKnown: Promise<string> | undefined
-/** The runs of git cut off so far: a reload of the plugin aborts the runs under way. */
-let versionCuts = 0
+/** The runs of git that failed this session: a few are asked again, a git that is missing is not. */
+let versionFails = 0
 
-function versionNow ($: EngineInterface) {
-  // Forward slashes: a git reached through a shell wrapper loses the backslashes of a Windows path.
-  versionKnown ??= $.process.run(['git', '-C', $.plugin.root.replace(/\\/g, '/'), 'log', '-1', '--format=%ct'])
-    .then(result => result.exitCode === 0 ? versionLabel(Number(result.stdout.trim())) : '', () => {
-      // A run cut off is asked again on the next draw, a few times at most: a missing git stays missing.
-      if (++versionCuts < 5) versionKnown = undefined
-      return ''
-    })
-  return versionKnown
+async function versionNow ($: EngineInterface) {
+  // A run belongs to the draw that started it, and a newer draw cuts it off, as happens several times
+  // over while the plugin reloads: the draw still waiting then asks git again itself, a few times at most.
+  for (let tries = 0; tries < 3 && versionFails < 6; tries++) {
+    // Forward slashes: a git reached through a shell wrapper loses the backslashes of a Windows path.
+    const asked = versionKnown ??= $.process.run(['git', '-C', $.plugin.root.replace(/\\/g, '/'), 'log', '-1', '--format=%ct'])
+      .then(result => result.exitCode === 0 ? versionLabel(Number(result.stdout.trim())) : '')
+    const label = await asked.catch(() => undefined)
+    if (label !== undefined) return label
+    if (versionKnown === asked) {
+      versionKnown = undefined
+      versionFails += 1
+    }
+  }
+  return ''
 }
 
 /**
@@ -2969,7 +2975,10 @@ export const register: Register = on => {
     isInteractive = e.isInteractive
     // A reload starts the session again: the version is asked of git again, so a pull shows at once.
     versionKnown = undefined
-    versionCuts = 0
+    versionFails = 0
+    // Asked here, outside any draw: a draw's run is cut off by the next draw, and while the plugin reloads
+    // there are several in a row. The footer is drawn again once the version is known.
+    void versionNow($).then(label => { if (label) $.ui.invalidate('ui.render') }, () => undefined)
     // A session starts with no dictation under way: a state left from before a reload is cleared here.
     if (!listenFile) {
       await update($, listening, () => 'off')

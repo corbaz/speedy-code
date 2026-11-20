@@ -1646,7 +1646,7 @@ test('the footer ends with the version after ✕ and the blank that centers it; 
   }
 })
 
-test('a git run cut off by a reload is asked again on the next draw: the version comes back', { timeoutMs: 30000 }, async ($, on) => {
+test('a git run cut off, as a plugin reload cuts them, is asked again by the draw still waiting: the version is there', { timeoutMs: 30000 }, async ($, on) => {
   GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
   try {
     const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
@@ -1654,11 +1654,9 @@ test('a git run cut off by a reload is asked again on the next draw: the version
     GIT.aborts = 1
     await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
     const cut = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
-    expect(await cut.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
+    expect((await cut.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    expect(GIT.aborts).toBe(0)
     await cut.unmount()
-    const again = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
-    expect((await again.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
-    await again.unmount()
   } finally {
     GIT.stamp = ''
     GIT.aborts = 0
