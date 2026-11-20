@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Terminal font on macOS: only the terminal the session runs in is changed (Terminal, iTerm2 or Ghostty, by TERM_PROGRAM), and Terminal's open tabs too; Terminal's and iTerm2's window, shrunk by a smaller font, fills the screen again.
 - Status line: no model nor effort, which the footer shows and changes.
 - Footer: the 📎, 👁 and ☰ menus open at once and fill as what they list is read; they waited for PowerShell or Python, seconds on a busy Windows machine. The narrations kept are read from their folder with no program run.
 - Terminal font: iTerm2, by a dynamic profile of its own (`speedy-code`) the tab is put on.

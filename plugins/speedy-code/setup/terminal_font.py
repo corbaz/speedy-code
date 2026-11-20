@@ -34,6 +34,9 @@ The terminals it knows, each changed only where it is found:
                      reads again by itself; it takes the rest from the default profile. The tab
                      this runs in is put on it; for new ones, set it as the default once
 A file changed keeps a copy as it was before the first change, beside it: `<file>.speedy-font.bak`.
+Terminal and iTerm2 keep their rows and columns, so a smaller font shrinks the window: the window
+this runs in is made to fill the screen again. On macOS only the terminal this runs in is changed,
+when it says which it is (TERM_PROGRAM): Terminal, iTerm2 or Ghostty.
 Any other terminal (Warp, WezTerm, Alacritty, an editor's) takes the font in its own
 settings: its name is printed.
 
@@ -195,6 +198,9 @@ def kitty(path: str, face: str, size: int) -> bool:
     return line_config(path, {"font_family": face, "font_size": f"{size}.0"}, "{key} {value}")
 
 
+# The macOS terminals by the TERM_PROGRAM they set, as this script names them (and as System Events does).
+MAC_TERMINALS = {"Apple_Terminal": "Terminal", "iTerm.app": "iTerm2", "ghostty": "Ghostty"}
+
 ITERM_PROFILE = "speedy-code"
 ITERM_FILE = "speedy-code.json"
 
@@ -254,8 +260,39 @@ def iterm_switch() -> bool:
     return False
 
 
+# Fills the screen with the front window of a process, less the menu bar and the Dock: macOS gives the
+# room left (visibleFrame, from the bottom) and System Events places the window (from the top).
+FILL_SCRIPT = """
+ObjC.import('AppKit');
+function run(argv) {
+  const screen = $.NSScreen.mainScreen;
+  const whole = screen.frame;
+  const room = screen.visibleFrame;
+  const top = whole.size.height - (room.origin.y + room.size.height);
+  const window = Application('System Events').processes.byName(argv[0]).windows[0];
+  window.position = [room.origin.x, top];
+  window.size = [room.size.width, room.size.height];
+  return 'ok';
+}
+"""
+
+
+def fill_screen(process: str) -> bool:
+    """A terminal that keeps its rows and columns shrinks its window with a smaller font: the window is
+    made to fill the screen again. Needs System Events, as the plugin's keys do; says whether it could."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        time.sleep(0.6)
+        done = subprocess.run(["osascript", "-l", "JavaScript", "-e", FILL_SCRIPT, process], capture_output=True, text=True, check=False, timeout=10)
+        return done.stdout.strip() == "ok"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def mac_terminal(postscript: str, size: int) -> bool:
-    """Sets the font of Terminal's default and startup profiles. Only while it is open: asking would open it."""
+    """Sets the font of Terminal's default and startup profiles, and of the profile of each tab open.
+    Only while it is open: asking would open it."""
     if subprocess.run(["pgrep", "-x", "Terminal"], capture_output=True, check=False).returncode != 0:
         return False
     script = "\n".join([
@@ -264,6 +301,10 @@ def mac_terminal(postscript: str, size: int) -> bool:
         f'    set font name of one to "{postscript}"',
         f"    set font size of one to {size}",
         "  end repeat",
+        "  try",
+        f'    set font name of current settings of every tab of every window to "{postscript}"',
+        f"    set font size of current settings of every tab of every window to {size}",
+        "  end try",
         "end tell",
     ])
     done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False)
@@ -378,17 +419,22 @@ def main() -> int:
     if sys.platform == "win32":
         for settings in nerd_font.terminal_settings():
             attempt("Windows Terminal", lambda settings=settings: windows_terminal(settings, face, size))
-    if sys.platform == "darwin":
+    # On macOS the terminal this runs in is the one changed, when it says which it is: with Terminal and
+    # iTerm2 both open, the font asked for in one is not the other's.
+    here = MAC_TERMINALS.get(os.environ.get("TERM_PROGRAM", ""), "") if sys.platform == "darwin" else ""
+    postscript = names.get(6) or FAMILIES[family][4]
+    if sys.platform == "darwin" and here in ("", "Terminal"):
         try:
-            if mac_terminal(names.get(6) or FAMILIES[family][4], size):
+            if mac_terminal(postscript, size):
                 changed.append("Terminal")
         except OSError as error:
             failed.append(f"Terminal ({error})")
     for name, apply, path in config_files(os.path.expanduser("~")):
-        attempt(name, lambda apply=apply, path=path: apply(path, face, size))
+        if here in ("", name):
+            attempt(name, lambda apply=apply, path=path: apply(path, face, size))
     profiles = iterm_folder(os.path.expanduser("~"))
-    if profiles:
-        attempt("iTerm2", lambda: iterm(profiles, names.get(6) or FAMILIES[family][4], size))
+    if profiles and here in ("", "iTerm2"):
+        attempt("iTerm2", lambda: iterm(profiles, postscript, size))
 
     said = f"{face}, {size} pt"
     said += f": {', '.join(dict.fromkeys(changed))}" if changed else f": no encontré una terminal que sepa cambiar; elegí '{face}' en la tuya"
@@ -398,6 +444,9 @@ def main() -> int:
     if "iTerm2" in changed:
         said += " (iTerm2: esta pestaña pasa al perfil speedy-code" if iterm_switch() else " (iTerm2: elegí el perfil speedy-code"
         said += "; para las nuevas, Settings → Profiles → speedy-code → Other Actions → Set as Default)"
+    # The window the change shrank fills the screen again: the one this runs in.
+    if here in ("Terminal", "iTerm2") and here in changed:
+        fill_screen(here)
     if is_new and changed:
         said += " (fuente recién instalada: si la terminal no la encuentra, cerrala y abrila)"
     if failed:
