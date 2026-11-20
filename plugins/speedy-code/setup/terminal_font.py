@@ -239,9 +239,9 @@ def editor_settings(path: str, face: str, size: int) -> bool:
 def editors_here(base: str) -> list:
     """The editors' settings files to change when this runs in an editor's terminal, as (name, path); None
     when it does not. The one this runs in when its paths tell, else every one found."""
-    is_editor = os.environ.get("TERM_PROGRAM", "").lower() in ("vscode", "kiro", "cursor", "windsurf") or any(
-        key.startswith("VSCODE_") for key in os.environ)
-    if not is_editor:
+    # Only TERM_PROGRAM tells: a VS Code variable can be left over in Ghostty or iTerm2 (a terminal opened
+    # from the editor, a shell that exports it), and their font is their own.
+    if os.environ.get("TERM_PROGRAM", "").lower() not in ("vscode", "kiro", "cursor", "windsurf"):
         return None
     found = [(name, os.path.join(base, folder, "User", "settings.json")) for folder, name in EDITORS.items()
              if os.path.isdir(os.path.join(base, folder, "User"))]
@@ -264,6 +264,8 @@ def editors_base() -> str:
 MAC_TERMINALS = {"Apple_Terminal": "Terminal", "iTerm.app": "iTerm2", "ghostty": "Ghostty"}
 
 ITERM_PROFILE = "speedy-code"
+# iTerm2's WINDOW_TYPE_MAXIMIZED (sources/Settings/Profiles/ITAddressBookMgr.h).
+ITERM_MAXIMIZED = 15
 ITERM_FILE = "speedy-code.json"
 
 
@@ -276,6 +278,8 @@ def iterm(folder: str, postscript: str, size: int) -> bool:
         "Guid": "speedy-code-font-profile",
         "Normal Font": font,
         "Non Ascii Font": font,
+        # A new window on the profile fills the screen and keeps filling it whatever the font's size.
+        "Window Type": ITERM_MAXIMIZED,
     }
     path = os.path.join(folder, ITERM_FILE)
     after = json.dumps({"Profiles": [profile]}, indent=2, ensure_ascii=False) + "\n"
