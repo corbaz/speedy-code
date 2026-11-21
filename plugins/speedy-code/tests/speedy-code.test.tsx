@@ -8,7 +8,9 @@ type On = Parameters<TestBody>[1]
 import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
-const GIT = { stamp: '', aborts: 0, branch: '' }
+/** The notices footerSession's sessions showed, in order. */
+const TOASTS: string[] = []
+const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails: false }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -156,6 +158,15 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     // git says when the clone's last commit was made: the footer's version.
     // A run cut off, as a reload of the plugin cuts the runs under way.
     if (e.argv[0] === 'git' && GIT.aborts > 0) { GIT.aborts -= 1; throw new Error('$.process.run(git) aborted') }
+    // GitHub as the update check sees it: commits on origin/main the clone lacks, and the merge that takes them.
+    if (e.argv[0] === 'git' && e.argv.includes('fetch')) return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'git' && e.argv.includes('rev-list')) return { value: { exitCode: 0, stdout: `${GIT.behind}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'git' && e.argv.includes('merge')) {
+      GIT.merges += 1
+      if (GIT.mergeFails) return { value: { exitCode: 1, stdout: '', stderr: 'error: Your local changes would be overwritten by merge\n', isStdoutTruncated: false, isStderrTruncated: false } }
+      GIT.behind = 0
+      return { value: { exitCode: 0, stdout: 'Fast-forward\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (e.argv[0] === 'git' && e.argv.includes('branch')) return { value: { exitCode: GIT.branch ? 0 : 128, stdout: GIT.branch ? `${GIT.branch}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'git') return { value: { exitCode: GIT.stamp ? 0 : 1, stdout: GIT.stamp ? `${GIT.stamp}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'pbpaste') return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -424,7 +435,7 @@ for (const row of BUTTONS) {
 async function footerSession ($: Engine, on: On, store: Record<string, unknown>, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, system: 'windows' | 'mac' = 'windows', talks = { on: false }) {
   const w = world(on, store, '', talks, clipboard, mic, polish, true, { on: false }, system)
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>modes</Text> })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => { TOASTS.push(e.text); return { value: undefined } })
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
   return { w, ui: await $.ui.mount(FOOTER) }
 }
@@ -829,7 +840,57 @@ test('the reload button runs /reload-plugins', { timeoutMs: 30000 }, async ($, o
   const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
   await ui.post({ isClicked: true }, { in: 'speedy:reload' })
   expect(commands).toEqual(['reload-plugins'])
+  // With nothing new on GitHub, nothing is merged.
+  expect(GIT.merges).toBe(0)
   await ui.unmount()
+})
+
+test('a newer version on GitHub puts the update mark in the status line file; the reload button takes it, then reloads', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.behind = 2
+  GIT.merges = 0
+  try {
+    const commands: string[] = []
+    on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+    const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await w.clock.advance(100)
+    expect(w.ran.some(argv => argv[0] === 'git' && argv.includes('fetch'))).toBe(true)
+    expect(w.files.at(-1)?.includes('"update": true')).toBe(true)
+    await ui.post({ isClicked: true }, { in: 'speedy:reload' })
+    await w.clock.advance(100)
+    expect(w.ran.some(argv => argv[0] === 'git' && argv.includes('merge') && argv.includes('--ff-only') && argv.includes('origin/main'))).toBe(true)
+    expect(GIT.merges).toBe(1)
+    expect(commands).toEqual(['reload-plugins'])
+    // Up to date: the mark goes.
+    expect(w.files.at(-1)?.includes('"update"')).toBe(false)
+    await ui.unmount()
+  } finally {
+    GIT.behind = 0
+    GIT.merges = 0
+  }
+})
+
+test('an update that cannot be taken says why, keeps the mark, and reloads nothing', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.behind = 1
+  GIT.merges = 0
+  GIT.mergeFails = true
+  try {
+    const commands: string[] = []
+    TOASTS.length = 0
+    on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
+    const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await w.clock.advance(100)
+    await ui.post({ isClicked: true }, { in: 'speedy:reload' })
+    await w.clock.advance(100)
+    expect(GIT.merges).toBe(1)
+    expect(commands).toEqual([])
+    expect(TOASTS.some(text => text.includes('no pude actualizar') && text.includes('local changes'))).toBe(true)
+    expect(w.files.at(-1)?.includes('"update": true')).toBe(true)
+    await ui.unmount()
+  } finally {
+    GIT.behind = 0
+    GIT.merges = 0
+    GIT.mergeFails = false
+  }
 })
 
 test('modelOf knows a model by its id, a dated or [1m] id, and its alias', () => {

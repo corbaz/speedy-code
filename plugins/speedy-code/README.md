@@ -28,7 +28,7 @@ From left to right:
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
 | + | Asks the new conversation's name in a menu above the prompt, then runs `/clear` and, with a name, `/rename`: a new conversation in this terminal, its context empty again |
 | ☰ | Opens the menu of the conversations Claude Code keeps for this folder, newest first, each with when it last changed; a click goes back to one, as `/resume` |
-| 🔄 | Runs `/reload-plugins` |
+| 🔄 | Runs `/reload-plugins`. When GitHub has a newer version (a yellow ↓ after the version in the status line), it takes it first, as a fast-forward that never overwrites a change of your own, then reloads |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
 | `~\.claude\local-mods ⎇ main` | The session's folder, home as `~`, and its git branch, after ✕. A click on the folder opens it in Explorer, or in Finder; it keeps its room before the controls ranked lowest, and goes only when even the ones always drawn would not fit |
@@ -117,6 +117,9 @@ claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱
   the answer is kept in `~/.claude/speedy-code/usage.json`. The sign-in goes nowhere but to Anthropic.
 - **vyy.mmdd(hhmm):** speedy-code's version, last: the moment of the clone's last commit, in Buenos
   Aires time. The plugin writes it beside the levels when a session starts.
+  It is asked of git every minute. Every hour the plugin also asks GitHub (a `git fetch`, which changes
+  no file) whether main has commits the clone lacks: then a yellow `↓` follows the version until 🔄
+  takes them.
 
 In a narrow terminal it keeps what matters most, each part whole: the two versions always, then
 the 5-hour limit, the weekly one, a model's own weekly limit, the context, the time and the tokens; the limits drop

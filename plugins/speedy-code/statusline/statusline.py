@@ -34,6 +34,7 @@ C_OUT = "38;5;211"
 C_CACHE = "38;5;147"
 C_LABEL = "38;5;245"
 C_APP = "1;38;5;147"
+C_UPDATE = "1;38;5;220"
 # Claude's own orange, the one Claude Code draws its name in.
 C_CLAUDE = "1;38;2;215;119;87"
 C_DIM = "38;5;240"
@@ -220,6 +221,7 @@ def load_levels(path):
     priority = list(DEFAULT_PRIORITY)
     icons = "emoji"
     app = ""
+    update = False
     try:
         with open(path, encoding="utf-8-sig") as source:
             saved = json.load(source)
@@ -240,12 +242,14 @@ def load_levels(path):
         # speedy-code's version, as the plugin writes it when a session starts: vyy.mmdd(hhmm).
         if isinstance(saved.get("version"), str):
             app = saved["version"]
+        # A newer version on GitHub, as the plugin last found: a ↓ after the version.
+        update = saved.get("update") is True
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    return levels, priority, icons, app
+    return levels, priority, icons, app, update
 
 
-def line_of(data, columns, levels, priority, icons="emoji", app="", scoped=()):
+def line_of(data, columns, levels, priority, icons="emoji", app="", scoped=(), update=False):
     sign = SIGNS[icons]
 
     def rank(key):
@@ -312,7 +316,9 @@ def line_of(data, columns, levels, priority, icons="emoji", app="", scoped=()):
             parts.append({"rank": rank(key), "full": full, "short": short})
 
     if app:
-        parts.append({"rank": rank("app"), "full": paint(app, C_APP)})
+        # A newer version waits on GitHub: a yellow ↓ after it, until 🔄 takes it.
+        mark = " " + paint("↓", C_UPDATE) if update else ""
+        parts.append({"rank": rank("app"), "full": paint(app, C_APP) + mark})
 
     # The parts in rank order, each in its short form, until one does not fit; then the limits get their
     # reset time back with the room left. The first by priority always goes. Nothing is cut with "…".
@@ -357,12 +363,12 @@ def main():
     if not raw.strip():
         return
     data = json.loads(raw)
-    levels, priority, icons, app = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
+    levels, priority, icons, app, update = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
     try:
         columns = int(os.environ.get("COLUMNS", "0"))
     except ValueError:
         columns = 0
-    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, icons, app, load_scoped(home)), columns) + "\n").encode("utf-8"))
+    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, icons, app, load_scoped(home), update), columns) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

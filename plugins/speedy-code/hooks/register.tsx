@@ -2020,6 +2020,53 @@ async function followVersion ($: EngineInterface) {
   await writeBarFile($)
 }
 
+/** The commits GitHub has on main that this clone lacks: more than none puts ↓ after the version. */
+let updateBehind = 0
+/** How often GitHub is asked whether there is a newer version. */
+const UPDATE_CHECK_MS = 3600000
+
+/** The clone's folder, as git takes it: forward slashes, which a shell wrapper keeps. */
+function cloneRoot ($: EngineInterface) {
+  return $.plugin.root.replace(/\\/g, '/')
+}
+
+/**
+ * Asks GitHub whether main has commits this clone lacks: a fetch, which changes no file, then a count.
+ * When the answer changed, the status line file says so and the footer is drawn again.
+ */
+async function checkUpdate ($: EngineInterface) {
+  const fetched = await $.process.run(['git', '-C', cloneRoot($), 'fetch', '-q', 'origin', 'main']).catch(() => undefined)
+  if (fetched?.exitCode !== 0) return
+  const counted = await $.process.run(['git', '-C', cloneRoot($), 'rev-list', '--count', 'HEAD..origin/main']).catch(() => undefined)
+  const behind = counted?.exitCode === 0 ? Number(counted.stdout.trim()) || 0 : 0
+  if (behind === updateBehind) return
+  updateBehind = behind
+  await writeBarFile($)
+  $.ui.invalidate('ui.render')
+}
+
+/**
+ * The 🔄 button: with a newer version on GitHub it is taken first (a fast-forward of main, which never
+ * overwrites a change of the person's own), then every plugin is reloaded, this one too.
+ */
+async function updateAndReload ($: EngineInterface) {
+  if (updateBehind > 0) {
+    $.ui.toast('speedy-code: actualizando desde GitHub…')
+    const merged = await $.process.run(['git', '-C', cloneRoot($), 'merge', '--ff-only', 'origin/main']).catch(() => undefined)
+    if (merged?.exitCode !== 0) {
+      const why = (merged?.stderr || merged?.stdout || '').trim().split(/\r?\n/)[0] || 'git no respondió'
+      $.ui.toast(`speedy-code: no pude actualizar: ${why}`)
+      return
+    }
+    updateBehind = 0
+    await followVersion($)
+    await writeBarFile($)
+    $.ui.toast(`speedy-code: actualizado${appVersion ? ` a ${appVersion}` : ''}; recargando.`)
+  }
+  // Reloads every plugin, this one too: an edit to the mod takes effect at once.
+  await $.command.run({ command: 'reload-plugins' }).catch(() => { $.ui.toast('speedy-code: no pude recargar; escribí /reload-plugins.') })
+}
+
 /**
  * The blank after the footer that puts it in the middle: Claude Code draws the footer against the
  * right edge, so as many cells after it as are left before it center it. None without a width.
@@ -2331,7 +2378,7 @@ export function barOrderOf (saved: unknown): BarPart[] {
 
 /** Writes the file the status line reads: the levels, the parts by priority and the icon set. */
 async function writeBarFile ($: EngineInterface) {
-  const content = { ...(await read($, barLevels)), priority: await read($, barOrder), icons: await read($, icons), ...(appVersion ? { version: appVersion } : {}) }
+  const content = { ...(await read($, barLevels)), priority: await read($, barOrder), icons: await read($, icons), ...(appVersion ? { version: appVersion } : {}), ...(updateBehind > 0 ? { update: true } : {}) }
   await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(content, null, 2)}\n`)
 }
 
@@ -3104,6 +3151,9 @@ export const register: Register = on => {
     void followVersion($)
     // And again every minute: a pull, or a reload that reads no file again, shows without a new session.
     $.clock.every(VERSION_FOLLOW_MS, () => followVersion($))
+    // A newer version on GitHub, asked now and every hour: ↓ after the version, and 🔄 takes it.
+    void checkUpdate($)
+    $.clock.every(UPDATE_CHECK_MS, () => checkUpdate($))
     // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
     // of the mod reaches it without switching it off and on.
     void switchStatusLine($, 'status').then(async () => {
@@ -3301,8 +3351,7 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:model' || e.element === 'speedy:effort') {
       await openMenu($, 'models')
     } else if (e.element === 'speedy:reload') {
-      // Reloads every plugin, this one too: an edit to the mod takes effect at once.
-      await $.command.run({ command: 'reload-plugins' }).catch(() => { $.ui.toast('speedy-code: no pude recargar; escribí /reload-plugins.') })
+      await updateAndReload($)
     } else if (e.element === 'speedy:exit') {
       // As the person typing /exit: the session ends, and session.end copies how to come back.
       await $.command.run({ command: 'exit' }).catch(() => { $.ui.toast('speedy-code: no pude salir; escribí /exit.') })
