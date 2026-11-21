@@ -2120,7 +2120,7 @@ test('windowTop: the first tree row in the window, kept so the last row stays at
 })
 
 test('isViewable: the explorer opens text, PDF and pictures in the viewer, and .gitignore; nothing else', () => {
-  for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore']) expect(isViewable(name)).toBe(true)
+  for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'install.PS1', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore']) expect(isViewable(name)).toBe(true)
   for (const name of ['pagefile.sys', 'app.exe', 'data.json', 'Makefile', '.env', 'md', 'x.webp']) expect(isViewable(name)).toBe(false)
 })
 

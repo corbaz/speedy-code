@@ -2011,6 +2011,8 @@ const EXPLORER_COLUMNS = 44
 /** The most entries a folder shows: a folder with thousands would bury the tree. */
 const EXPLORER_MOST = 500
 const EXPLORER_DIR_COLOR = '#74c0fc'
+/** A file the viewer opens: yellow, so it reads as one that does something when pressed. */
+const EXPLORER_VIEWABLE_COLOR = '#ffd43b'
 const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, here: '', caseless: false, top: 0 }
 const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
 /** The rows above the tree: the disks, and a rule under them. They stay while the tree scrolls. */
@@ -2109,7 +2111,7 @@ async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number)
 }
 
 /** The files the explorer opens in the viewer when pressed: text, PDF and pictures. */
-const VIEWABLE_EXTENSIONS = new Set(['md', 'markdown', 'txt', 'sh', 'bat', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'tif', 'tiff'])
+const VIEWABLE_EXTENSIONS = new Set(['md', 'markdown', 'txt', 'sh', 'bat', 'ps1', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'tif', 'tiff'])
 const VIEWABLE_NAMES = new Set(['.gitignore'])
 
 /** Whether the explorer opens a file of this name in the viewer. */
@@ -2187,7 +2189,7 @@ async function pickDrive ($: EngineInterface, drive: string) {
 }
 
 /** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●.
- * A file the viewer shows is drawn bright and opens it when pressed; the others are dim. */
+ * A file the viewer shows is drawn yellow and opens it when pressed; the others are dim. */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const { Box, Button, Text } = $.ui.resolve(e)
@@ -2219,7 +2221,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         if (row.kind === 'file' && isViewable(row.name)) {
           return (
             <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
-              <Text wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+              <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
             </Button>
           )
         }
@@ -3447,6 +3449,8 @@ export const register: Register = on => {
     void switchStatusLine($, 'status').then(async () => {
       if ((await read($, statusLine)) === 'on') await switchStatusLine($, 'on')
     })
+    // Code Mode's switch says where it stands from the start, a reload included: not "leyendo…".
+    void switchCodeMode($, 'status')
     return next(e)
   })
 
