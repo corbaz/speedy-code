@@ -44,6 +44,17 @@ export type BarPart = 'core' | 'five_hour' | 'seven_day' | 'scoped' | 'context' 
 /** One step of the setup: not checked yet, under way, in place, or missing, with what it found. */
 export type SetupCheck = { state: '' | 'working' | 'ok' | 'fail'; detail: string }
 
+/** One entry of a folder in the explorer pane: a folder, a file, or a link (never followed). */
+export type ExplorerEntry = { name: string; kind: 'dir' | 'file' | 'link' }
+
+/** A folder as the explorer read it: its entries, folders first, and how many more it holds past those shown. */
+export type ExplorerListing = { entries: ExplorerEntry[]; left: number }
+
+/** The explorer pane: the disks, the one shown, the folders open and what each one read holds (both by
+ * path key; `denied` for a folder that could not be read), the session's folder, whether paths ignore case,
+ * and the first tree row shown (-1: the session's folder in the middle). */
+export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'speedy-code': {
@@ -115,6 +126,8 @@ declare module 'claude-code' {
       effortPick: string
       /** The effort in force, as the session's last model request carried it or the menu applied it; empty: unknown. */
       effort: string
+      /** The explorer pane the footer's folder opens: its disks, its open folders and what they hold. */
+      explorer: Shaped<Explorer>
     }
   }
 }

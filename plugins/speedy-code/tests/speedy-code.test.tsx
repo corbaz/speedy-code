@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, chainOf, driveLabel, driveOf, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -1700,13 +1700,6 @@ test('the footer ends with the folder, home as ~, and the git branch after ✕; 
     expect(await wide.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
     const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
     expect(blank === undefined).toBe(false)
-    // A click on the folder opens it in the system's file manager.
-    // Clicked again and again in a row, it opens once: each click would start another window.
-    await wide.post({ isClicked: true }, { in: 'speedy:place' })
-    await wide.post({ isClicked: true }, { in: 'speedy:place' })
-    await wide.post({ isClicked: true }, { in: 'speedy:place' })
-    await w.clock.advance(100)
-    expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos\\facturas'])
     await wide.unmount()
     // Not so wide: the folder stays, and the controls ranked lowest go to ⋯.
     const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 115, rows: 30 } })
@@ -1965,4 +1958,145 @@ test('the 📎 menu lists the narrations kept from their folder, newest first by
   expect(w.ran.filter(argv => argv.join(' ').includes('*.mp3'))).toEqual([])
   await band.unmount()
   await ui.unmount()
+})
+
+test('driveOf, chainOf and driveLabel: the disk a folder is on, each folder from the disk down to it, and the disk’s name', () => {
+  expect(driveOf('C:/Users/test/proyectos', ['C:/', 'D:/'], true)).toBe('C:/')
+  expect(driveOf('d:/datos', ['C:/', 'D:/'], true)).toBe('D:/')
+  expect(driveOf('/Volumes/USB/fotos', ['/', '/Volumes/USB'], false)).toBe('/Volumes/USB')
+  expect(driveOf('/Users/test', ['/', '/Volumes/USB'], false)).toBe('/')
+  expect(driveOf('E:/x', ['C:/'], true)).toBe('C:/')
+  expect(driveOf('', [], true)).toBe('')
+  expect(chainOf('C:/Users/test', 'C:/')).toEqual(['C:/', 'C:/Users', 'C:/Users/test'])
+  expect(chainOf('C:/', 'C:/')).toEqual(['C:/'])
+  expect(chainOf('/Volumes/USB/fotos', '/Volumes/USB')).toEqual(['/Volumes/USB', '/Volumes/USB/fotos'])
+  expect(chainOf('E:/x', 'C:/')).toEqual(['C:/'])
+  expect([driveLabel('C:/'), driveLabel('/'), driveLabel('/Volumes/USB')]).toEqual(['C:', '/', 'USB'])
+})
+
+test('listingOf: folders and links first, then files, each by name whatever its case; past the most, how many are left', () => {
+  const listing = listingOf([
+    { name: 'zeta.txt', kind: 'file', size: 1, mtimeMs: 0, isLink: false },
+    { name: 'beta', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+    { name: 'Alfa.txt', kind: 'file', size: 1, mtimeMs: 0, isLink: false },
+    { name: 'Atajo', kind: 'other', size: 0, mtimeMs: 0, isLink: true },
+    { name: 'Gamma', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }
+  ])
+  expect(listing).toEqual({ entries: [{ name: 'Atajo', kind: 'link' }, { name: 'beta', kind: 'dir' }, { name: 'Gamma', kind: 'dir' }, { name: 'Alfa.txt', kind: 'file' }, { name: 'zeta.txt', kind: 'file' }], left: 0 })
+  const many = Array.from({ length: 7 }, (_, i) => ({ name: `f${i}`, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false }))
+  expect(listingOf(many, 5)).toEqual({ entries: many.slice(0, 5).map(f => ({ name: f.name, kind: 'file' })), left: 2 })
+})
+
+test('treeRows: the disk, then what each open folder holds under it; a folder not read yet, one that could not be read, an empty one and the entries left say so', () => {
+  const rows = treeRows({
+    drives: ['C:/'],
+    drive: 'C:/',
+    open: ['c:/', 'c:/users', 'c:/vacia', 'c:/cerrada'],
+    listed: {
+      'c:/': { entries: [{ name: 'Cerrada', kind: 'dir' }, { name: 'Users', kind: 'dir' }, { name: 'Vacia', kind: 'dir' }, { name: 'Leer', kind: 'dir' }, { name: 'a.txt', kind: 'file' }], left: 3 },
+      'c:/users': { entries: [], left: 0 },
+      'c:/cerrada': 'denied'
+    },
+    here: 'C:/Users',
+    caseless: true,
+    top: 0
+  })
+  expect(rows.map(row => [row.depth, row.kind, row.name, row.isOpen, row.isHere])).toEqual([
+    [0, 'dir', 'C:\\', true, false],
+    [1, 'dir', 'Cerrada', true, false],
+    [2, 'note', '(sin acceso)', false, false],
+    [1, 'dir', 'Users', true, true],
+    [2, 'note', '(vacía)', false, false],
+    [1, 'dir', 'Vacia', true, false],
+    [2, 'note', 'leyendo…', false, false],
+    [1, 'dir', 'Leer', false, false],
+    [1, 'file', 'a.txt', false, false],
+    [1, 'note', '… y 3 más', false, false]
+  ])
+  expect(rows[3]?.path).toBe('C:/Users')
+})
+
+test('the footer’s folder opens the explorer beside the chat: the disks above, the tree open down to the session’s folder; a folder opens and closes, a disk shows its own, and the folder clicked again closes it', { timeoutMs: 30000 }, async ($, on) => {
+  const panes: string[] = []
+  const closed: string[] = []
+  on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.close', (_, e) => { closed.push(e.id); panes.splice(panes.indexOf(e.id), 1); return { value: undefined } })
+  on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
+  on('session.cwd', () => ({ value: 'C:\\Users\\test\\proyectos' }))
+  on('fs.stat', (_, e) => {
+    if (!/^[CD]:[\\/]$/.test(e.path)) throw new Error('ENOENT')
+    return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+  })
+  const TREE: Record<string, Array<{ name: string, kind: 'file' | 'dir' | 'other', isLink?: boolean }>> = {
+    'C:/': [{ name: 'Windows', kind: 'dir' }, { name: 'pagefile.sys', kind: 'file' }, { name: 'Users', kind: 'dir' }, { name: 'Documents and Settings', kind: 'other', isLink: true }],
+    'C:/Users': [{ name: 'test', kind: 'dir' }, { name: 'Public', kind: 'dir' }],
+    'C:/Users/test': [{ name: 'proyectos', kind: 'dir' }],
+    'C:/Users/test/proyectos': [{ name: 'facturas', kind: 'dir' }, { name: 'notas.txt', kind: 'file' }],
+    'C:/Windows': [{ name: 'System32', kind: 'dir' }],
+    'D:/': [{ name: 'fotos', kind: 'dir' }]
+  }
+  on('fs.list', (_, e) => {
+    const entries = TREE[(e.path ?? '').replace(/\\/g, '/')]
+    if (!entries) throw new Error('EPERM')
+    return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
+  })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await w.clock.advance(100)
+  await ui.unmount()
+  const footer = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  expect(panes).toEqual(['speedy-code-explorer'])
+  // A short body shows the rows around the session's folder, under the disks, which stay.
+  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 6 } }, surface: 'terminal' })
+  expect((await short.findAll({ type: 'Text' })).map(text => text.text)).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  await short.unmount()
+  const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
+  const texts = async () => (await pane.findAll({ type: 'Text' })).map(text => text.text)
+  expect(await texts()).toEqual([
+    ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44),
+    '▾ C:\\',
+    '  ↪ Documents and Settings',
+    '  ▾ Users',
+    '    ▸ Public',
+    '    ▾ test',
+    '      ▾ proyectos ●',
+    '        ▸ facturas',
+    '          notas.txt',
+    '  ▸ Windows',
+    '    pagefile.sys'
+  ])
+  // A folder closed opens, read then; pressed again, it closes.
+  await pane.press({ key: 'explorer:C:/Windows' })
+  expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    pagefile.sys'])
+  await pane.press({ key: 'explorer:C:/Windows' })
+  expect((await texts()).slice(-2)).toEqual(['  ▸ Windows', '    pagefile.sys'])
+  // One that cannot be read says so.
+  await pane.press({ key: 'explorer:C:/Users/test/proyectos/facturas' })
+  expect(await texts()).toContain('          (sin acceso)')
+  // Another disk shows its own tree, and the first keeps what was open.
+  await pane.press({ key: 'explorer-drive:D:/' })
+  expect((await texts()).slice(4)).toEqual(['▾ D:\\', '  ▸ fotos'])
+  await pane.press({ key: 'explorer-drive:C:/' })
+  expect(await texts()).toContain('      ▾ proyectos ●')
+  // The system's file manager is still a press away, and opens the session's folder.
+  await pane.press({ key: 'explorer-system' })
+  await w.clock.advance(100)
+  expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos'])
+  await pane.unmount()
+  // The footer's folder clicked again closes the explorer.
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  expect(closed).toEqual(['speedy-code-explorer'])
+  await footer.unmount()
+})
+
+test('windowTop: the first tree row in the window, kept so the last row stays at the bottom; just opened, the session’s folder in the middle', () => {
+  const rows = Array.from({ length: 20 }, (_, i) => ({ path: `C:/${i}`, name: String(i), depth: 1, kind: 'dir' as const, isOpen: false, isHere: i === 12 }))
+  expect(windowTop(rows, -1, 6)).toBe(9)
+  expect(windowTop(rows, 0, 6)).toBe(0)
+  expect(windowTop(rows, 30, 6)).toBe(14)
+  expect(windowTop(rows.slice(0, 4), 2, 6)).toBe(0)
+  expect(windowTop(rows.map(row => ({ ...row, isHere: false })), -1, 6)).toBe(0)
+  expect(windowTop(rows.map((row, i) => ({ ...row, isHere: i === 19 })), -1, 6)).toBe(14)
 })

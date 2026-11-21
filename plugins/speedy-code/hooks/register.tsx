@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, FsEntry, Register } from 'claude-code'
 
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, PermissionMode, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Explorer, ExplorerEntry, ExplorerListing, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, PermissionMode, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -1971,6 +1971,220 @@ async function openFolder ($: EngineInterface) {
   ).catch(() => undefined)
 }
 
+/** The explorer pane the footer's folder opens beside the chat, in place of the system's file manager. */
+const EXPLORER_PANE = 'speedy-code-explorer'
+/** The cells the explorer asks for while docked beside a fullscreen transcript. */
+const EXPLORER_COLUMNS = 44
+/** The most entries a folder shows: a folder with thousands would bury the tree. */
+const EXPLORER_MOST = 500
+const EXPLORER_DIR_COLOR = '#74c0fc'
+const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, here: '', caseless: false, top: 0 }
+const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
+/** The rows above the tree: the disks, and a rule under them. They stay while the tree scrolls. */
+const EXPLORER_HEADER_ROWS = 2
+
+/** A path with `/` alone, as the explorer keeps every path. */
+const slashed = (path: string) => path.replace(/\\/g, '/')
+
+/** A folder's entry under it: a disk's root ends in `/` already. */
+const joinPath = (parent: string, name: string) => parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`
+
+/** How the explorer knows a path again: on Windows `C:/Users` and `c:/users` are one folder. */
+const pathKey = (path: string, caseless: boolean) => caseless ? slashed(path).toLowerCase() : slashed(path)
+
+/** Whether `path` is `folder` or lies under it, both keys. */
+const isUnder = (path: string, folder: string) => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
+
+/** The disk a path is on: the longest of `drives` it lies under, or the first disk when none holds it. */
+export function driveOf (path: string, drives: readonly string[], caseless: boolean) {
+  const key = pathKey(path, caseless)
+  const holding = drives.filter(drive => isUnder(key, pathKey(drive, caseless)))
+  return holding.sort((a, b) => b.length - a.length)[0] ?? drives[0] ?? ''
+}
+
+/** Each folder from the disk down to `path`, both included; the disk alone for a path not on it. */
+export function chainOf (path: string, drive: string) {
+  const plain = slashed(path)
+  if (!isUnder(plain.toLowerCase(), drive.toLowerCase())) return [drive]
+  const chain = [drive]
+  for (const name of plain.slice(drive.length).split('/').filter(Boolean)) chain.push(joinPath(chain[chain.length - 1] ?? drive, name))
+  return chain
+}
+
+/** A disk as its button names it: `C:` on Windows, `/` for the Mac's own and its name for another volume. */
+export function driveLabel (drive: string) {
+  if (/^[A-Za-z]:\/?$/.test(drive)) return drive.slice(0, 2).toUpperCase()
+  return drive === '/' ? '/' : drive.split('/').filter(Boolean).pop() ?? drive
+}
+
+/** A folder's entries as the tree lists them: folders and links first, then files, each by name whatever its case. */
+export function listingOf (entries: readonly FsEntry[], most = EXPLORER_MOST): ExplorerListing {
+  const kindOf = (entry: FsEntry): ExplorerEntry['kind'] => entry.isLink ? 'link' : entry.kind === 'dir' ? 'dir' : 'file'
+  const sorted = entries
+    .map(entry => ({ name: entry.name, kind: kindOf(entry) }))
+    .sort((a, b) => Number(a.kind === 'file') - Number(b.kind === 'file') || a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
+  return { entries: sorted.slice(0, most), left: Math.max(0, sorted.length - most) }
+}
+
+/** A row of the tree: an entry, or a note under a folder (not read yet, unreadable, empty, entries left). */
+export type TreeRow = { path: string; name: string; depth: number; kind: ExplorerEntry['kind'] | 'note'; isOpen: boolean; isHere: boolean }
+
+/** The tree of the disk shown, flat: the disk, then what each open folder holds under it. */
+export function treeRows (state: Explorer): TreeRow[] {
+  if (!state.drive) return []
+  const here = pathKey(state.here, state.caseless)
+  const rows: TreeRow[] = []
+  const note = (path: string, name: string, depth: number) => rows.push({ path: `${path}#${name}`, name, depth, kind: 'note', isOpen: false, isHere: false })
+  const walk = (path: string, name: string, kind: ExplorerEntry['kind'], depth: number) => {
+    const key = pathKey(path, state.caseless)
+    const isOpen = kind === 'dir' && state.open.includes(key)
+    rows.push({ path, name, depth, kind, isOpen, isHere: kind === 'dir' && key === here })
+    if (!isOpen) return
+    const listed = state.listed[key]
+    if (listed === undefined) return note(path, 'leyendo…', depth + 1)
+    if (listed === 'denied') return note(path, '(sin acceso)', depth + 1)
+    if (listed.entries.length === 0) return note(path, '(vacía)', depth + 1)
+    for (const entry of listed.entries) walk(joinPath(path, entry.name), entry.name, entry.kind, depth + 1)
+    if (listed.left > 0) note(path, `… y ${listed.left} más`, depth + 1)
+  }
+  const label = /^[A-Za-z]:\/$/.test(state.drive) ? `${driveLabel(state.drive)}\\` : state.drive
+  walk(state.drive, label, 'dir', 0)
+  return rows
+}
+
+/** The tree rows the explorer shows under its header, in a body of `bodyRows`. */
+const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS)
+
+/**
+ * The first tree row the explorer shows: `top` kept within the tree, so its last row stays at the bottom;
+ * -1, just opened, puts the session's folder in the middle.
+ */
+export function windowTop (rows: readonly TreeRow[], top: number, room: number) {
+  const last = Math.max(0, rows.length - room)
+  if (top >= 0) return Math.min(last, top)
+  const here = rows.findIndex(row => row.isHere)
+  return Math.min(last, Math.max(0, here - Math.floor(room / 2)))
+}
+
+/** The wheel or the keys over the explorer: its tree moves under the disks, which stay. */
+async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number) {
+  const state = await read($, explorer)
+  const rows = treeRows(state)
+  const room = explorerRoom(bodyRows)
+  const top = windowTop(rows, windowTop(rows, state.top, room) + by, room)
+  if (top !== state.top) await update($, explorer, now => ({ ...now, top }))
+}
+
+/** A folder read for the tree; `denied` when it cannot be read. */
+async function readFolder ($: EngineInterface, path: string): Promise<ExplorerListing | 'denied'> {
+  try {
+    return listingOf(await $.fs.list(path))
+  } catch {
+    return 'denied'
+  }
+}
+
+/** The disks there are: each lettered root that answers on Windows; `/` and each volume mounted on a Mac. */
+async function readDrives ($: EngineInterface, os: Os) {
+  if (os === 'windows') {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+    const found = await Promise.all(letters.map(letter => $.fs.stat(`${letter}:/`).then(stat => stat.kind === 'dir' ? `${letter}:/` : '', () => '')))
+    return found.filter(Boolean)
+  }
+  // The Mac's own disk is under /Volumes too, as a link to /: it is / already.
+  const volumes = await $.fs.list('/Volumes').catch(() => [] as FsEntry[])
+  return ['/', ...volumes.filter(volume => volume.kind === 'dir' && !volume.isLink).map(volume => `/Volumes/${volume.name}`)]
+}
+
+/**
+ * The footer's folder: opens the explorer beside the chat, open down to the session's folder and read
+ * afresh; clicked while it is open, it closes it.
+ */
+async function toggleExplorer ($: EngineInterface) {
+  const panes = await $.ui.panes().catch(() => [])
+  if (panes.some(pane => pane.id === EXPLORER_PANE)) {
+    await $.ui.close({ id: EXPLORER_PANE }).catch(() => undefined)
+    return
+  }
+  const os = await osNow($)
+  const caseless = os === 'windows'
+  const here = slashed(place.cwd || (await $.session.cwd().catch(() => '')))
+  const drives = await readDrives($, os)
+  const drive = driveOf(here, drives, caseless)
+  const chain = drive ? chainOf(here, drive) : []
+  const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
+  await update($, explorer, () => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1 }))
+  await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: EXPLORER_COLUMNS, closeOnEscape: true }).catch(() => undefined)
+}
+
+/** A folder of the tree pressed: open, it closes; closed, it opens and is read afresh. */
+async function toggleTreeFolder ($: EngineInterface, path: string) {
+  const state = await read($, explorer)
+  const key = pathKey(path, state.caseless)
+  if (state.open.includes(key)) {
+    await update($, explorer, now => ({ ...now, open: now.open.filter(one => one !== key) }))
+    return
+  }
+  await update($, explorer, now => ({ ...now, open: [...now.open, key] }))
+  const listed = await readFolder($, path)
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+}
+
+/** A disk pressed: its tree is shown, its root open; each disk keeps what was open in it. The session's disk
+ * shows the session's folder in the middle again; another, its top. */
+async function pickDrive ($: EngineInterface, drive: string) {
+  const state = await read($, explorer)
+  const key = pathKey(drive, state.caseless)
+  const top = driveOf(state.here, state.drives, state.caseless) === drive ? -1 : 0
+  await update($, explorer, now => ({ ...now, drive, top, open: now.open.includes(key) ? now.open : [...now.open, key] }))
+  if (state.listed[key] !== undefined) return
+  const listed = await readFolder($, drive)
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+}
+
+/** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●. */
+async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
+  const state = await read($, explorer)
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const width = Math.max(12, columns || EXPLORER_COLUMNS)
+  // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
+  const rows = treeRows(state)
+  const room = explorerRoom(bodyRows)
+  const top = windowTop(rows, state.top, room)
+  return (
+    <Box flexDirection="column" width={width}>
+      <Box flexDirection="row" columnGap={1}>
+        {state.drives.map(drive => {
+          const isShown = drive === state.drive
+          return (
+            <Button key={`explorer-drive:${drive}`} plain onPress={() => { void pickDrive($, drive) }}>
+              <Text bold={isShown} underline={isShown} color={isShown ? FOLDER_COLOR : undefined} dimColor={!isShown}>{` ${driveLabel(drive)} `}</Text>
+            </Button>
+          )
+        })}
+        <Box flexGrow={1} />
+        <Button key="explorer-system" plain onPress={() => { void openFolder($) }}>
+          <Text dimColor>{' ↗ abrir en el sistema '}</Text>
+        </Button>
+      </Box>
+      <Text dimColor>{'─'.repeat(width)}</Text>
+      {rows.slice(top, top + room).map(row => {
+        const indent = '  '.repeat(row.depth)
+        if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
+        if (row.kind !== 'dir') {
+          const mark = row.kind === 'link' ? '↪ ' : '  '
+          return <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
+        }
+        return (
+          <Button key={`explorer:${row.path}`} plain onPress={() => { void toggleTreeFolder($, row.path) }}>
+            <Text bold={row.isHere} color={row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>
+          </Button>
+        )
+      })}
+    </Box>
+  )
+}
+
 /** The version the status line shows at its end, once git has told it. */
 let appVersion = ''
 /** How often the version is asked of git again. */
@@ -3296,7 +3510,7 @@ export const register: Register = on => {
       await closeMenu($, 'more')
       await openMenu($, 'sessions')
     } else if (e.element === 'speedy:place') {
-      await openFolder($)
+      await toggleExplorer($)
     } else if (e.element === 'speedy:socials') {
       await closeMenu($, 'more')
       await openMenu($, 'socials')
@@ -3469,4 +3683,9 @@ export const register: Register = on => {
   // The menus, in their panes.
   on('ui.render', { component: 'Pane', requestId: MIC_PANE }, ($, e) => micMenu($, e))
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => voiceMenu($, e))
+  on('ui.render', { component: 'Pane', requestId: EXPLORER_PANE }, ($, e) => explorerPane($, e, e.props.bodyColumns, e.props.scroll.bodyRows))
+  on('ui.scroll', { requestId: EXPLORER_PANE }, async ($, e) => {
+    await scrollExplorer($, e.by, e.bodyRows)
+    return {}
+  })
 }
