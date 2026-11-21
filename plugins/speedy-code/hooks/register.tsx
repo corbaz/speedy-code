@@ -1959,7 +1959,8 @@ async function openFolder ($: EngineInterface) {
   // One window for a run of clicks: each call starts another, and a dozen of them slow the system down.
   if (!place.cwd || Date.now() - folderOpened < FOLDER_PAUSE_MS) return
   folderOpened = Date.now()
-  const argv = (await osNow($)) === 'windows' ? ['explorer.exe', place.cwd.replace(/\//g, '\\')] : MAC.open(place.cwd)
+  // `start`, as a double click opens it: explorer.exe run by itself leaves its window behind the terminal.
+  const argv = (await osNow($)) === 'windows' ? ['cmd', '/c', 'start', '', place.cwd.replace(/\//g, '\\')] : MAC.open(place.cwd)
   await $.process.run(argv).catch(() => undefined)
 }
 
