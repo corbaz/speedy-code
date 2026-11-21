@@ -1950,9 +1950,15 @@ async function followPlace ($: EngineInterface) {
   $.ui.invalidate('ui.render')
 }
 
+/** When the folder was last opened, and how long a click after it opens nothing. */
+let folderOpened = 0
+const FOLDER_PAUSE_MS = 3000
+
 /** Opens the session's folder in the system's file manager: Explorer, or Finder. */
 async function openFolder ($: EngineInterface) {
-  if (!place.cwd) return
+  // One window for a run of clicks: each call starts another, and a dozen of them slow the system down.
+  if (!place.cwd || Date.now() - folderOpened < FOLDER_PAUSE_MS) return
+  folderOpened = Date.now()
   const argv = (await osNow($)) === 'windows' ? ['explorer.exe', place.cwd.replace(/\//g, '\\')] : MAC.open(place.cwd)
   await $.process.run(argv).catch(() => undefined)
 }

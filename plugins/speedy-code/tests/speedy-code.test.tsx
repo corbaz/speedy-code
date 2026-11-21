@@ -1638,6 +1638,9 @@ test('the footer ends with the folder, home as ~, and the git branch after ✕; 
     const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
     expect(blank === undefined).toBe(false)
     // A click on the folder opens it in the system's file manager.
+    // Clicked again and again in a row, it opens once: each click would start another window.
+    await wide.post({ isClicked: true }, { in: 'speedy:place' })
+    await wide.post({ isClicked: true }, { in: 'speedy:place' })
     await wide.post({ isClicked: true }, { in: 'speedy:place' })
     await w.clock.advance(100)
     expect(w.opened).toEqual(['explorer C:\\Users\\test\\proyectos\\facturas'])
