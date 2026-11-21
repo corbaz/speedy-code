@@ -32,7 +32,8 @@ The terminals it knows, each changed only where it is found:
                      the config again on Cmd+Shift+, which on macOS is pressed for it
   kitty              `font_family` and `font_size` in kitty.conf
   VS Code, Kiro,     `terminal.integrated.fontFamily` and `fontSize` in the editor's settings.json,
-  Cursor, Windsurf   when this runs in its terminal: then only that editor changes
+  Cursor, Windsurf,  when this runs in its terminal: then only that editor changes
+  Antigravity
   iTerm2             a profile of its own, `speedy-code`, in its DynamicProfiles folder, which it
                      reads again by itself; it takes the rest from the default profile. The tab
                      this runs in is put on it; for new ones, set it as the default once
@@ -204,10 +205,11 @@ def kitty(path: str, face: str, size: int) -> bool:
 # The editors whose terminal takes its font from their own settings.json, by their settings folder's name:
 # a terminal inside one of them does not use the system terminal's font.
 EDITORS = {"Code": "VS Code", "Code - Insiders": "VS Code Insiders", "Kiro": "Kiro", "Cursor": "Cursor",
-           "Windsurf": "Windsurf", "VSCodium": "VSCodium"}
+           "Windsurf": "Windsurf", "VSCodium": "VSCodium", "Antigravity": "Antigravity", "Antigravity IDE": "Antigravity IDE"}
 # What each one's own paths carry (its program's folder or app), to tell which one this runs in.
 EDITOR_MARKS = {"Code": ("Microsoft VS Code", "Visual Studio Code.app"), "Code - Insiders": ("Insiders",),
-                "Kiro": ("Kiro",), "Cursor": ("Cursor",), "Windsurf": ("Windsurf",), "VSCodium": ("VSCodium",)}
+                "Kiro": ("Kiro",), "Cursor": ("Cursor",), "Windsurf": ("Windsurf",), "VSCodium": ("VSCodium",),
+                "Antigravity": ("Antigravity",), "Antigravity IDE": ("Antigravity",)}
 
 
 def editor_settings(path: str, face: str, size: int) -> bool:
