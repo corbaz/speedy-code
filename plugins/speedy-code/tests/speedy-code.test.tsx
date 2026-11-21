@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, chainOf, driveLabel, driveOf, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, driveLabel, driveOf, explorerColumns, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2186,4 +2186,14 @@ test('⚙ → Claude Code: Code Mode is off until switched on; the switch writes
     CODE_MODE.on = false
     CODE_MODE.ran = []
   }
+})
+
+test('cutCells and explorerColumns: a name keeps to its row, cut with …; the explorer asks a little more than a third of the terminal', () => {
+  expect(cutCells('notas.txt', 20)).toBe('notas.txt')
+  expect(cutCells('guia_fundamentos_javascript_mouredevpro.pdf', 20)).toBe('guia_fundamentos_ja…')
+  expect(cells(cutCells('01-01-Qué es RAG y por qué es importante.mp4', 12))).toBeLessThanOrEqual(12)
+  expect(cells(cutCells('漢字漢字漢字漢字', 7))).toBeLessThanOrEqual(7)
+  expect(explorerColumns(0)).toBe(44)
+  expect(explorerColumns(100)).toBe(44)
+  expect(explorerColumns(230)).toBe(87)
 })

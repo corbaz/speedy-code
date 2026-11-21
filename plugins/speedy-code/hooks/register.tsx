@@ -2012,6 +2012,30 @@ async function openFolder ($: EngineInterface) {
 const EXPLORER_PANE = 'speedy-code-explorer'
 /** The cells the explorer asks for while docked beside a fullscreen transcript. */
 const EXPLORER_COLUMNS = 44
+/** The share of the terminal the explorer asks for: a little more than a third. */
+const EXPLORER_SHARE = 0.38
+/** The terminal's width, as the footer last drew in it; 0 before it did. */
+let terminalColumns = 0
+/** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
+const EXPLORER_TOOLS_WIDTH = 10
+/** The cells ` ¿Borrar?  Sí  No ` takes in their place, a spare one with them. */
+const EXPLORER_ASK_WIDTH = 20
+
+/** The columns the explorer asks for: a little more than a third of the terminal, never less than it needs. */
+export function explorerColumns (terminal: number) {
+  return terminal > 0 ? Math.max(EXPLORER_COLUMNS, Math.round(terminal * EXPLORER_SHARE)) : EXPLORER_COLUMNS
+}
+
+/** A text cut to `most` cells, ending in … when it is longer: a name on one row, whatever its length. */
+export function cutCells (text: string, most: number) {
+  if (cells(text) <= most) return text
+  let out = ''
+  for (const char of Array.from(text)) {
+    if (cells(out + char) > most - 1) break
+    out += char
+  }
+  return `${out}…`
+}
 /** The most entries a folder shows: a folder with thousands would bury the tree. */
 const EXPLORER_MOST = 500
 const EXPLORER_DIR_COLOR = '#74c0fc'
@@ -2221,7 +2245,7 @@ async function toggleExplorer ($: EngineInterface) {
   const chain = drive ? chainOf(here, drive) : []
   const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
   await update($, explorer, () => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1 }))
-  await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: EXPLORER_COLUMNS, closeOnEscape: true }).catch(() => undefined)
+  await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
 /** A folder of the tree pressed: open, it closes; closed, it opens and is read afresh. */
@@ -2283,13 +2307,17 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         if (row.kind === 'file') {
           // A file: its name, which opens the viewer when it shows it, and at its right 📋 copies the file,
           // 🔗 its path and 🗑 sends it to the trash, after a Sí.
+          // The name is cut to its room, so a long one keeps to its row and the tools stay in sight.
+          // Asking ¿Borrar? Sí No takes more room than the three tools.
+          const toolsWidth = asking === row.path ? EXPLORER_ASK_WIDTH : EXPLORER_TOOLS_WIDTH
+          const label = cutCells(`${indent}  ${row.name}`, Math.max(4, width - toolsWidth))
           const name = isViewable(row.name)
             ? (
               <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
-                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{label}</Text>
               </Button>
               )
-            : <Text dimColor wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+            : <Text dimColor wrap="truncate-end">{label}</Text>
           const tools = asking === row.path
             ? [
               <Text key="ask" bold color="#ff6b6b">{' ¿Borrar? '}</Text>,
@@ -2305,7 +2333,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
               <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
-              <Box flexDirection="row" flexShrink={0}>{tools}</Box>
+              <Box flexDirection="row" flexShrink={0} width={toolsWidth}>{tools}</Box>
             </Box>
           )
         }
@@ -3618,6 +3646,7 @@ export const register: Register = on => {
     // The cells the controls take as drawn, and the place after them while it still fits.
     const taken = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + (compact.has(group.name) && 'compactWidth' in group ? group.compactWidth : group.width), hiddenGroups.length > 0 ? MORE_WIDTH : 0)
     const isPlaced = placeWidth > 0 && taken + placeWidth <= room
+    terminalColumns = e.viewport?.columns ?? terminalColumns
     const blank = footerBlank(e.viewport?.columns, taken + (isPlaced ? placeWidth : 0) + (modes ? cells(modes) + 3 : 0))
     return (
       <Box flexDirection="row" flexWrap="nowrap">
