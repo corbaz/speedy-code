@@ -374,10 +374,11 @@ def fill_screen(process: str) -> bool:
         return False
 
 
-def mac_terminal(postscript: str, size: int) -> bool:
+def mac_terminal(postscript: str, size: int, is_here: bool = False) -> bool:
     """Sets the font of Terminal's default and startup profiles, and of the profile of each tab open.
-    Only while it is open: asking would open it."""
-    if subprocess.run(["pgrep", "-x", "Terminal"], capture_output=True, check=False).returncode != 0:
+    Only while it is open: asking would open it. When this runs in it, it is open; it is not looked for
+    among the processes, which a sandboxed run may not see."""
+    if not is_here and subprocess.run(["pgrep", "-x", "Terminal"], capture_output=True, check=False).returncode != 0:
         return False
     script = "\n".join([
         'tell application "Terminal"',
@@ -537,7 +538,7 @@ def main() -> int:
     postscript = names.get(6) or FAMILIES[family][4]
     if sys.platform == "darwin" and here in ("", "Terminal"):
         try:
-            if mac_terminal(postscript, size):
+            if mac_terminal(postscript, size, here == "Terminal"):
                 changed.append("Terminal")
         except OSError as error:
             failed.append(f"Terminal ({error})")
