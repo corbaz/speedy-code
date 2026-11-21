@@ -336,10 +336,21 @@ function run(argv) {
   const room = screen.visibleFrame;
   const top = whole.size.height - (room.origin.y + room.size.height);
   const window = Application('System Events').processes.byName(argv[0]).windows[0];
-  for (let turn = 0; turn < 6; turn++) {
+  // A window grown past the screen is first brought back to the screen's size, then placed, then sized
+  // again: macOS keeps a window's frame where it can, so a move alone can leave it hanging off the edge.
+  // iTerm2 is also told its own window's bounds, which it keeps to its grid.
+  for (let turn = 0; turn < 12; turn++) {
     delay(0.5);
-    window.position = [room.origin.x, top];
-    window.size = [room.size.width, room.size.height];
+    try {
+      window.size = [room.size.width, room.size.height];
+      window.position = [room.origin.x, top];
+      window.size = [room.size.width, room.size.height];
+    } catch (error) {}
+    if (argv[0] === 'iTerm2') {
+      try {
+        Application('iTerm2').currentWindow.bounds = { x: room.origin.x, y: top, width: room.size.width, height: room.size.height };
+      } catch (error) {}
+    }
   }
   return 'ok';
 }
@@ -348,7 +359,7 @@ function run(argv) {
 
 def fill_screen(process: str) -> bool:
     """A terminal that keeps its rows and columns shrinks its window with a smaller font and widens it past
-    the screen with a larger one: the window is made to fill the screen again, a few times over three
+    the screen with a larger one: the window is made to fill the screen again, a few times over six
     seconds, as the terminal resizes it a moment after the change. In the background, so this returns at
     once. Needs System Events, as the plugin's keys do."""
     if sys.platform != "darwin":
