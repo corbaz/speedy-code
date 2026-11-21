@@ -38,7 +38,11 @@ C_YELLOW = "38;5;221"
 C_RED = "1;38;5;203"
 DEFAULT_PRIORITY = ["core", "app", "five_hour", "seven_day", "context", "time", "cost", "tokens"]
 DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-ANSI = re.compile(ESC + r"\[[0-9;]*m")
+# Colors, and the start and end of a link: neither takes a cell.
+ANSI = re.compile(ESC + r"\[[0-9;]*m|" + ESC + r"\]8;;[^" + ESC + r"]*" + ESC + r"\\")
+# Where a click on a part goes: the notes of the version running, and the account's usage.
+CHANGELOG = "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"
+USAGE = "https://claude.ai/settings/usage"
 # The signs of the line, in each icon set: the one chosen in ⚙️ → Barra de estado. The Nerd Fonts
 # ones are Font Awesome's glyphs (microchip, clock, arrow_rotate_right,
 # triangle_exclamation), which need a Nerd Font in the terminal. A terminal draws a glyph wider than its
@@ -51,6 +55,12 @@ SIGNS = {
 
 def paint(text, color):
     return f"{ESC}[{color}m{text}{ESC}[0m"
+
+
+def link(text, url):
+    """`text` as a link to `url` (OSC 8): Ctrl+click opens it, Cmd+click on macOS; a terminal that
+    knows no links draws the text alone."""
+    return f"{ESC}]8;;{url}{ESC}\\{text}{ESC}]8;;{ESC}\\"
 
 
 def visible(text):
@@ -177,7 +187,8 @@ def line_of(data, columns, levels, priority, icons="emoji", app=""):
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
     # Claude Code's version opens the line, named: claude:v2.1.329. speedy-code's closes it.
-    core = paint(f"claude:v{version}", C_CLAUDE) if version else ""
+    # A click opens its notes: the changelog's heading for the version, named without its dots.
+    core = link(paint(f"claude:v{version}", C_CLAUDE), f"{CHANGELOG}#{str(version).replace('.', '')}") if version else ""
     time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [
@@ -197,7 +208,9 @@ def line_of(data, columns, levels, priority, icons="emoji", app=""):
             short = paint(label, color) + " " + meter(limit_used, limit_color) + " " + paint(f"{limit_used}%", limit_color)
             if limit_used >= levels["limitRed"]:
                 short += " " + paint(sign["warning"], C_RED) + " "
-            parts.append({"rank": rank(key), "full": short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL), "short": short})
+            full = short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL)
+            # A click opens the account's usage.
+            parts.append({"rank": rank(key), "full": link(full, USAGE), "short": link(short, USAGE)})
 
     if app:
         parts.append({"rank": rank("app"), "full": paint(app, C_APP)})
