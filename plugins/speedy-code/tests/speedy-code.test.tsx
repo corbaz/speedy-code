@@ -2095,7 +2095,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
   await pane.press({ key: 'explorer-file:C:/Users/test/proyectos/notas.txt' })
   await w.clock.advance(100)
-  expect(w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1'))).length).toBe(1)
+  const viewer = w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1')))
+  expect(viewer.length).toBe(1)
+  // Windows PowerShell by its path: `powershell` on the PATH may be a shim to PowerShell 7.
+  expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
   expect(await pane.find({ key: 'explorer-file:C:/pagefile.sys' })).toBeUndefined()
   await pane.unmount()

@@ -1350,6 +1350,12 @@ async function draftImage ($: EngineInterface, id: number) {
 /** The image popup open, if any: opening another closes it. */
 let viewing: AbortController | undefined
 
+/** Windows PowerShell 5.1, which every Windows has under its system folder. */
+async function windowsPowerShell ($: EngineInterface) {
+  const root = (await $.env.get('SystemRoot')) || 'C:\\Windows'
+  return `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+}
+
 /** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another closes it. */
 const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.ps1', image.path)
 
@@ -1358,13 +1364,15 @@ const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.
  * One popup at a time: another closes it.
  */
 async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string) {
+  // Windows PowerShell by its path: `powershell` on the PATH can be a shim to PowerShell 7, whose popup
+  // never shows, and only Windows PowerShell reads a PDF through Windows' own reader.
   viewing?.abort()
   const controller = new AbortController()
   viewing = controller
   try {
     const viewer = $.process.spawn({
       argv: (await osNow($)) === 'windows'
-        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
+        ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
         : MAC.view,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
       env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path) }
