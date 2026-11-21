@@ -30,6 +30,8 @@ C_FIVE = "38;5;111"
 C_WEEK = "38;5;183"
 C_LABEL = "38;5;245"
 C_APP = "1;38;5;147"
+# Claude's own orange, the one Claude Code draws its name in.
+C_CLAUDE = "1;38;2;215;119;87"
 C_DIM = "38;5;240"
 C_GREEN = "38;5;114"
 C_YELLOW = "38;5;221"
@@ -175,7 +177,7 @@ def line_of(data, columns, levels, priority, icons="emoji", app=""):
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
     # Claude Code's version opens the line, named: claude:v2.1.329. speedy-code's closes it.
-    core = paint("claude:", C_LABEL) + paint(f"v{version}", C_TIME) if version else ""
+    core = paint(f"claude:v{version}", C_CLAUDE) if version else ""
     time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [

@@ -98,7 +98,7 @@ The line and the footer are both drawn in the middle of the terminal's width.
 claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40 │ v:26.1121-(1012)
 ```
 
-- **claude:v…:** the version of Claude Code running the session. The model and the effort are the
+- **claude:v…:** the version of Claude Code running the session, in Claude's orange. The model and the effort are the
   footer's, where a click changes them, and so are the folder and the branch.
 - **⏱:** how long the session has run, in days, hours and minutes.
 - **in / out / caché:** the tokens of the last request: new input, the answer, and input read from
