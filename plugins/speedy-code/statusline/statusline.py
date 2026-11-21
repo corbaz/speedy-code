@@ -161,7 +161,8 @@ def scoped_of(answer):
         if limit.get("kind") != "weekly_scoped" or not model or limit.get("percent") is None:
             continue
         try:
-            resets = int(datetime.fromisoformat(limit.get("resets_at") or "").timestamp())
+            # To the minute: the answer's moment comes a fraction of a second off the hour.
+            resets = round(datetime.fromisoformat(limit.get("resets_at") or "").timestamp() / 60) * 60
         except (TypeError, ValueError):
             resets = 0
         found.append({"name": str(model), "percent": number(limit["percent"]), "resets_at": resets})
