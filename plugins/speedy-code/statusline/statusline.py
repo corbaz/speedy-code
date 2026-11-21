@@ -128,7 +128,7 @@ def load_levels(path):
             priority = known + [key for key in priority if key not in known]
         if saved.get("icons") in SIGNS:
             icons = saved["icons"]
-        # speedy-code's version, as the plugin writes it when a session starts: v:yy.mmdd-(hhmm).
+        # speedy-code's version, as the plugin writes it when a session starts: vyy.mmdd(hhmm).
         if isinstance(saved.get("version"), str):
             app = saved["version"]
     except (OSError, ValueError, TypeError, AttributeError):

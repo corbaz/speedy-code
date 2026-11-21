@@ -1955,14 +1955,14 @@ let appVersion = ''
 
 /**
  * The version the footer shows: the moment of the clone's last commit, in Buenos Aires (UTC-3, which
- * has no summer time), as `v:yy.mmdd-(hhmm)`. It changes with every push, and needs no file kept.
+ * has no summer time), as `vyy.mmdd(hhmm)`. It changes with every push, and needs no file kept.
  */
 export function versionLabel (epochSeconds: number) {
   if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return ''
   const local = new Date((epochSeconds - 3 * 3600) * 1000)
   const two = (value: number) => String(value).padStart(2, '0')
   const day = `${two(local.getUTCFullYear() % 100)}.${two(local.getUTCMonth() + 1)}${two(local.getUTCDate())}`
-  return `v:${day}-(${two(local.getUTCHours())}${two(local.getUTCMinutes())})`
+  return `v${day}(${two(local.getUTCHours())}${two(local.getUTCMinutes())})`
 }
 
 /** The version, asked of git once: the mod is read from its clone, so its last commit is what runs. */

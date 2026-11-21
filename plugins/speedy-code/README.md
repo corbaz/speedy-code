@@ -95,7 +95,7 @@ In VS Code (and its forks) the window's zoom must be a whole level (`window.zoom
 The line and the footer are both drawn in the middle of the terminal's width.
 
 ```
-claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40 │ v:26.1121-(1012)
+claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40 │ v26.1121(1012)
 ```
 
 - **claude:v…:** the version of Claude Code running the session, in Claude's orange. The model and the effort are the
@@ -109,7 +109,7 @@ claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱
 - **sesión:** what the session has cost.
 - **5hs / semana:** the share of each usage limit used, and when it resets. Yellow at 75%, red and
   `⚠` at 90%.
-- **v:yy.mmdd-(hhmm):** speedy-code's version, last: the moment of the clone's last commit, in Buenos
+- **vyy.mmdd(hhmm):** speedy-code's version, last: the moment of the clone's last commit, in Buenos
   Aires time. The plugin writes it beside the levels when a session starts.
 
 In a narrow terminal it keeps what matters most, each part whole: the two versions always, then
