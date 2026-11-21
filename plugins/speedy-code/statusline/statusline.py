@@ -1,7 +1,7 @@
 """speedy-code's status line, on Windows and on macOS.
 
-Folder, branch, version, time, tokens, context used, cost and the 5-hour and weekly limits, in color;
-the model and the effort are the footer's, where a click changes them. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on
+Claude Code's version, time, tokens, context used, cost, the 5-hour and weekly limits and speedy-code's
+version, in color; the model, the effort, the folder and the branch are the footer's. In a narrow terminal it keeps what matters most. Claude Code runs it with the session's JSON on
 stdin; switch.py copies it to ~/.claude/speedy-code and points the settings at it with the mod's Python.
 
 Every part has a color of its own, and its label is gray. Context used and limits used are green, yellow
@@ -21,8 +21,6 @@ ESC = "\x1b"
 # Ghostty an en space.
 GAP = "\u00a0" if os.name == "nt" else "\u2002"
 
-C_FOLDER = "1;38;5;81"
-C_BRANCH = "38;5;177"
 C_TIME = "38;5;117"
 C_IN = "38;5;79"
 C_OUT = "38;5;211"
@@ -31,20 +29,21 @@ C_COST = "1;38;5;220"
 C_FIVE = "38;5;111"
 C_WEEK = "38;5;183"
 C_LABEL = "38;5;245"
+C_APP = "1;38;5;147"
 C_DIM = "38;5;240"
 C_GREEN = "38;5;114"
 C_YELLOW = "38;5;221"
 C_RED = "1;38;5;203"
-DEFAULT_PRIORITY = ["core", "five_hour", "seven_day", "context", "time", "cost", "tokens", "folder"]
+DEFAULT_PRIORITY = ["core", "app", "five_hour", "seven_day", "context", "time", "cost", "tokens"]
 DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 ANSI = re.compile(ESC + r"\[[0-9;]*m")
 # The signs of the line, in each icon set: the one chosen in ⚙️ → Barra de estado. The Nerd Fonts
-# ones are Font Awesome's glyphs (folder, code_branch, microchip, clock, arrow_rotate_right,
+# ones are Font Awesome's glyphs (microchip, clock, arrow_rotate_right,
 # triangle_exclamation), which need a Nerd Font in the terminal. A terminal draws a glyph wider than its
 # cell, so each is followed by a en space (U+2002, which Ghostty takes for a blank and so draws the glyph whole) to spill over, in its own color.
 SIGNS = {
-    "emoji": {"folder": "", "branch": "⎇", "model": "◆", "time": "⏱ ", "reset": "↻", "warning": "⚠"},
-    "nerd": {"folder": f"\uf07b{GAP} ", "branch": f"\uf126{GAP}", "model": f"\uf2db{GAP}", "time": f"\uf017{GAP}", "reset": f"\uf01e{GAP}", "warning": f"\uf071{GAP}"},
+    "emoji": {"model": "◆", "time": "⏱ ", "reset": "↻", "warning": "⚠"},
+    "nerd": {"model": f"\uf2db{GAP}", "time": f"\uf017{GAP}", "reset": f"\uf01e{GAP}", "warning": f"\uf071{GAP}"},
 }
 
 
@@ -111,6 +110,7 @@ def load_levels(path):
     levels = {"contextYellow": 60, "contextRed": 80, "limitYellow": 75, "limitRed": 90}
     priority = list(DEFAULT_PRIORITY)
     icons = "emoji"
+    app = ""
     try:
         with open(path, encoding="utf-8-sig") as source:
             saved = json.load(source)
@@ -126,12 +126,15 @@ def load_levels(path):
             priority = known + [key for key in priority if key not in known]
         if saved.get("icons") in SIGNS:
             icons = saved["icons"]
+        # speedy-code's version, as the plugin writes it when a session starts: v:yy.mmdd-(hhmm).
+        if isinstance(saved.get("version"), str):
+            app = saved["version"]
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    return levels, priority, icons
+    return levels, priority, icons, app
 
 
-def line_of(data, columns, levels, priority, home, icons="emoji"):
+def line_of(data, columns, levels, priority, icons="emoji", app=""):
     sign = SIGNS[icons]
 
     def rank(key):
@@ -147,15 +150,7 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
     def part(name, value, tone):
         return paint(name, C_LABEL) + " " + paint(value, tone)
 
-    cwd = data.get("cwd") or (data.get("workspace") or {}).get("current_dir") or ""
-    if home:
-        cwd = cwd.replace(home, "~")
     version = data.get("version")
-
-    left = paint(sign["folder"] + cwd, C_FOLDER)
-    branch = (data.get("git") or {}).get("branch")
-    if branch:
-        left = f"{left} {paint(f'{sign["branch"]} {branch}', C_BRANCH)}"
 
     window = data.get("context_window") or {}
     usage = window.get("current_usage") or {}
@@ -179,12 +174,12 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
 
     cost = part("sesión", f"${number((data.get('cost') or {}).get('total_cost_usd')):,.2f}", C_COST)
 
-    # The version closes the line, named: claude:v2.1.329.
+    # Claude Code's version opens the line, named: claude:v2.1.329. speedy-code's closes it.
     core = paint("claude:", C_LABEL) + paint(f"v{version}", C_TIME) if version else ""
     time = paint(f"{sign['time']} {format_duration((data.get('cost') or {}).get('total_duration_ms'))}", C_TIME)
 
     parts = [
-        {"rank": rank("folder"), "full": left},
+        {"rank": rank("core"), "full": core},
         {"rank": rank("time"), "full": time},
         {"rank": rank("tokens"), "full": tokens},
         {"rank": rank("context"), "full": context},
@@ -202,8 +197,8 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
                 short += " " + paint(sign["warning"], C_RED) + " "
             parts.append({"rank": rank(key), "full": short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL), "short": short})
 
-    if core:
-        parts.append({"rank": rank("core"), "full": core})
+    if app:
+        parts.append({"rank": rank("app"), "full": paint(app, C_APP)})
 
     # The parts in rank order, each in its short form, until one does not fit; then the limits get their
     # reset time back with the room left. The first by priority always goes. Nothing is cut with "…".
@@ -224,10 +219,10 @@ def line_of(data, columns, levels, priority, home, icons="emoji"):
         if taken + more <= room:
             one["shown"] = one["full"]
             taken += more
-    shown = [one["shown"] for one in parts if one.get("shown")]
+    shown = [one["shown"] for one in parts if one.get("shown") and visible(one["shown"])]
     bar = paint(" │ ", C_DIM)
-    # The folder is set off by », the rest by │.
-    if parts[0].get("shown"):
+    # Claude Code's version is set off by », the rest by │.
+    if core and parts[0].get("shown"):
         return parts[0]["shown"] + " " + paint("»", C_DIM) + " " + bar.join(shown[1:])
     return bar.join(shown)
 
@@ -245,12 +240,12 @@ def main():
         return
     data = json.loads(raw)
     home = os.path.expanduser("~")
-    levels, priority, icons = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
+    levels, priority, icons, app = load_levels(os.path.join(home, ".claude", "speedy-code", "levels.json"))
     try:
         columns = int(os.environ.get("COLUMNS", "0"))
     except ValueError:
         columns = 0
-    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, home, icons), columns) + "\n").encode("utf-8"))
+    sys.stdout.buffer.write((centered(line_of(data, columns, levels, priority, icons, app), columns) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

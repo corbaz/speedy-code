@@ -231,9 +231,9 @@ const PAIR: Record<LevelKey, LevelKey> = { contextYellow: 'contextRed', contextR
  * short, the first ones go in. Each keeps its place on the line whatever its priority.
  */
 const BAR_PARTS: ReadonlyArray<readonly [BarPart, string]> = [
-  ['core', 'Versión de Claude Code'], ['five_hour', 'Límite de 5 horas'], ['seven_day', 'Límite semanal'],
-  ['context', 'Contexto'], ['time', 'Tiempo de sesión'], ['cost', 'Costo de sesión'],
-  ['tokens', 'Tokens in, out y caché'], ['folder', 'Carpeta y rama']
+  ['core', 'Versión de Claude Code'], ['app', 'Versión de speedy-code'], ['five_hour', 'Límite de 5 horas'],
+  ['seven_day', 'Límite semanal'], ['context', 'Contexto'], ['time', 'Tiempo de sesión'], ['cost', 'Costo de sesión'],
+  ['tokens', 'Tokens in, out y caché']
 ]
 const DEFAULT_ORDER: BarPart[] = BAR_PARTS.map(([key]) => key)
 
@@ -1916,8 +1916,42 @@ const NERD_COLORS: Readonly<Record<string, string>> = {
 
 export type FooterFit = { shown: Set<string>, compact: Set<string> }
 
-/** The version's color, after the ✕. */
-const VERSION_COLOR = '#b197fc'
+/** The colors of the folder and the branch, after the ✕: the status line's own. */
+const FOLDER_COLOR = '#5fd7ff'
+const BRANCH_COLOR = '#d787ff'
+/** The most cells the folder takes in the footer: a longer one keeps its end, after a …. */
+const FOLDER_CELLS = 40
+
+/**
+ * The folder as the footer shows it: home as ~, with the system's own separators, and its end alone
+ * after a … when it is longer than `most` cells.
+ */
+export function folderLabel (cwd: string, home: string, os: 'windows' | 'mac', most = FOLDER_CELLS) {
+  if (!cwd) return ''
+  const plain = cwd.replace(/\\/g, '/')
+  const homePlain = home.replace(/\\/g, '/').replace(/\/$/, '')
+  const inHome = homePlain && (plain === homePlain || plain.toLowerCase().startsWith(`${homePlain.toLowerCase()}/`))
+  const shown = inHome ? `~${plain.slice(homePlain.length)}` : plain
+  const native = os === 'windows' ? shown.replace(/\//g, '\\') : shown
+  return native.length > most ? `…${native.slice(native.length - most + 1)}` : native
+}
+
+/** Where the session works, after the ✕: its folder and git branch, followed outside any draw. */
+let place = { folder: '', branch: '' }
+
+async function followPlace ($: EngineInterface) {
+  const cwd = await $.session.cwd().catch(() => '')
+  const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || ''
+  const folder = folderLabel(cwd, home, await osNow($))
+  const asked = cwd ? await $.process.run(['git', '-C', cwd.replace(/\\/g, '/'), 'branch', '--show-current']).catch(() => undefined) : undefined
+  const branch = asked?.exitCode === 0 ? asked.stdout.trim() : ''
+  if (folder === place.folder && branch === place.branch) return
+  place = { folder, branch }
+  $.ui.invalidate('ui.render')
+}
+
+/** The version the status line shows at its end, once git has told it. */
+let appVersion = ''
 
 /**
  * The version the footer shows: the moment of the clone's last commit, in Buenos Aires (UTC-3, which
@@ -2262,7 +2296,7 @@ export function barOrderOf (saved: unknown): BarPart[] {
 
 /** Writes the file the status line reads: the levels, the parts by priority and the icon set. */
 async function writeBarFile ($: EngineInterface) {
-  const content = { ...(await read($, barLevels)), priority: await read($, barOrder), icons: await read($, icons) }
+  const content = { ...(await read($, barLevels)), priority: await read($, barOrder), icons: await read($, icons), ...(appVersion ? { version: appVersion } : {}) }
   await $.fs.write(await homeFile($, LEVELS_FILE), `${JSON.stringify(content, null, 2)}\n`)
 }
 
@@ -2976,9 +3010,9 @@ export const register: Register = on => {
     // A reload starts the session again: the version is asked of git again, so a pull shows at once.
     versionKnown = undefined
     versionFails = 0
-    // Asked here, outside any draw: a draw's run is cut off by the next draw, and while the plugin reloads
-    // there are several in a row. The footer is drawn again once the version is known.
-    void versionNow($).then(label => { if (label) $.ui.invalidate('ui.render') }, () => undefined)
+    // The folder and the branch after the ✕: the branch changes with a checkout, so it is asked again.
+    void followPlace($)
+    $.clock.every(5000, () => followPlace($))
     // A session starts with no dictation under way: a state left from before a reload is cleared here.
     if (!listenFile) {
       await update($, listening, () => 'off')
@@ -3030,6 +3064,13 @@ export const register: Register = on => {
     if (savedLevels && typeof savedLevels === 'object') await update($, barLevels, () => savedLevels as BarLevels)
     await update($, barOrder, () => barOrderOf(savedOrder))
     await writeBarFile($)
+    // The version goes to the status line, at its end: asked here, outside any draw, whose runs the next
+    // draw cuts off, and written beside the levels once git has told it.
+    void versionNow($).then(async label => {
+      if (!label || label === appVersion) return
+      appVersion = label
+      await writeBarFile($)
+    }, () => undefined)
     // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
     // of the mod reaches it without switching it off and on.
     void switchStatusLine($, 'status').then(async () => {
@@ -3104,18 +3145,21 @@ export const register: Register = on => {
     // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
     const modes = e.props.modes.join(' & ')
     const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
-    // The version keeps its room: the controls ranked lowest go to ⋯ first. Only when even those always
-    // drawn would give way is the version left out.
-    const version = await versionNow($)
-    const kept = version ? footerFit(groups, room - version.length - 2) : undefined
+    // The folder and the branch keep their room: the controls ranked lowest go to ⋯ first. Only when even
+    // those always drawn would give way are they left out.
+    const branchSign = isGlyphs ? `\uf126${glyphGap}` : '⎇ '
+    const folderText = place.folder ? ` ${place.folder}${place.branch ? '' : ' '}` : ''
+    const branchText = place.folder && place.branch ? ` ${branchSign}${place.branch} ` : ''
+    const placeWidth = cells(folderText) + cells(branchText)
+    const kept = placeWidth ? footerFit(groups, room - placeWidth) : undefined
     const keepsAll = kept !== undefined && groups.every(group => (FOOTER_RANKS[group.name] ?? 9) !== 0 || kept.shown.has(group.name))
     const { shown, compact } = keepsAll && kept ? kept : footerFit(groups, room)
     hiddenGroups = groups.filter(group => !shown.has(group.name)).map(group => group.name)
     const drawn = (group: (typeof groups)[number]) => compact.has(group.name) && 'compactNode' in group ? group.compactNode : group.node
-    // The cells the controls take as drawn, and the version after them while it still fits.
+    // The cells the controls take as drawn, and the place after them while it still fits.
     const taken = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + (compact.has(group.name) && 'compactWidth' in group ? group.compactWidth : group.width), hiddenGroups.length > 0 ? MORE_WIDTH : 0)
-    const versionText = version && taken + version.length + 2 <= room ? ` ${version} ` : ''
-    const blank = footerBlank(e.viewport?.columns, taken + versionText.length + (modes ? cells(modes) + 3 : 0))
+    const isPlaced = placeWidth > 0 && taken + placeWidth <= room
+    const blank = footerBlank(e.viewport?.columns, taken + (isPlaced ? placeWidth : 0) + (modes ? cells(modes) + 3 : 0))
     return (
       <Box flexDirection="row" flexWrap="nowrap">
         {beneath}
@@ -3125,7 +3169,14 @@ export const register: Register = on => {
         {/* What did not fit waits behind ⋯, in a panel above the prompt. */}
         {hiddenGroups.length > 0 ? <Client key="speedy:more" module="./control.tsx" width={MORE_WIDTH} props={{ label: ' ⋯ ', color: '#adb5bd', bold: true }} /> : null}
         {groups.find(group => group.name === 'exit')?.node}
-        {versionText ? <Text key="speedy:version" bold color={VERSION_COLOR}>{versionText}</Text> : null}
+        {isPlaced
+          ? (
+            <Box key="speedy:place" flexShrink={0}>
+              <Text bold color={FOLDER_COLOR}>{folderText}</Text>
+              {branchText ? <Text color={BRANCH_COLOR}>{branchText}</Text> : null}
+            </Box>
+            )
+          : null}
         {/* Claude Code sets the footer against the right edge: this blank brings it to the middle. */}
         {blank > 0 ? <Box key="speedy:blank" width={blank} flexShrink={0} /> : null}
       </Box>

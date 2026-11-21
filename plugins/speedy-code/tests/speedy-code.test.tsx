@@ -8,7 +8,7 @@ type On = Parameters<TestBody>[1]
 import { DEFAULT_SOCIALS, MAC, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
-const GIT = { stamp: '', aborts: 0 }
+const GIT = { stamp: '', aborts: 0, branch: '' }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -156,6 +156,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     // git says when the clone's last commit was made: the footer's version.
     // A run cut off, as a reload of the plugin cuts the runs under way.
     if (e.argv[0] === 'git' && GIT.aborts > 0) { GIT.aborts -= 1; throw new Error('$.process.run(git) aborted') }
+    if (e.argv[0] === 'git' && e.argv.includes('branch')) return { value: { exitCode: GIT.branch ? 0 : 128, stdout: GIT.branch ? `${GIT.branch}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'git') return { value: { exitCode: GIT.stamp ? 0 : 1, stdout: GIT.stamp ? `${GIT.stamp}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'pbpaste') return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1486,9 +1487,9 @@ test('a click on the effort chosen, which keeps its fill under the pointer, take
 })
 
 test('barOrderOf keeps the parts it knows in their order, once each, and adds the ones it lacks', () => {
-  const all = ['core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder']
+  const all = ['core', 'app', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens']
   expect(barOrderOf(undefined)).toEqual(all)
-  expect(barOrderOf(['context', 'nope', 'context', 'core'])).toEqual(['context', 'core', 'five_hour', 'seven_day', 'time', 'cost', 'tokens', 'folder'])
+  expect(barOrderOf(['context', 'nope', 'context', 'core'])).toEqual(['context', 'core', 'app', 'five_hour', 'seven_day', 'time', 'cost', 'tokens'])
 })
 
 test('the status line priority: the arrows move a part, and the order is kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
@@ -1500,16 +1501,16 @@ test('the status line priority: the arrows move a part, and the order is kept an
   const bar = await $.ui.mount(BAND)
   // The first cannot go up, nor the last down.
   expect(await bar.find({ key: 'order-up:core' })).toBeUndefined()
-  expect(await bar.find({ key: 'order-down:folder' })).toBeUndefined()
+  expect(await bar.find({ key: 'order-down:tokens' })).toBeUndefined()
   await bar.press({ key: 'order-up:context' })
-  const moved = ['core', 'five_hour', 'context', 'seven_day', 'time', 'cost', 'tokens', 'folder']
+  const moved = ['core', 'app', 'five_hour', 'context', 'seven_day', 'time', 'cost', 'tokens']
   expect(w.kept.barOrder).toEqual(moved)
   expect(w.files.some(text => text.includes('"priority"') && text.includes('"context",\n    "seven_day"'))).toBe(true)
   await bar.unmount()
   // Restoring the defaults puts the order back too.
   const again = await $.ui.mount(BAND)
   await again.press({ key: 'bar:reset' })
-  expect(w.kept.barOrder).toEqual(['core', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens', 'folder'])
+  expect(w.kept.barOrder).toEqual(['core', 'app', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens'])
   await again.unmount()
   await ui.unmount()
 })
@@ -1621,42 +1622,44 @@ test('footerBlank: as many cells after the footer as are left before it; none wi
   expect(footerBlank(undefined, 100)).toBe(0)
 })
 
-test('the footer ends with the version after ✕ and the blank that centers it; it keeps its room before the lowest controls, and only a narrow one drops it', { timeoutMs: 30000 }, async ($, on) => {
-  GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
+test('the footer ends with the folder, home as ~, and the git branch after ✕; it keeps its room before the lowest controls, and only a narrow one drops it', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.branch = 'main'
   try {
-    const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    on('session.cwd', () => ({ value: 'C:/Users/test/proyectos/facturas' }))
+    const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await w.clock.advance(100)
     await ui.unmount()
     const wide = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
-    expect((await wide.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    expect((await wide.find({ type: 'Text', text: /facturas/ }))?.text).toBe(' ~\\proyectos\\facturas')
+    expect((await wide.find({ type: 'Text', text: /⎇ main/ }))?.text).toBe(' ⎇ main ')
+    expect(await wide.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
     const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
     expect(blank === undefined).toBe(false)
     await wide.unmount()
-    // Not so wide: the version stays, and the controls ranked lowest go to ⋯.
-    const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
-    expect((await middle.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
+    // Not so wide: the folder stays, and the controls ranked lowest go to ⋯.
+    const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 115, rows: 30 } })
+    expect(await middle.find({ type: 'Text', text: /facturas/ }).then(found => found !== undefined, () => false)).toBe(true)
     expect(await middle.find({ type: 'Text', in: 'speedy:more' }).then(found => found !== undefined, () => false)).toBe(true)
     await middle.unmount()
-    // Narrow: the controls always drawn keep their room, and the version goes before any of them.
+    // Narrow: the controls always drawn keep their room, and the folder goes before any of them.
     const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
-    expect(await narrow.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
+    expect(await narrow.find({ type: 'Text', text: /facturas/ }).then(found => found !== undefined, () => false)).toBe(false)
     expect(await narrow.find({ type: 'Text', in: 'speedy:exit' }).then(found => found !== undefined, () => false)).toBe(true)
     await narrow.unmount()
   } finally {
-    GIT.stamp = ''
+    GIT.branch = ''
   }
 })
 
-test('a git run cut off, as a plugin reload cuts them, is asked again by the draw still waiting: the version is there', { timeoutMs: 30000 }, async ($, on) => {
+test('the status line file carries the version, asked of git again when a run is cut off as a plugin reload cuts them', { timeoutMs: 30000 }, async ($, on) => {
   GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
+  GIT.aborts = 1
   try {
-    const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await w.clock.advance(100)
     await ui.unmount()
-    GIT.aborts = 1
-    await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
-    const cut = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
-    expect((await cut.find({ type: 'Text', text: /v:/ }))?.text).toBe(' v:26.1116-(2105) ')
     expect(GIT.aborts).toBe(0)
-    await cut.unmount()
+    expect(w.files.some(text => text.includes('"version": "v:26.1116-(2105)"'))).toBe(true)
   } finally {
     GIT.stamp = ''
     GIT.aborts = 0
