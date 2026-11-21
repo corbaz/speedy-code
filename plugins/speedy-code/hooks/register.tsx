@@ -55,6 +55,10 @@ export const MAC = {
   clipboardRead: ['pbpaste'],
   clipboardWrite: (text: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to item 1 of argv', '-e', 'end run', text],
   open: (link: string) => ['open', link],
+  /** A file to the clipboard as a file, as Finder's Copy leaves it. */
+  copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
+  /** A file to the Trash by Finder, where Put Back brings it again. */
+  trash: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', '-e', 'return "deleted"', '-e', 'end run', path],
   clearClips: ['/bin/sh', '-c', 'rm -f "$SPEEDY_HISTORY"/*.mp3 "$SPEEDY_HISTORY"/*.txt'],
   clearImages: ['/bin/sh', '-c', 'find "$SPEEDY_DIR" -maxdepth 1 -type f -delete 2>/dev/null; true'],
   /** As Windows keeps them: a copy whose bytes are already kept is skipped, and the newest SPEEDY_KEEP by name stay. */
@@ -2111,14 +2115,71 @@ async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number)
 }
 
 /** The files the explorer opens in the viewer when pressed: text, PDF and pictures. */
-const VIEWABLE_EXTENSIONS = new Set(['md', 'markdown', 'txt', 'sh', 'bat', 'ps1', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'tif', 'tiff'])
-const VIEWABLE_NAMES = new Set(['.gitignore'])
+const VIEWABLE_EXTENSIONS = new Set([
+  // Text and code, shown selectable.
+  'txt', 'sh', 'bat', 'ps1', 'ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'json', 'lock', 'ini', 'po', 'poe', 'd',
+  // Drawn, with a switch to their source.
+  'md', 'markdown', 'html', 'htm', 'svg',
+  // Pictures and documents.
+  'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'tif', 'tiff', 'xls', 'xlsx', 'xlsm', 'doc', 'docx',
+  // Sound and video, played.
+  'mp3', 'mpa', 'mp2', 'wav', 'm4a', 'aac', 'wma', 'ogg', 'oga', 'opus', 'flac', 'aif', 'aiff', 'mid', 'midi',
+  'mp4', 'm4v', 'mov', 'avi', 'wmv', 'mkv', 'webm', 'mpg', 'mpeg', '3gp',
+  // Binary, described.
+  'crx'
+])
+const VIEWABLE_NAMES = new Set(['.gitignore', '.ds_store'])
 
 /** Whether the explorer opens a file of this name in the viewer. */
 export function isViewable (name: string) {
   const lower = name.toLowerCase()
   const dot = lower.lastIndexOf('.')
   return VIEWABLE_NAMES.has(lower) || (dot > 0 && VIEWABLE_EXTENSIONS.has(lower.slice(dot + 1)))
+}
+
+/** A file of the tree to the clipboard as a file, to paste in Explorer or Finder; it says whether it went. */
+async function copyFileToClipboard ($: EngineInterface, path: string) {
+  const native = await nativePath($, path)
+  const isWindows = (await osNow($)) === 'windows'
+  const argv = isWindows
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-STA', '-Command', "Add-Type -AssemblyName System.Windows.Forms; $files = New-Object System.Collections.Specialized.StringCollection; [void]$files.Add($env:SPEEDY_FILE); [System.Windows.Forms.Clipboard]::SetFileDropList($files); 'copied'"]
+    : MAC.copyFile(native)
+  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
+  const name = path.split('/').pop() ?? path
+  $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: copié ${name} al portapapeles; pegalo en una carpeta.` : `speedy-code: no pude copiar ${name}.`)
+}
+
+/** A file's path to the clipboard, as the system writes it. */
+async function copyPathToClipboard ($: EngineInterface, path: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
+  const native = await nativePath($, path)
+  const copied = await $.ui.copy({ text: native, surface }).catch(() => ({ isCopied: false }))
+  $.ui.toast(copied.isCopied ? `speedy-code: copié la ruta ${native}` : 'speedy-code: no pude copiar la ruta.')
+}
+
+/** The file whose 🗑 was pressed once: a second press, on Sí, sends it to the trash; empty: none. */
+const explorerTrash = atom({ plugin: 'speedy-code', key: 'explorerTrash' } as const, '')
+
+/** Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder again. */
+async function trashFile ($: EngineInterface, path: string) {
+  await update($, explorerTrash, () => '')
+  const native = await nativePath($, path)
+  const isWindows = (await osNow($)) === 'windows'
+  const argv = isWindows
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin'); 'deleted'"]
+    : MAC.trash(native)
+  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
+  const name = path.split('/').pop() ?? path
+  if (result?.stdout.trim() !== 'deleted') {
+    $.ui.toast(`speedy-code: no pude mandar ${name} a la papelera.`)
+    return
+  }
+  $.ui.toast(`speedy-code: ${name} fue a la papelera.`)
+  const parent = path.slice(0, path.lastIndexOf('/')) || path
+  const folder = parent.endsWith(':') ? `${parent}/` : parent
+  const state = await read($, explorer)
+  const key = pathKey(folder, state.caseless)
+  const listed = await readFolder($, folder)
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
 }
 
 /** A folder read for the tree; `denied` when it cannot be read. */
@@ -2192,6 +2253,7 @@ async function pickDrive ($: EngineInterface, drive: string) {
  * A file the viewer shows is drawn yellow and opens it when pressed; the others are dim. */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
+  const asking = await read($, explorerTrash)
   const { Box, Button, Text } = $.ui.resolve(e)
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
@@ -2218,11 +2280,33 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
-        if (row.kind === 'file' && isViewable(row.name)) {
+        if (row.kind === 'file') {
+          // A file: its name, which opens the viewer when it shows it, and at its right 📋 copies the file,
+          // 🔗 its path and 🗑 sends it to the trash, after a Sí.
+          const name = isViewable(row.name)
+            ? (
+              <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
+                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+              </Button>
+              )
+            : <Text dimColor wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+          const tools = asking === row.path
+            ? [
+              <Text key="ask" bold color="#ff6b6b">{' ¿Borrar? '}</Text>,
+              <Button key={`explorer-trash-yes:${row.path}`} plain onPress={() => { void trashFile($, row.path) }}><Text bold color="black" backgroundColor="#ff6b6b">{' Sí '}</Text></Button>,
+              <Text key="gap"> </Text>,
+              <Button key={`explorer-trash-no:${row.path}`} plain onPress={() => { void update($, explorerTrash, () => '') }}><Text bold color="black" backgroundColor="#868e96">{' No '}</Text></Button>
+              ]
+            : [
+              <Button key={`explorer-copy:${row.path}`} plain onPress={() => { void copyFileToClipboard($, row.path) }}><Text>{' 📋'}</Text></Button>,
+              <Button key={`explorer-path:${row.path}`} plain onPress={() => { void copyPathToClipboard($, row.path, e.surface) }}><Text>{' 🔗'}</Text></Button>,
+              <Button key={`explorer-trash:${row.path}`} plain onPress={() => { void update($, explorerTrash, () => row.path) }}><Text>{' 🗑'}</Text></Button>
+              ]
           return (
-            <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
-              <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
-            </Button>
+            <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
+              <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
+              <Box flexDirection="row" flexShrink={0}>{tools}</Box>
+            </Box>
           )
         }
         if (row.kind !== 'dir') {

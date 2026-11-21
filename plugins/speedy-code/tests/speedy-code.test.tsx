@@ -13,6 +13,8 @@ const TOASTS: string[] = []
 const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails: false }
 /** What code_mode.py keeps in the user's settings, and each action it was run with. */
 const CODE_MODE = { on: false, ran: [] as string[] }
+/** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
+const FILES = { copied: [] as string[], trashed: [] as string[] }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -202,6 +204,15 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.startsWith('Set-Clipboard'))) {
       copied.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // The explorer's 📋 and 🗑: a file to the clipboard, a file to the Recycle Bin.
+    if (e.argv.some(arg => arg.includes('SetFileDropList'))) {
+      FILES.copied.push(e.init?.env?.SPEEDY_FILE ?? '')
+      return { value: { exitCode: 0, stdout: 'copied\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv.some(arg => arg.includes('SendToRecycleBin'))) {
+      FILES.trashed.push(e.init?.env?.SPEEDY_FILE ?? '')
+      return { value: { exitCode: 0, stdout: 'deleted\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // Code Mode's switch answers what the settings hold.
     if (e.argv.some(arg => arg.endsWith('code_mode.py'))) {
@@ -2031,6 +2042,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); return { value: { isPlaced: true } } })
   on('ui.close', (_, e) => { closed.push(e.id); panes.splice(panes.indexOf(e.id), 1); return { value: undefined } })
   on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
+  const copies: string[] = []
+  on('ui.copy', (_, e) => { copies.push(e.text); return { value: { isCopied: true } } })
   on('session.cwd', () => ({ value: 'C:\\Users\\test\\proyectos' }))
   on('fs.stat', (_, e) => {
     if (!/^[CD]:[\\/]$/.test(e.path)) throw new Error('ENOENT')
@@ -2061,7 +2074,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await short.findAll({ type: 'Text' })).map(text => text.text)).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
-  const texts = async () => (await pane.findAll({ type: 'Text' })).map(text => text.text)
+  // The rows' texts, without each file's 📋 🔗 🗑.
+  const texts = async () => (await pane.findAll({ type: 'Text' })).map(text => text.text).filter(text => ![' 📋', ' 🔗', ' 🗑'].includes(text ?? ''))
   expect(await texts()).toEqual([
     ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44),
     '▾ C:\\',
@@ -2101,6 +2115,28 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
   expect(await pane.find({ key: 'explorer-file:C:/pagefile.sys' })).toBeUndefined()
+  // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
+  for (const key of ['explorer-copy:C:/pagefile.sys', 'explorer-path:C:/pagefile.sys', 'explorer-trash:C:/pagefile.sys']) expect(await pane.find({ key })).toBeDefined()
+  // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
+  FILES.copied = []
+  FILES.trashed = []
+  await pane.press({ key: 'explorer-copy:C:/Users/test/proyectos/notas.txt' })
+  expect(FILES.copied).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: copié notas.txt al portapapeles; pegalo en una carpeta.')
+  await pane.press({ key: 'explorer-path:C:/Users/test/proyectos/notas.txt' })
+  expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
+  // 🗑 asks first: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
+  await pane.press({ key: 'explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  expect(await texts()).toContain(' ¿Borrar? ')
+  await pane.press({ key: 'explorer-trash-no:C:/Users/test/proyectos/notas.txt' })
+  expect(await texts()).not.toContain(' ¿Borrar? ')
+  expect(FILES.trashed).toEqual([])
+  await pane.press({ key: 'explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  TREE['C:/Users/test/proyectos'] = [{ name: 'facturas', kind: 'dir' }]
+  await pane.press({ key: 'explorer-trash-yes:C:/Users/test/proyectos/notas.txt' })
+  expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
+  expect(await texts()).not.toContain('          notas.txt')
   await pane.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
@@ -2119,9 +2155,11 @@ test('windowTop: the first tree row in the window, kept so the last row stays at
   expect(windowTop(rows.map((row, i) => ({ ...row, isHere: i === 19 })), -1, 6)).toBe(14)
 })
 
-test('isViewable: the explorer opens text, PDF and pictures in the viewer, and .gitignore; nothing else', () => {
-  for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'install.PS1', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore']) expect(isViewable(name)).toBe(true)
-  for (const name of ['pagefile.sys', 'app.exe', 'data.json', 'Makefile', '.env', 'md', 'x.webp']) expect(isViewable(name)).toBe(false)
+test('isViewable: the explorer opens text and code, pages, PDF, pictures, spreadsheets, documents, sound and video in the viewer; nothing else', () => {
+  for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'install.PS1', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore',
+    'a.ts', 'a.tsx', 'a.json', 'bun.lock', 'a.js', 'a.jsx', 'a.cjs', 'a.mjs', 'index.html', 'a.htm', 'a.d', 'a.ini', 'a.crx', 'a.po', 'a.poe', '.DS_Store', 'logo.svg',
+    'a.xls', 'a.xlsx', 'a.doc', 'a.docx', 'song.mp3', 'a.mpa', 'a.wav', 'a.flac', 'a.ogg', 'a.m4a', 'clip.mp4', 'a.mkv', 'a.webm', 'a.avi', 'a.mov']) expect([name, isViewable(name)]).toEqual([name, true])
+  for (const name of ['pagefile.sys', 'app.exe', 'Makefile', '.env', 'md', 'x.webp', 'a.dll']) expect([name, isViewable(name)]).toEqual([name, false])
 })
 
 test('⚙ → Claude Code: Code Mode is off until switched on; the switch writes the settings, says it applies next time, and switches it off again', { timeoutMs: 30000 }, async ($, on) => {

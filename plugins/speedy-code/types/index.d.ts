@@ -130,6 +130,8 @@ declare module 'claude-code' {
       effort: string
       /** The explorer pane the footer's folder opens: its disks, its open folders and what they hold. */
       explorer: Shaped<Explorer>
+      /** The file of the explorer whose trash was pressed once, waiting for its Sí; empty: none. */
+      explorerTrash: string
     }
   }
 }
