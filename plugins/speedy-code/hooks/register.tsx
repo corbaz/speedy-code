@@ -1348,16 +1348,23 @@ async function draftImage ($: EngineInterface, id: number) {
 let viewing: AbortController | undefined
 
 /** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another closes it. */
-async function openView ($: EngineInterface, image: PastedImage) {
+const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.ps1', image.path)
+
+/**
+ * Runs a popup in the middle of the screen: `script` on Windows, Quick Look on macOS, for the file at `path`.
+ * One popup at a time: another closes it.
+ */
+async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string) {
   viewing?.abort()
   const controller = new AbortController()
   viewing = controller
   try {
     const viewer = $.process.spawn({
       argv: (await osNow($)) === 'windows'
-        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/view.ps1`]
+        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
         : MAC.view,
-      env: { SPEEDY_IMAGE: await nativePath($, image.path) }
+      // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it.
     for await (const _line of viewer) {
@@ -2075,6 +2082,17 @@ async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number)
   if (top !== state.top) await update($, explorer, now => ({ ...now, top }))
 }
 
+/** The files the explorer opens in the viewer when pressed: text, PDF and pictures. */
+const VIEWABLE_EXTENSIONS = new Set(['md', 'markdown', 'txt', 'sh', 'bat', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'tif', 'tiff'])
+const VIEWABLE_NAMES = new Set(['.gitignore'])
+
+/** Whether the explorer opens a file of this name in the viewer. */
+export function isViewable (name: string) {
+  const lower = name.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  return VIEWABLE_NAMES.has(lower) || (dot > 0 && VIEWABLE_EXTENSIONS.has(lower.slice(dot + 1)))
+}
+
 /** A folder read for the tree; `denied` when it cannot be read. */
 async function readFolder ($: EngineInterface, path: string): Promise<ExplorerListing | 'denied'> {
   try {
@@ -2142,7 +2160,8 @@ async function pickDrive ($: EngineInterface, drive: string) {
   await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
 }
 
-/** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●. */
+/** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●.
+ * A file the viewer shows is drawn bright and opens it when pressed; the others are dim. */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const { Box, Button, Text } = $.ui.resolve(e)
@@ -2171,6 +2190,13 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
+        if (row.kind === 'file' && isViewable(row.name)) {
+          return (
+            <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
+              <Text wrap="truncate-end">{`${indent}  ${row.name}`}</Text>
+            </Button>
+          )
+        }
         if (row.kind !== 'dir') {
           const mark = row.kind === 'link' ? '↪ ' : '  '
           return <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>

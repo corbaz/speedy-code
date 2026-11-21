@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, chainOf, driveLabel, driveOf, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, chainOf, driveLabel, driveOf, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2083,6 +2083,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.press({ key: 'explorer-system' })
   await w.clock.advance(100)
   expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos'])
+  // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
+  await pane.press({ key: 'explorer-file:C:/Users/test/proyectos/notas.txt' })
+  await w.clock.advance(100)
+  expect(w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1'))).length).toBe(1)
+  expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
+  expect(await pane.find({ key: 'explorer-file:C:/pagefile.sys' })).toBeUndefined()
   await pane.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
@@ -2099,4 +2105,9 @@ test('windowTop: the first tree row in the window, kept so the last row stays at
   expect(windowTop(rows.slice(0, 4), 2, 6)).toBe(0)
   expect(windowTop(rows.map(row => ({ ...row, isHere: false })), -1, 6)).toBe(0)
   expect(windowTop(rows.map((row, i) => ({ ...row, isHere: i === 19 })), -1, 6)).toBe(14)
+})
+
+test('isViewable: the explorer opens text, PDF and pictures in the viewer, and .gitignore; nothing else', () => {
+  for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore']) expect(isViewable(name)).toBe(true)
+  for (const name of ['pagefile.sys', 'app.exe', 'data.json', 'Makefile', '.env', 'md', 'x.webp']) expect(isViewable(name)).toBe(false)
 })
