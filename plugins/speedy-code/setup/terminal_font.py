@@ -8,6 +8,7 @@ Usage: terminal_font.py --size <points> [--family jetbrains|meslo]
        terminal_font.py --size <points> --face <name> --kitty <kitty.conf>
        terminal_font.py --size <points> --face <PostScript name> --iterm <DynamicProfiles folder>
        terminal_font.py --size <points> --face <name> --editor <settings.json>
+       terminal_font.py --size <points> --face <name> --zed <settings.json>
 
 A program that runs in a terminal has no font of its own: the letters, their size and their
 sharpness are the terminal's. So this changes the terminal's own settings, and the whole of it
@@ -34,6 +35,8 @@ The terminals it knows, each changed only where it is found:
   VS Code, Kiro,     `terminal.integrated.fontFamily` and `fontSize` in the editor's settings.json,
   Cursor, Windsurf,  when this runs in its terminal: then only that editor changes
   Antigravity
+  Zed                `font_family` and `font_size` under `terminal` in Zed's settings.json, when
+                     this runs in its terminal: then only Zed changes
   iTerm2             a profile of its own, `speedy-code`, in its DynamicProfiles folder, which it
                      reads again by itself; it takes the rest from the default profile. The tab
                      this runs in is put on it; for new ones, set it as the default once
@@ -251,6 +254,83 @@ def editors_here(base: str) -> list:
     mine = [(name, path) for folder, name in EDITORS.items() for one, path in found
             if one == name and any(mark.lower() in told.lower() for mark in EDITOR_MARKS[folder])]
     return mine or found
+
+
+def json_braces(text: str) -> list:
+    """The braces of a settings file that may hold comments, as (index, depth after it, key before it),
+    strings and comments skipped: the key is the string just before the brace, if a `:` joins them."""
+    found, depth, key, index = [], 0, "", 0
+    while index < len(text):
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            while end < len(text) and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            key = text[index + 1:end]
+            index = end + 1
+            continue
+        if text.startswith("//", index):
+            end = text.find("\n", index)
+            index = len(text) if end < 0 else end
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = len(text) if end < 0 else end + 2
+            continue
+        if char in "{[":
+            depth += 1
+            found.append((index, depth, key))
+        elif char in "}]":
+            found.append((index, depth - 1, ""))
+            depth -= 1
+        elif char not in ": \t\r\n":
+            key = ""
+        index += 1
+    return found
+
+
+def zed_settings(path: str, face: str, size: int) -> bool:
+    """Sets `font_family` and `font_size` in the `terminal` of Zed's settings.json, which may hold
+    comments: each value in place of the one it had, or added first in `terminal`, which is added first
+    when there is none. Zed reads its settings again by itself."""
+    try:
+        with open(path, encoding="utf-8") as source:
+            before = source.read()
+    except FileNotFoundError:
+        before = "{}\n"
+    values = {"font_family": json.dumps(face), "font_size": str(size)}
+    braces = json_braces(before)
+    opened = next((index for index, depth, key in braces if depth == 2 and key == "terminal"), None)
+    if opened is None:
+        start = next(index for index, depth, _ in braces if depth == 1)
+        comma = "" if before[start + 1:].lstrip().startswith("}") else ","
+        inner = ", ".join(f'"{key}": {value}' for key, value in values.items())
+        after = before[:start + 1] + "\n  " + f'"terminal": {{ {inner} }}' + comma + before[start + 1:]
+    else:
+        closed = next(index for index, depth, _ in braces if index > opened and depth == 1)
+        body = before[opened:closed + 1]
+        for key, value in values.items():
+            found = re.compile(r'("' + re.escape(key) + r'"\s*:\s*)("(?:[^"\\]|\\.)*"|[0-9.]+)')
+            if found.search(body):
+                body = found.sub(lambda match, value=value: match.group(1) + value, body, count=1)
+            else:
+                comma = "" if body[1:].lstrip().startswith("}") else ","
+                body = body[:1] + f' "{key}": {value}{comma}' + body[1:]
+        after = before[:opened] + body + before[closed + 1:]
+    if after == before:
+        return False
+    keep_copy(path)
+    write_whole(path, after)
+    return True
+
+
+def zed_path() -> str:
+    """Zed's settings: in the app data on Windows, in the config folder elsewhere."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Roaming"))
+        return os.path.join(base, "Zed", "settings.json")
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(config, "zed", "settings.json")
 
 
 def editors_base() -> str:
@@ -494,7 +574,7 @@ def main() -> int:
         return 1
     # One file given: that one alone, with the face named, and nothing fetched.
     for flag, apply in (("--windows-terminal", windows_terminal), ("--ghostty", ghostty), ("--kitty", kitty), ("--iterm", iterm),
-                        ("--editor", editor_settings)):
+                        ("--editor", editor_settings), ("--zed", zed_settings)):
         if option(flag):
             try:
                 print("cambiada" if apply(option(flag), option("--face"), size) else "ya estaba")
@@ -528,6 +608,10 @@ def main() -> int:
     for name, path in editors or []:
         attempt(name, lambda path=path: editor_settings(path, face, size))
     if editors is not None:
+        return report(face, size, changed, failed, is_new, "")
+    # Zed's terminal: the font is in Zed's own settings, under `terminal`.
+    if os.environ.get("TERM_PROGRAM", "").lower() == "zed":
+        attempt("Zed", lambda: zed_settings(zed_path(), face, size))
         return report(face, size, changed, failed, is_new, "")
     if sys.platform == "win32":
         for settings in nerd_font.terminal_settings():
