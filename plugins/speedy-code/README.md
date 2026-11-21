@@ -31,7 +31,7 @@ From left to right:
 | 🔄 | Runs `/reload-plugins` |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
-| `~\.claude\local-mods ⎇ main` | The session's folder, home as `~`, and its git branch, after ✕. Not a button; it keeps its room before the controls ranked lowest, and goes only when even the ones always drawn would not fit |
+| `~\.claude\local-mods ⎇ main` | The session's folder, home as `~`, and its git branch, after ✕. A click on the folder opens it in Explorer, or in Finder; it keeps its room before the controls ranked lowest, and goes only when even the ones always drawn would not fit |
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
 that image in the popup, with no menu.
@@ -109,7 +109,7 @@ claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱
   `/compact`.
 - **sesión:** what the session has cost.
 - **5hs / semana:** the share of each usage limit used, and when it resets; Ctrl+click (Cmd+click
-  on macOS) opens the account's usage page. Yellow at 75%, red and
+  on macOS) on the label opens the account's usage page. Every link is in Claude's orange. Yellow at 75%, red and
   `⚠` at 90%.
 - **vyy.mmdd(hhmm):** speedy-code's version, last: the moment of the clone's last commit, in Buenos
   Aires time. The plugin writes it beside the levels when a session starts.

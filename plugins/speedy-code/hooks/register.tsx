@@ -1937,7 +1937,7 @@ export function folderLabel (cwd: string, home: string, os: 'windows' | 'mac', m
 }
 
 /** Where the session works, after the ✕: its folder and git branch, followed outside any draw. */
-let place = { folder: '', branch: '' }
+let place = { folder: '', branch: '', cwd: '' }
 
 async function followPlace ($: EngineInterface) {
   const cwd = await $.session.cwd().catch(() => '')
@@ -1946,8 +1946,15 @@ async function followPlace ($: EngineInterface) {
   const asked = cwd ? await $.process.run(['git', '-C', cwd.replace(/\\/g, '/'), 'branch', '--show-current']).catch(() => undefined) : undefined
   const branch = asked?.exitCode === 0 ? asked.stdout.trim() : ''
   if (folder === place.folder && branch === place.branch) return
-  place = { folder, branch }
+  place = { folder, branch, cwd }
   $.ui.invalidate('ui.render')
+}
+
+/** Opens the session's folder in the system's file manager: Explorer, or Finder. */
+async function openFolder ($: EngineInterface) {
+  if (!place.cwd) return
+  const argv = (await osNow($)) === 'windows' ? ['explorer.exe', place.cwd.replace(/\//g, '\\')] : MAC.open(place.cwd)
+  await $.process.run(argv).catch(() => undefined)
 }
 
 /** The version the status line shows at its end, once git has told it. */
@@ -3171,8 +3178,9 @@ export const register: Register = on => {
         {groups.find(group => group.name === 'exit')?.node}
         {isPlaced
           ? (
-            <Box key="speedy:place" flexShrink={0}>
-              <Text bold color={FOLDER_COLOR}>{folderText}</Text>
+            <Box key="speedy:placed" flexShrink={0}>
+              {/* A click opens the folder in the system's file manager. */}
+              <Client key="speedy:place" module="./control.tsx" width={cells(folderText)} props={{ label: folderText, color: FOLDER_COLOR, bold: true }} />
               {branchText ? <Text color={BRANCH_COLOR}>{branchText}</Text> : null}
             </Box>
             )
@@ -3211,6 +3219,8 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:sessions') {
       await closeMenu($, 'more')
       await openMenu($, 'sessions')
+    } else if (e.element === 'speedy:place') {
+      await openFolder($)
     } else if (e.element === 'speedy:socials') {
       await closeMenu($, 'more')
       await openMenu($, 'socials')

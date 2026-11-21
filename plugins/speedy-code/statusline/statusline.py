@@ -26,8 +26,6 @@ C_IN = "38;5;79"
 C_OUT = "38;5;211"
 C_CACHE = "38;5;147"
 C_COST = "1;38;5;220"
-C_FIVE = "38;5;111"
-C_WEEK = "38;5;183"
 C_LABEL = "38;5;245"
 C_APP = "1;38;5;147"
 # Claude's own orange, the one Claude Code draws its name in.
@@ -199,18 +197,19 @@ def line_of(data, columns, levels, priority, icons="emoji", app=""):
         {"rank": rank("cost"), "full": cost},
     ]
     limits = data.get("rate_limits") or {}
-    for key, label, color in (("five_hour", "5hs", C_FIVE), ("seven_day", "semana", C_WEEK)):
+    for key, label in (("five_hour", "5hs"), ("seven_day", "semana")):
         limit = limits.get(key)
         # 0% is a limit too: the value's presence counts, not its truth.
         if limit and limit.get("used_percentage") is not None:
             limit_used = round(number(limit["used_percentage"]))
             limit_color = level_color(limit_used, "limitYellow", "limitRed")
-            short = paint(label, color) + " " + meter(limit_used, limit_color) + " " + paint(f"{limit_used}%", limit_color)
+            # The label is the link, in Claude's orange as every link is: a click opens the account's usage.
+            # The meter and the share keep the colors that say how much is used.
+            short = link(paint(label, C_CLAUDE), USAGE) + " " + meter(limit_used, limit_color) + " " + paint(f"{limit_used}%", limit_color)
             if limit_used >= levels["limitRed"]:
                 short += " " + paint(sign["warning"], C_RED) + " "
             full = short + " " + paint(f"{sign['reset']} {format_reset(limit.get('resets_at'))}", C_LABEL)
-            # A click opens the account's usage.
-            parts.append({"rank": rank(key), "full": link(full, USAGE), "short": link(short, USAGE)})
+            parts.append({"rank": rank(key), "full": full, "short": short})
 
     if app:
         parts.append({"rank": rank("app"), "full": paint(app, C_APP)})

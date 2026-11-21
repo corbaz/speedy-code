@@ -164,6 +164,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
+    // The folder after ✕: the system's file manager opens it.
+    if (e.argv[0] === 'explorer.exe') { opened.push(`explorer ${e.argv[1]}`); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } }
     if (e.argv.some(arg => arg.startsWith('Start-Process'))) {
       opened.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1630,20 +1632,24 @@ test('the footer ends with the folder, home as ~, and the git branch after ✕; 
     await w.clock.advance(100)
     await ui.unmount()
     const wide = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
-    expect((await wide.find({ type: 'Text', text: /facturas/ }))?.text).toBe(' ~\\proyectos\\facturas')
+    expect((await wide.find({ type: 'Text', in: 'speedy:place' }))?.text).toBe(' ~\\proyectos\\facturas')
     expect((await wide.find({ type: 'Text', text: /⎇ main/ }))?.text).toBe(' ⎇ main ')
     expect(await wide.find({ type: 'Text', text: /v:/ }).then(found => found !== undefined, () => false)).toBe(false)
     const blank = (await wide.findAll({ type: 'Box' })).find(box => String(box.key ?? '') === 'speedy:blank')
     expect(blank === undefined).toBe(false)
+    // A click on the folder opens it in the system's file manager.
+    await wide.post({ isClicked: true }, { in: 'speedy:place' })
+    await w.clock.advance(100)
+    expect(w.opened).toEqual(['explorer C:\\Users\\test\\proyectos\\facturas'])
     await wide.unmount()
     // Not so wide: the folder stays, and the controls ranked lowest go to ⋯.
     const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 115, rows: 30 } })
-    expect(await middle.find({ type: 'Text', text: /facturas/ }).then(found => found !== undefined, () => false)).toBe(true)
+    expect(await middle.find({ type: 'Text', in: 'speedy:place' }).then(found => found !== undefined, () => false)).toBe(true)
     expect(await middle.find({ type: 'Text', in: 'speedy:more' }).then(found => found !== undefined, () => false)).toBe(true)
     await middle.unmount()
     // Narrow: the controls always drawn keep their room, and the folder goes before any of them.
     const narrow = await $.ui.mount({ ...FOOTER, viewport: { columns: 70, rows: 30 } })
-    expect(await narrow.find({ type: 'Text', text: /facturas/ }).then(found => found !== undefined, () => false)).toBe(false)
+    expect(await narrow.find({ type: 'Text', in: 'speedy:place' }).then(found => found !== undefined, () => false)).toBe(false)
     expect(await narrow.find({ type: 'Text', in: 'speedy:exit' }).then(found => found !== undefined, () => false)).toBe(true)
     await narrow.unmount()
   } finally {
