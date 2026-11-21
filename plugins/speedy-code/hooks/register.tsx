@@ -1959,9 +1959,16 @@ async function openFolder ($: EngineInterface) {
   // One window for a run of clicks: each call starts another, and a dozen of them slow the system down.
   if (!place.cwd || Date.now() - folderOpened < FOLDER_PAUSE_MS) return
   folderOpened = Date.now()
-  // `start`, as a double click opens it: explorer.exe run by itself leaves its window behind the terminal.
-  const argv = (await osNow($)) === 'windows' ? ['cmd', '/c', 'start', '', place.cwd.replace(/\//g, '\\')] : MAC.open(place.cwd)
-  await $.process.run(argv).catch(() => undefined)
+  if ((await osNow($)) !== 'windows') {
+    await $.process.run(MAC.open(place.cwd)).catch(() => undefined)
+    return
+  }
+  // open_folder.ps1 finds the folder's window, or opens one, and puts it in front: `start` only flashes
+  // a window the folder already has, and explorer.exe leaves a new one behind the terminal.
+  await $.process.run(
+    ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/open_folder.ps1`],
+    { env: { SPEEDY_FOLDER: place.cwd.replace(/\//g, '\\') } }
+  ).catch(() => undefined)
 }
 
 /** The version the status line shows at its end, once git has told it. */

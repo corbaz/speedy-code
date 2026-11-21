@@ -164,8 +164,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
-    // The folder after ✕: `start` opens it in the file manager, in front, as a double click would.
-    if (e.argv[0] === 'cmd' && e.argv[2] === 'start') { opened.push(`start ${e.argv.slice(3).join('|')}`); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } }
+    // The folder after ✕: open_folder.ps1 opens it in Explorer and brings its window to the front.
+    if (e.argv.some(arg => arg.endsWith('open_folder.ps1'))) { opened.push(`folder ${e.init?.env?.SPEEDY_FOLDER ?? ''}`); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } }
     if (e.argv.some(arg => arg.startsWith('Start-Process'))) {
       opened.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1645,7 +1645,7 @@ test('the footer ends with the folder, home as ~, and the git branch after ✕; 
     await wide.post({ isClicked: true }, { in: 'speedy:place' })
     await wide.post({ isClicked: true }, { in: 'speedy:place' })
     await w.clock.advance(100)
-    expect(w.opened).toEqual(['start |C:\\Users\\test\\proyectos\\facturas'])
+    expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos\\facturas'])
     await wide.unmount()
     // Not so wide: the folder stays, and the controls ranked lowest go to ⋯.
     const middle = await $.ui.mount({ ...FOOTER, viewport: { columns: 115, rows: 30 } })
