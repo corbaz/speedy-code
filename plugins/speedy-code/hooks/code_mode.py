@@ -1,0 +1,80 @@
+"""Turns Claude Code's experimental Code Mode on or off in the user's settings.
+
+Usage: code_mode.py on|off|status
+
+on:     sets `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` to "1" in ~/.claude/settings.json.
+off:    removes that key (and `env`, when it held nothing else).
+status: says whether the settings turn it on.
+
+Claude Code reads it when it starts: the next session asks once whether to turn Code Mode on.
+Prints one line: "on", "off", or "error <why>". Every other key of settings.json is left as it is,
+and a settings.json that is not valid JSON is never written.
+"""
+
+import json
+import os
+import sys
+import tempfile
+
+SETTINGS = os.path.join(os.path.expanduser('~'), '.claude', 'settings.json')
+KEY = 'CLAUDE_CODE_EXPERIMENTAL_CODE_MODE'
+
+
+def load():
+    try:
+        with open(SETTINGS, encoding='utf-8') as source:
+            return json.load(source)
+    except FileNotFoundError:
+        return {}
+
+
+def save(settings):
+    # A whole new file put in place at once: a run cut short never leaves half a settings.json.
+    folder = os.path.dirname(SETTINGS)
+    os.makedirs(folder, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(dir=folder, prefix='.settings-', suffix='.json')
+    try:
+        with os.fdopen(handle, 'w', encoding='utf-8') as target:
+            json.dump(settings, target, indent=2, ensure_ascii=False)
+            target.write('\n')
+        os.replace(temporary, SETTINGS)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+        raise
+
+
+def is_on(settings):
+    value = (settings.get('env') or {}).get(KEY)
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else 'status'
+    try:
+        settings = load()
+    except ValueError:
+        print('error settings.json no es JSON valido')
+        return
+    if not isinstance(settings, dict):
+        print('error settings.json no es un objeto')
+        return
+    if action == 'on':
+        env = settings.get('env')
+        if not isinstance(env, dict):
+            env = {}
+        env[KEY] = '1'
+        settings['env'] = env
+        save(settings)
+    elif action == 'off':
+        env = settings.get('env')
+        if isinstance(env, dict) and KEY in env:
+            del env[KEY]
+            if not env:
+                del settings['env']
+            save(settings)
+    print('on' if is_on(settings) else 'off')
+
+
+if __name__ == '__main__':
+    main()

@@ -162,7 +162,7 @@ const MIN_LINK_WIDTH = 26
 /** The settings tabs; more will come. */
 /** The settings tabs, each in a color of its own: the one open is filled with it. */
 const SETTINGS_TABS: ReadonlyArray<readonly [string, string, string, string]> = [
-  ['setup', 'Instalación', '#51cf66', 'Instalar'], ['bar', 'Barra de estado', '#4dabf7', 'Barra'], ['socials', 'Redes sociales', '#f783ac', 'Redes']
+  ['setup', 'Instalación', '#51cf66', 'Instalar'], ['bar', 'Barra de estado', '#4dabf7', 'Barra'], ['socials', 'Redes sociales', '#f783ac', 'Redes'], ['claude', 'Claude Code', '#ffa94d', 'Claude']
 ]
 
 /** The setup steps, by the name install.ps1 prints, and what each is for. */
@@ -313,6 +313,8 @@ const setupLog = atom({ plugin: 'speedy-code', key: 'setupLog' } as const, [] as
 const isInstalling = atom({ plugin: 'speedy-code', key: 'isInstalling' } as const, false)
 const modelNow = atom({ plugin: 'speedy-code', key: 'modelNow' } as const, '')
 const statusLine = atom({ plugin: 'speedy-code', key: 'statusLine' } as const, '' as '' | 'on' | 'off')
+/** Whether the user's settings turn Claude Code's experimental Code Mode on; empty: not read yet. */
+const codeMode = atom({ plugin: 'speedy-code', key: 'codeMode' } as const, '' as '' | 'on' | 'off')
 const barLevels = atom({ plugin: 'speedy-code', key: 'barLevels' } as const, DEFAULT_LEVELS, { shape: 'bar-1' })
 const barOrder = atom({ plugin: 'speedy-code', key: 'barOrder' } as const, DEFAULT_ORDER, { shape: 'order-1' })
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
@@ -480,6 +482,7 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
     await update($, editing, () => '')
     void checkSetup($)
     void switchStatusLine($, 'status')
+    void switchCodeMode($, 'status')
   }
   // The narrations kept are read when the menu opens, so it lists what is on disk now.
   if (which === 'history') {
@@ -1764,6 +1767,21 @@ async function switchStatusLine ($: EngineInterface, action: 'on' | 'off' | 'sta
 }
 
 /**
+ * Claude Code's experimental Code Mode, switched on or off in the user's settings by code_mode.py: it sets
+ * or removes `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE`. Claude Code reads it when it starts, so it applies
+ * from the next session, which asks once whether to turn it on. Off unless turned on here.
+ */
+async function switchCodeMode ($: EngineInterface, action: 'on' | 'off' | 'status') {
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/code_mode.py`, action]).catch(() => undefined)
+  const said = result?.stdout.trim() ?? ''
+  if (said === 'on' || said === 'off') await update($, codeMode, () => said)
+  if (action === 'status') return
+  if (said === 'on') $.ui.toast('speedy-code: Code Mode encendido; se aplica la próxima vez que abras Claude Code.')
+  else if (said === 'off') $.ui.toast('speedy-code: Code Mode apagado; se aplica la próxima vez que abras Claude Code.')
+  else $.ui.toast(`speedy-code: no pude cambiar Code Mode: ${said.replace(/^error /, '') || 'falta instalar'}`)
+}
+
+/**
  * The model in use. `/model` typed in the terminal changes it without the mod seeing it, and the
  * footer is not drawn again by itself: so the footer asks now and then, and redraws when it changed.
  */
@@ -2999,6 +3017,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       </Box>
       {open === 'setup' ? setupTab : null}
       {open === 'bar' ? barTab : null}
+      {open === 'claude' ? await claudeTab($, e) : null}
       {open === 'socials'
         ? (
           <Box flexDirection="column">
@@ -3006,6 +3025,27 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
           </Box>
           )
         : null}
+    </Box>
+  )
+}
+
+/** ⚙ → Claude Code: the switch of the experimental Code Mode, off unless turned on, and what it changes. */
+async function claudeTab ($: EngineInterface, e: Drawn) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const mode = await read($, codeMode)
+  const isOn = mode === 'on'
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row" columnGap={2}>
+        <Text bold color="#ffa94d">Code Mode (experimental)</Text>
+        <Text bold color={isOn ? '#51cf66' : '#868e96'}>{mode === '' ? 'leyendo…' : isOn ? 'Encendido' : 'Apagado'}</Text>
+        <Button key="claude:code-mode" plain onPress={() => { void switchCodeMode($, isOn ? 'off' : 'on') }}>
+          <Text bold color="black" backgroundColor={isOn ? '#ff8787' : '#51cf66'}>{isOn ? ' Apagar ' : ' Encender '}</Text>
+        </Button>
+      </Box>
+      <Text dimColor>{'  Claude escribe JavaScript que llama a sus herramientas en vez de llamarlas de a una: menos idas y vueltas.'}</Text>
+      <Text dimColor>{'  Apaga Claude in Chrome, computer use y Remote Control. Una sesión empezada con él solo se retoma con él.'}</Text>
+      <Text dimColor>{'  Se aplica la próxima vez que abras Claude Code, que pregunta una vez si lo activás.'}</Text>
     </Box>
   )
 }

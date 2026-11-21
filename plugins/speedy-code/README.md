@@ -31,7 +31,7 @@ From left to right:
 | 🔄 | Runs `/reload-plugins`. When GitHub has a newer version (a yellow ↓ after the version in the status line), it takes it first, as a fast-forward that never overwrites a change of your own, then reloads |
 | ⚙️ | Opens the settings |
 | × | Runs `/exit`; `claude --resume <id>` is left on the clipboard |
-| `~\.claude\local-mods ⎇ main` | The session's folder, home as `~`, and its git branch, after ✕. A click on the folder opens the explorer beside the chat: the disks above, and the disk's tree open down to the session's folder, marked ●; a folder pressed opens or closes, a disk pressed shows its own tree, and ↗ opens the session's folder in Explorer, or in Finder. Clicked again, the folder closes the explorer. It keeps its room before the controls ranked lowest, and goes only when even the ones always drawn would not fit |
+| `~\.claude\local-mods ⎇ main` | The session's folder, home as `~`, and its git branch, after ✕. A click on the folder opens the explorer beside the chat: the disks above, and the disk's tree open down to the session's folder, marked ●; a folder pressed opens or closes, a disk pressed shows its own tree, and ↗ opens the session's folder in Explorer, or in Finder. A text, script, PDF or picture file in the tree (md, txt, sh, bat, .gitignore, pdf, png, jpg, gif, bmp, ico, tif) opens in a popup in the middle of the screen, with scroll bars when it does not fit (Quick Look on macOS). Clicked again, the folder closes the explorer. It keeps its room before the controls ranked lowest, and goes only when even the ones always drawn would not fit |
 
 Each `[Image #N]` in the draft is painted blue in the prompt, and gets a chip above it: a click opens
 that image in the popup, with no menu.
@@ -150,6 +150,12 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
   removes an added one (a network always keeps its first). Click a user name to edit it, Enter keeps
   it. An added account left empty goes when the settings close. When the accounts do not fit, they
   go in pages (◀ 1/2 ▶).
+- **Claude Code:** switches Claude Code's experimental Code Mode on or off (off unless switched on).
+  On, it sets `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` to `"1"` in `~/.claude/settings.json`; off, it
+  removes it. Claude Code reads it when it starts: the next session asks once whether to turn Code Mode
+  on. In Code Mode Claude writes JavaScript that calls its tools instead of calling them one at a time;
+  Claude in Chrome, computer use and Remote Control are off, and a session started in it resumes only
+  with it on.
 
 ## Command
 

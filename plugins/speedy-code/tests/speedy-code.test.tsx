@@ -11,6 +11,8 @@ import { DEFAULT_SOCIALS, MAC, chainOf, driveLabel, driveOf, isViewable, listing
 /** The notices footerSession's sessions showed, in order. */
 const TOASTS: string[] = []
 const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails: false }
+/** What code_mode.py keeps in the user's settings, and each action it was run with. */
+const CODE_MODE = { on: false, ran: [] as string[] }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -200,6 +202,13 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.startsWith('Set-Clipboard'))) {
       copied.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // Code Mode's switch answers what the settings hold.
+    if (e.argv.some(arg => arg.endsWith('code_mode.py'))) {
+      CODE_MODE.ran.push(e.argv.at(-1) ?? '')
+      if (e.argv.at(-1) === 'on') CODE_MODE.on = true
+      if (e.argv.at(-1) === 'off') CODE_MODE.on = false
+      return { value: { exitCode: 0, stdout: `${CODE_MODE.on ? 'on' : 'off'}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     // The status line switch answers what is in use.
     if (e.argv.some(arg => arg.endsWith('switch.py'))) {
@@ -2110,4 +2119,30 @@ test('windowTop: the first tree row in the window, kept so the last row stays at
 test('isViewable: the explorer opens text, PDF and pictures in the viewer, and .gitignore; nothing else', () => {
   for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore']) expect(isViewable(name)).toBe(true)
   for (const name of ['pagefile.sys', 'app.exe', 'data.json', 'Makefile', '.env', 'md', 'x.webp']) expect(isViewable(name)).toBe(false)
+})
+
+test('⚙ → Claude Code: Code Mode is off until switched on; the switch writes the settings, says it applies next time, and switches it off again', { timeoutMs: 30000 }, async ($, on) => {
+  CODE_MODE.on = false
+  CODE_MODE.ran = []
+  try {
+    const { ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+    const band = await $.ui.mount(BAND)
+    await band.press({ key: 'settings:claude' })
+    expect((await band.find({ type: 'Text', text: /^Apagado$/ }))?.text).toBe('Apagado')
+    // Only read so far: nothing written to the settings.
+    expect(CODE_MODE.ran.every(action => action === 'status')).toBe(true)
+    await band.press({ key: 'claude:code-mode' })
+    expect(CODE_MODE.ran.at(-1)).toBe('on')
+    expect((await band.find({ type: 'Text', text: /^Encendido$/ }))?.text).toBe('Encendido')
+    expect(TOASTS.at(-1)).toBe('speedy-code: Code Mode encendido; se aplica la próxima vez que abras Claude Code.')
+    await band.press({ key: 'claude:code-mode' })
+    expect(CODE_MODE.ran.at(-1)).toBe('off')
+    expect((await band.find({ type: 'Text', text: /^Apagado$/ }))?.text).toBe('Apagado')
+    await band.unmount()
+    await ui.unmount()
+  } finally {
+    CODE_MODE.on = false
+    CODE_MODE.ran = []
+  }
 })

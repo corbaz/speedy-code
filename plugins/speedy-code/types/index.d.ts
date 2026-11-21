@@ -96,6 +96,8 @@ declare module 'claude-code' {
       isInstalling: boolean
       /** Whether speedy-code's status line is the one in use; empty: not checked yet. */
       statusLine: '' | 'on' | 'off'
+      /** Whether the user's settings turn Claude Code's experimental Code Mode on; empty: not read yet. */
+      codeMode: '' | 'on' | 'off'
       /** The model in use, as the footer last read it: `/model` in the terminal can change it. */
       modelNow: string
       /** The status line's levels, as set in ⚙ → Barra de estado. */
