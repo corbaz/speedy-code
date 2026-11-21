@@ -1489,9 +1489,11 @@ test('a click on the effort chosen, which keeps its fill under the pointer, take
 })
 
 test('barOrderOf keeps the parts it knows in their order, once each, and adds the ones it lacks', () => {
-  const all = ['core', 'app', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens']
+  const all = ['core', 'app', 'five_hour', 'seven_day', 'scoped', 'context', 'time', 'tokens']
   expect(barOrderOf(undefined)).toEqual(all)
-  expect(barOrderOf(['context', 'nope', 'context', 'core'])).toEqual(['context', 'core', 'app', 'five_hour', 'seven_day', 'time', 'cost', 'tokens'])
+  expect(barOrderOf(['context', 'nope', 'context', 'core'])).toEqual(['context', 'core', 'app', 'five_hour', 'seven_day', 'scoped', 'time', 'tokens'])
+  // An order saved when the session's cost was a part: the model's own limit takes its place.
+  expect(barOrderOf(['cost', 'core'])).toEqual(['scoped', 'core', 'app', 'five_hour', 'seven_day', 'context', 'time', 'tokens'])
 })
 
 test('the status line priority: the arrows move a part, and the order is kept and written for the status line', { timeoutMs: 60000 }, async ($, on) => {
@@ -1505,14 +1507,14 @@ test('the status line priority: the arrows move a part, and the order is kept an
   expect(await bar.find({ key: 'order-up:core' })).toBeUndefined()
   expect(await bar.find({ key: 'order-down:tokens' })).toBeUndefined()
   await bar.press({ key: 'order-up:context' })
-  const moved = ['core', 'app', 'five_hour', 'context', 'seven_day', 'time', 'cost', 'tokens']
+  const moved = ['core', 'app', 'five_hour', 'seven_day', 'context', 'scoped', 'time', 'tokens']
   expect(w.kept.barOrder).toEqual(moved)
-  expect(w.files.some(text => text.includes('"priority"') && text.includes('"context",\n    "seven_day"'))).toBe(true)
+  expect(w.files.some(text => text.includes('"priority"') && text.includes('"context",\n    "scoped"'))).toBe(true)
   await bar.unmount()
   // Restoring the defaults puts the order back too.
   const again = await $.ui.mount(BAND)
   await again.press({ key: 'bar:reset' })
-  expect(w.kept.barOrder).toEqual(['core', 'app', 'five_hour', 'seven_day', 'context', 'time', 'cost', 'tokens'])
+  expect(w.kept.barOrder).toEqual(['core', 'app', 'five_hour', 'seven_day', 'scoped', 'context', 'time', 'tokens'])
   await again.unmount()
   await ui.unmount()
 })

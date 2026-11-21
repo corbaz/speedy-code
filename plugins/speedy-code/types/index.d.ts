@@ -39,7 +39,7 @@ export type BarLevels = { contextYellow: number; contextRed: number; limitYellow
 export type LevelKey = keyof BarLevels
 
 /** A part of the status line, named as the priority list in levels.json names it. */
-export type BarPart = 'core' | 'five_hour' | 'seven_day' | 'context' | 'time' | 'cost' | 'tokens' | 'app'
+export type BarPart = 'core' | 'five_hour' | 'seven_day' | 'scoped' | 'context' | 'time' | 'tokens' | 'app'
 
 /** One step of the setup: not checked yet, under way, in place, or missing, with what it found. */
 export type SetupCheck = { state: '' | 'working' | 'ok' | 'fail'; detail: string }

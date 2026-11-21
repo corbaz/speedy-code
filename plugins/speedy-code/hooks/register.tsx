@@ -232,7 +232,7 @@ const PAIR: Record<LevelKey, LevelKey> = { contextYellow: 'contextRed', contextR
  */
 const BAR_PARTS: ReadonlyArray<readonly [BarPart, string]> = [
   ['core', 'Versión de Claude Code'], ['app', 'Versión de speedy-code'], ['five_hour', 'Límite de 5 horas'],
-  ['seven_day', 'Límite semanal'], ['context', 'Contexto'], ['time', 'Tiempo de sesión'], ['cost', 'Costo de sesión'],
+  ['seven_day', 'Límite semanal'], ['scoped', 'Límite semanal del modelo'], ['context', 'Contexto'], ['time', 'Tiempo de sesión'],
   ['tokens', 'Tokens in, out y caché']
 ]
 const DEFAULT_ORDER: BarPart[] = BAR_PARTS.map(([key]) => key)
@@ -2303,7 +2303,9 @@ export function effortColor (level: string): string {
  * the default order. An old or hand-edited list never drops a part from the status line.
  */
 export function barOrderOf (saved: unknown): BarPart[] {
-  const known = Array.isArray(saved) ? saved.filter((key): key is BarPart => DEFAULT_ORDER.includes(key as BarPart)) : []
+  // An order saved when the session's cost was a part: the model's own limit takes its place.
+  const named = Array.isArray(saved) ? saved.map(key => key === 'cost' ? 'scoped' : key) : []
+  const known = named.filter((key): key is BarPart => DEFAULT_ORDER.includes(key as BarPart))
   const order = [...new Set(known)]
   return [...order, ...DEFAULT_ORDER.filter(key => !order.includes(key))]
 }

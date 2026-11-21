@@ -95,7 +95,7 @@ In VS Code (and its forks) the window's zoom must be a whole level (`window.zoom
 The line and the footer are both drawn in the middle of the terminal's width.
 
 ```
-claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ sesión $85.88 │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40 │ v26.1121(1012)
+claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱▱▱ 17% 172.4k/1M │ 5hs ▱▱▱▱ 7% ↻ hoy 13:40 │ semana ▰▰▰▱ 86% ↻ hoy 13:40 │ Fable ▰▰▰▰ 93% ↻ mañana 13:00 │ v26.1121(1012)
 ```
 
 - **claude:v…:** the version of Claude Code running the session, in Claude's orange; Ctrl+click
@@ -107,15 +107,19 @@ claude:v2.1.329 » ⏱  1d 0h 36m │ in 2 out 712 caché 171.2k │ ctx: ▰▱
 - **ctx:** the share of the context window **used**, and the tokens it holds out of its size (`0/200k`
   before the first request). It turns yellow at 60% and red at 80%, where `⚠  compactar` asks for
   `/compact`.
-- **sesión:** what the session has cost.
 - **5hs / semana:** the share of each usage limit used, and when it resets; Ctrl+click (Cmd+click
   on macOS) on the label opens the account's usage page. Every link is in Claude's orange. Yellow at 75%, red and
   `⚠` at 90%.
+- **Fable (a model's own weekly limit):** the share used of the weekly limit a model has of its own, named
+  by the model, whether or not that model is in use. The session's JSON does not carry it, so the line
+  asks Anthropic for the account's usage as Claude Code's own `/usage` does, with the session's sign-in
+  (the credentials file, or the keychain on macOS), apart from the line and at most every five minutes;
+  the answer is kept in `~/.claude/speedy-code/usage.json`. The sign-in goes nowhere but to Anthropic.
 - **vyy.mmdd(hhmm):** speedy-code's version, last: the moment of the clone's last commit, in Buenos
   Aires time. The plugin writes it beside the levels when a session starts.
 
 In a narrow terminal it keeps what matters most, each part whole: the two versions always, then
-the 5-hour limit, the weekly one, the context, the time, the cost and the tokens; the limits drop
+the 5-hour limit, the weekly one, a model's own weekly limit, the context, the time and the tokens; the limits drop
 their reset time before a part is left out. That priority is set in
 ⚙️ → Barra de estado; a part keeps its place on the line whatever its priority.
 
