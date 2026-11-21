@@ -1973,6 +1973,8 @@ async function openFolder ($: EngineInterface) {
 
 /** The version the status line shows at its end, once git has told it. */
 let appVersion = ''
+/** How often the version is asked of git again. */
+const VERSION_FOLLOW_MS = 60000
 
 /**
  * The version the footer shows: the moment of the clone's last commit, in Buenos Aires (UTC-3, which
@@ -2006,6 +2008,16 @@ async function versionNow ($: EngineInterface) {
     }
   }
   return ''
+}
+
+/** Asks git for the version again and, when it changed, writes it for the status line. */
+async function followVersion ($: EngineInterface) {
+  versionKnown = undefined
+  versionFails = 0
+  const label = await versionNow($).catch(() => '')
+  if (!label || label === appVersion) return
+  appVersion = label
+  await writeBarFile($)
 }
 
 /**
@@ -3089,11 +3101,9 @@ export const register: Register = on => {
     await writeBarFile($)
     // The version goes to the status line, at its end: asked here, outside any draw, whose runs the next
     // draw cuts off, and written beside the levels once git has told it.
-    void versionNow($).then(async label => {
-      if (!label || label === appVersion) return
-      appVersion = label
-      await writeBarFile($)
-    }, () => undefined)
+    void followVersion($)
+    // And again every minute: a pull, or a reload that reads no file again, shows without a new session.
+    $.clock.every(VERSION_FOLLOW_MS, () => followVersion($))
     // The status line in use is a copy of this mod's: switched on, it is copied again, so an update
     // of the mod reaches it without switching it off and on.
     void switchStatusLine($, 'status').then(async () => {

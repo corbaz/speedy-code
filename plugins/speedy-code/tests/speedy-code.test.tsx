@@ -1677,6 +1677,22 @@ test('the status line file carries the version, asked of git again when a run is
   }
 })
 
+test('the version is asked of git again every minute: a pull shows on the status line with no reload', { timeoutMs: 30000 }, async ($, on) => {
+  GIT.stamp = String(Date.UTC(2026, 10, 17, 0, 5) / 1000)
+  try {
+    const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+    await w.clock.advance(100)
+    expect(w.files.some(text => text.includes('"version": "v26.1116(2105)"'))).toBe(true)
+    // A pull: the clone's last commit is a later one.
+    GIT.stamp = String(Date.UTC(2026, 10, 17, 3, 30) / 1000)
+    await w.clock.advance(61000)
+    expect(w.files.at(-1)?.includes('"version": "v26.1117(0030)"')).toBe(true)
+    await ui.unmount()
+  } finally {
+    GIT.stamp = ''
+  }
+})
+
 test('nerdText: an emoji gives way to its Nerd Fonts glyph and the label keeps its width; other text is left alone', () => {
   for (const glyph of Object.values(NERD_ICONS)) {
     expect(glyph.length).toBe(1)
