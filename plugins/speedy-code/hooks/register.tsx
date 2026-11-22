@@ -1360,6 +1360,41 @@ async function windowsPowerShell ($: EngineInterface) {
   return `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
 }
 
+/** UTF-8 text from Base64, as the viewer writes what Copiar took; empty for what is not Base64. */
+export function fromBase64Utf8 (base64: string) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const clean = base64.replace(/=+$/, '')
+  if (!/^[A-Za-z0-9+/]*$/.test(clean)) return ''
+  const bytes: number[] = []
+  let buffer = 0
+  let bits = 0
+  for (const char of clean) {
+    buffer = (buffer << 6) | alphabet.indexOf(char)
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      bytes.push((buffer >> bits) & 0xff)
+    }
+  }
+  return new TextDecoder('utf-8').decode(new Uint8Array(bytes))
+}
+
+/**
+ * Puts text into the prompt where the cursor is, as typed there: `separator` first when the text before
+ * the cursor does not already end apart (a space, or a new line for text brought from a popup).
+ */
+async function insertInPrompt ($: EngineInterface, text: string, separator: ' ' | '\n') {
+  const box = await $.prompt.read().catch(() => ({ text: '', cursor: 0 }))
+  const before = box.text.slice(0, box.cursor ?? box.text.length)
+  const lead = before === '' || /\s$/.test(before) ? '' : separator
+  await $.prompt.fill({ text: `${lead}${text}${separator === ' ' ? ' ' : ''}`, mode: 'insert' }).catch(() => undefined)
+}
+
+/** A file as Claude Code mentions it in a prompt: `@path`, quoted when it holds a space. */
+export function fileMention (path: string) {
+  return /\s/.test(path) ? `@"${path}"` : `@${path}`
+}
+
 /** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another closes it. */
 const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.ps1', image.path)
 
@@ -1382,9 +1417,20 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
       // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
       env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)) }
     })
-    // It says "." ten times a second: leaving the loop ends it, and its window with it.
-    for await (const _line of viewer) {
+    // It says "." ten times a second: leaving the loop ends it, and its window with it. Copiar in the
+    // file viewer says `copied <base64>` too: the text goes into the prompt, on a line of its own.
+    let pending = ''
+    for await (const { stream, text } of viewer) {
       if (controller.signal.aborted) break
+      if (stream !== 'stdout') continue
+      pending += text
+      const lines = pending.split(/\r?\n/)
+      pending = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('copied ')) continue
+        const copied = fromBase64Utf8(line.slice('copied '.length).trim())
+        if (copied) await insertInPrompt($, copied, '\n')
+      }
     }
   } catch (error) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
@@ -2174,8 +2220,10 @@ const VIEWABLE_EXTENSIONS = new Set([
   // Sound and video, played.
   'mp3', 'mpa', 'mp2', 'wav', 'm4a', 'aac', 'wma', 'ogg', 'oga', 'opus', 'flac', 'aif', 'aiff', 'mid', 'midi',
   'mp4', 'm4v', 'mov', 'avi', 'wmv', 'mkv', 'webm', 'mpg', 'mpeg', '3gp',
-  // Binary, described.
-  'crx'
+  // More text: settings, data, logs and leftovers.
+  'yaml', 'yml', 'toml', 'xml', 'csv', 'tsv', 'cfg', 'conf', 'env', 'jsonl', 'log', 'tmp', 'bak',
+  // Databases, shortcuts and binaries, described.
+  'sqlite', 'sqlite3', 'db', 'db3', 'lnk', 'url', 'sys', 'crx'
 ])
 const VIEWABLE_NAMES = new Set(['.gitignore', '.ds_store'])
 
@@ -2183,7 +2231,9 @@ const VIEWABLE_NAMES = new Set(['.gitignore', '.ds_store'])
 export function isViewable (name: string) {
   const lower = name.toLowerCase()
   const dot = lower.lastIndexOf('.')
-  return VIEWABLE_NAMES.has(lower) || (dot > 0 && VIEWABLE_EXTENSIONS.has(lower.slice(dot + 1)))
+  // A name with no extension (LICENSE, Makefile) or a dotfile (.gitattributes): the viewer reads it as text, or describes it.
+  if (dot === -1 || dot === 0) return true
+  return VIEWABLE_NAMES.has(lower) || VIEWABLE_EXTENSIONS.has(lower.slice(dot + 1))
 }
 
 /** A file of the tree to the clipboard as a file, to paste in Explorer or Finder; it says whether it went. */
@@ -2195,14 +2245,18 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
     : MAC.copyFile(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
-  $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: copié ${name} al portapapeles; pegalo en una carpeta.` : `speedy-code: no pude copiar ${name}.`)
+  // The file is attached to the prompt too, as Claude Code mentions one: @path.
+  await insertInPrompt($, fileMention(native), ' ')
+  $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: ${name} está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.` : `speedy-code: ${name} está adjunto en el prompt; no pude copiarlo al portapapeles.`)
 }
 
 /** A file's path to the clipboard, as the system writes it. */
 async function copyPathToClipboard ($: EngineInterface, path: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
   const native = await nativePath($, path)
   const copied = await $.ui.copy({ text: native, surface }).catch(() => ({ isCopied: false }))
-  $.ui.toast(copied.isCopied ? `speedy-code: copié la ruta ${native}` : 'speedy-code: no pude copiar la ruta.')
+  // The path goes into the prompt as well, so it need not be pasted; the clipboard keeps it for elsewhere.
+  await insertInPrompt($, native, ' ')
+  $.ui.toast(copied.isCopied ? `speedy-code: la ruta ${native} está en el prompt y en el portapapeles` : `speedy-code: la ruta ${native} está en el prompt; no pude copiarla al portapapeles.`)
 }
 
 /** The file whose 🗑 was pressed once: a second press, on Sí, sends it to the trash; empty: none. */
@@ -2286,6 +2340,18 @@ async function toggleTreeFolder ($: EngineInterface, path: string) {
   await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
 }
 
+/**
+ * Collapses the tree: every folder closes but those down to the session's folder, on its disk, and the
+ * window goes back to it, so a tree opened far and long is short again.
+ */
+async function collapseExplorer ($: EngineInterface) {
+  await update($, explorer, now => {
+    const drive = driveOf(now.here, now.drives, now.caseless) || now.drive
+    const chain = drive ? chainOf(now.here, drive).map(path => pathKey(path, now.caseless)) : []
+    return { ...now, drive, open: chain, top: -1 }
+  })
+}
+
 /** A disk pressed: its tree is shown, its root open; each disk keeps what was open in it. The session's disk
  * shows the session's folder in the middle again; another, its top. */
 async function pickDrive ($: EngineInterface, drive: string) {
@@ -2309,6 +2375,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
   const Client = 'Client' in elements ? elements.Client : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
+  // Beside the disks: collapse the whole tree, back to the session's folder.
+  const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
@@ -2324,6 +2392,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             </Button>
           )
         })}
+        {Client
+          ? <Client key="speedy:explorer-collapse:" module="./control.tsx" width={cells(collapseLabel)} props={{ label: collapseLabel, color: flashed === 'speedy:explorer-collapse:' ? FLASH_COLOR : EXPLORER_DIR_COLOR, bold: true }} />
+          : <Button key="explorer-collapse" plain onPress={() => { void collapseExplorer($) }}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
         <Box flexGrow={1} />
         <Button key="explorer-system" plain onPress={() => { void openFolder($) }}>
           <Text dimColor>{' ↗ abrir en el sistema '}</Text>
@@ -3741,6 +3812,10 @@ export const register: Register = on => {
       else if (kind === 'trash') await update($, explorerTrash, () => path)
       else if (kind === 'trash-yes') await trashFile($, path)
       else if (kind === 'trash-no') await update($, explorerTrash, () => '')
+      else if (kind === 'collapse') {
+        void flashTool($, e.element)
+        await collapseExplorer($)
+      }
     } else if (e.element === 'speedy:place') {
       await toggleExplorer($)
     } else if (e.element === 'speedy:socials') {

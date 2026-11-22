@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, driveLabel, driveOf, explorerColumns, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -15,6 +15,8 @@ const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails
 const CODE_MODE = { on: false, ran: [] as string[] }
 /** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
 const FILES = { copied: [] as string[], trashed: [] as string[] }
+/** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
+const VIEWER = { says: '' }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -263,6 +265,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     }
     // The microphone: listen.py says it is ready, then two phrases, as their words are committed;
     // a phrase's first piece starts with a space, and a word can come in two pieces ("end", "point.").
+    if (e.argv.some(arg => arg.endsWith('view_file.ps1'))) {
+      spoken.push(e.env ?? {})
+      yield { stream: 'stdout' as const, text: `shown\r\n${VIEWER.says}` }
+      return { value: { code: 0, signal: null } }
+    }
     if (e.argv.some(arg => arg.endsWith('listen.py'))) {
       listened.push([...e.argv])
       yield { stream: 'stdout' as const, text: 'ready\npartial 1 Hola quiero\ntext 1  Hola, quiero hacer un\n' }
@@ -2044,13 +2051,17 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
   const copies: string[] = []
   on('ui.copy', (_, e) => { copies.push(e.text); return { value: { isCopied: true } } })
+  // The prompt, as the person left it: what is inserted lands at its end.
+  const prompt = { text: 'mirá este', fills: [] as string[] }
+  on('prompt.read', () => ({ value: { text: prompt.text, cursor: prompt.text.length } }))
+  on('prompt.fill', (_, e) => { prompt.fills.push(e.text); prompt.text += e.text; return { isFilled: true } })
   on('session.cwd', () => ({ value: 'C:\\Users\\test\\proyectos' }))
   on('fs.stat', (_, e) => {
     if (!/^[CD]:[\\/]$/.test(e.path)) throw new Error('ENOENT')
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
   })
   const TREE: Record<string, Array<{ name: string, kind: 'file' | 'dir' | 'other', isLink?: boolean }>> = {
-    'C:/': [{ name: 'Windows', kind: 'dir' }, { name: 'pagefile.sys', kind: 'file' }, { name: 'Users', kind: 'dir' }, { name: 'Documents and Settings', kind: 'other', isLink: true }],
+    'C:/': [{ name: 'Windows', kind: 'dir' }, { name: 'setup.exe', kind: 'file' }, { name: 'Users', kind: 'dir' }, { name: 'Documents and Settings', kind: 'other', isLink: true }],
     'C:/Users': [{ name: 'test', kind: 'dir' }, { name: 'Public', kind: 'dir' }],
     'C:/Users/test': [{ name: 'proyectos', kind: 'dir' }],
     'C:/Users/test/proyectos': [{ name: 'facturas', kind: 'dir' }, { name: 'notas.txt', kind: 'file' }],
@@ -2087,13 +2098,13 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     '        ▸ facturas',
     '          notas.txt',
     '  ▸ Windows',
-    '    pagefile.sys'
+    '    setup.exe'
   ])
   // A folder closed opens, read then; pressed again, it closes.
   await pane.press({ key: 'explorer:C:/Windows' })
-  expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    pagefile.sys'])
+  expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    setup.exe'])
   await pane.press({ key: 'explorer:C:/Windows' })
-  expect((await texts()).slice(-2)).toEqual(['  ▸ Windows', '    pagefile.sys'])
+  expect((await texts()).slice(-2)).toEqual(['  ▸ Windows', '    setup.exe'])
   // One that cannot be read says so.
   await pane.press({ key: 'explorer:C:/Users/test/proyectos/facturas' })
   expect(await texts()).toContain('          (sin acceso)')
@@ -2107,23 +2118,30 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos'])
   // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
+  // Its Copiar says what it took: the text goes into the prompt too, on a line of its own.
+  VIEWER.says = 'copied aG9sYSDDsQ==\r\n'
   await pane.press({ key: 'explorer-file:C:/Users/test/proyectos/notas.txt' })
+  await w.clock.advance(100)
+  expect(prompt.fills.at(-1)).toBe('\nhola ñ')
+  VIEWER.says = ''
   await w.clock.advance(100)
   const viewer = w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1')))
   expect(viewer.length).toBe(1)
   // Windows PowerShell by its path: `powershell` on the PATH may be a shim to PowerShell 7.
   expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
-  expect(await pane.find({ key: 'explorer-file:C:/pagefile.sys' })).toBeUndefined()
+  expect(await pane.find({ key: 'explorer-file:C:/setup.exe' })).toBeUndefined()
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
   // They are Clients, as the footer's controls: a Button would fill them under the pointer.
-  for (const tool of ['copy', 'path', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/pagefile.sys` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', trash: '🗑' }[tool]}`)
+  for (const tool of ['copy', 'path', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', trash: '🗑' }[tool]}`)
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt' })
   expect(FILES.copied).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
-  expect(TOASTS.at(-1)).toBe('speedy-code: copié notas.txt al portapapeles; pegalo en una carpeta.')
+  // And attached to the prompt, as Claude Code mentions a file.
+  expect(prompt.fills.at(-1)).toBe(' @C:\\Users\\test\\proyectos\\notas.txt ')
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.')
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' })
   // The tool pressed turns green for a second, with no fill, then goes back to its color.
   const pathColor = async () => (await pane.find({ type: 'Text', in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' }))?.props
@@ -2132,6 +2150,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(1000)
   expect(await pathColor()).toMatchObject({ color: '#63e6be' })
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
+  // The path goes into the prompt as well; the text before it already ends in a space.
+  expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
   // 🗑 asks first: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
   expect(await texts()).toContain(' ¿Borrar? ')
@@ -2145,6 +2165,16 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')
   await pane.unmount()
+  // ⊟ beside the disks collapses the tree back to the session's folder.
+  const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
+  await tree.press({ key: 'explorer:C:/Windows' })
+  await tree.press({ key: 'explorer-drive:D:/' })
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
+  const shown = (await tree.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text)
+  expect(shown).toContain('      ▾ proyectos ●')
+  expect(shown).toContain('  ▸ Windows')
+  expect(shown).not.toContain('    ▸ System32')
+  await tree.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
@@ -2166,7 +2196,8 @@ test('isViewable: the explorer opens text and code, pages, PDF, pictures, spread
   for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'install.PS1', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore',
     'a.ts', 'a.tsx', 'a.json', 'bun.lock', 'a.js', 'a.jsx', 'a.cjs', 'a.mjs', 'index.html', 'a.htm', 'a.d', 'a.ini', 'a.crx', 'a.po', 'a.poe', '.DS_Store', 'logo.svg',
     'a.xls', 'a.xlsx', 'a.doc', 'a.docx', 'song.mp3', 'a.mpa', 'a.wav', 'a.flac', 'a.ogg', 'a.m4a', 'clip.mp4', 'a.mkv', 'a.webm', 'a.avi', 'a.mov']) expect([name, isViewable(name)]).toEqual([name, true])
-  for (const name of ['pagefile.sys', 'app.exe', 'Makefile', '.env', 'md', 'x.webp', 'a.dll']) expect([name, isViewable(name)]).toEqual([name, false])
+  for (const name of ['config.yaml', 'a.yml', '.gitattributes', '.graphifyignore', 'old.bak', 'LICENSE', 'Makefile', '.env', 'data.jsonl', 'x.tmp', 'app.log', 'cache.sqlite', 'app.db', 'Atajo.lnk', 'web.url', 'pagefile.sys']) expect([name, isViewable(name)]).toEqual([name, true])
+  for (const name of ['app.exe', 'x.webp', 'a.dll', 'archive.zip']) expect([name, isViewable(name)]).toEqual([name, false])
 })
 
 test('⚙ → Claude Code: Code Mode is off until switched on; the switch writes the settings, says it applies next time, and switches it off again', { timeoutMs: 30000 }, async ($, on) => {
@@ -2203,4 +2234,13 @@ test('cutCells and explorerColumns: a name keeps to its row, cut with …; the e
   expect(explorerColumns(0)).toBe(44)
   expect(explorerColumns(100)).toBe(44)
   expect(explorerColumns(230)).toBe(87)
+})
+
+test('fromBase64Utf8 and fileMention: what the viewer copied, read back; a file as a prompt mentions it', () => {
+  expect(fromBase64Utf8('aG9sYSDDsQ==')).toBe('hola ñ')
+  expect(fromBase64Utf8('TMOtbmVhIDEKTMOtbmVhIDI=')).toBe('Línea 1\nLínea 2')
+  expect(fromBase64Utf8('')).toBe('')
+  expect(fromBase64Utf8('no es base64!')).toBe('')
+  expect(fileMention('C:\\Users\\test\\notas.txt')).toBe('@C:\\Users\\test\\notas.txt')
+  expect(fileMention('C:\\Mis Cosas\\notas.txt')).toBe('@"C:\\Mis Cosas\\notas.txt"')
 })
