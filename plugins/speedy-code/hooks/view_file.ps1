@@ -10,6 +10,8 @@
 #   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
 #   each, with their columns and first rows, read by db_view.py;
 #   a Windows shortcut (.lnk) or an Internet shortcut (.url): where it leads, as selectable text;
+#   a zip archive (zip, jar, apk, nupkg, vsix, whl, epub, or any file that starts as one): what it holds, as
+#   a table of names, sizes and dates, read only, nothing extracted;
 #   any other file that reads as text (yaml, toml, xml, csv, logs, dotfiles, LICENSE and other files with no
 #   extension, .bak and .tmp that hold text): its text, read-only but selectable;
 #   anything else (crx, .DS_Store, .sys, other binaries): what can be told about it, as selectable text.
@@ -20,7 +22,8 @@
 # bar is dark. The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a
 # second, so the mod wakes to end it; with no one reading, the write fails and it closes. When Copiar takes
 # text, it also says "copied " and that text in Base64 (UTF-8, LF line ends), for the mod to put it in the
-# prompt.
+# prompt. When Copiar takes a picture (an image file, or an SVG's Preview drawn as a PNG), it says
+# "attach " and the picture file's absolute path in Base64 (UTF-8), for the mod to attach it to the prompt.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -693,6 +696,7 @@ $kinds = @{
   '.xlsx' = 'xlsx'; '.xlsm' = 'xlsx'; '.xls' = 'xls'; '.docx' = 'docx'; '.docm' = 'docx'; '.doc' = 'doc'; '.crx' = 'binary'; '.ds_store' = 'binary'
   '.sqlite' = 'sqlite'; '.sqlite3' = 'sqlite'; '.db' = 'sqlite'; '.db3' = 'sqlite'; '.lnk' = 'shortcut'; '.url' = 'url'
   '.sys' = 'binary'; '.dll' = 'binary'; '.exe' = 'binary'
+  '.zip' = 'zip'; '.jar' = 'zip'; '.apk' = 'zip'; '.nupkg' = 'zip'; '.vsix' = 'zip'; '.whl' = 'zip'; '.epub' = 'zip'
 }
 foreach ($type in $imageTypes) { $kinds[$type] = 'image' }
 foreach ($type in $audioTypes) { $kinds[$type] = 'audio' }
@@ -726,7 +730,8 @@ $image = $null
 $pdfPages = $null
 $pdfText = $null
 $player = $null
-$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false }
+$svgExport = $null      # an SVG's markup and size for Copiar's PNG
+$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false }
 $disposables = @()
 $inner = $room
 
@@ -906,6 +911,138 @@ function Complete-DbView($job) {
   $page.DocumentText = New-TablesPage $tables
 }
 
+# ---- Zip archives ----------------------------------------------------------------------------------------
+# A zip's entries as a table, read through ZipFile.OpenRead: names, sizes and dates only, nothing extracted.
+# Folders a path implies but the zip does not list get a row too, so the table reads as a tree.
+$zipRowCap = 5000
+
+function Test-ZipHead([byte[]]$head) {
+  if ($null -eq $head -or $head.Length -lt 4 -or $head[0] -ne 0x50 -or $head[1] -ne 0x4B) { return $false }
+  ($head[2] -eq 3 -and $head[3] -eq 4) -or ($head[2] -eq 5 -and $head[3] -eq 6)
+}
+
+function Format-ShortSize([long]$size) {
+  if ($size -lt 1KB) { return "$size B" }
+  if ($size -lt 1MB) { return ('{0:N1} KB' -f ($size / 1KB)) }
+  if ($size -lt 1GB) { return ('{0:N1} MB' -f ($size / 1MB)) }
+  '{0:N2} GB' -f ($size / 1GB)
+}
+
+# How many entries the central directory marks encrypted (bit 0 of their flags): their names read, their
+# bytes do not. Found from the end of the file, so a zip past a header works too; -1 when it cannot be told
+# (a ZIP64 directory, a damaged end record).
+function Get-ZipEncryptedCount([string]$file) {
+  $stream = New-Object System.IO.FileStream($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+  try {
+    $read = {
+      param([long]$from, [int]$count)
+      $buffer = New-Object byte[] $count
+      $stream.Position = $from
+      $done = 0
+      while ($done -lt $count) { $n = $stream.Read($buffer, $done, $count - $done); if ($n -le 0) { break }; $done += $n }
+      ,$buffer
+    }
+    $tail = [int][Math]::Min($stream.Length, 65557)
+    $end = & $read ($stream.Length - $tail) $tail
+    $at = -1
+    for ($i = $tail - 22; $i -ge 0; $i--) { if ($end[$i] -eq 0x50 -and $end[$i + 1] -eq 0x4B -and $end[$i + 2] -eq 5 -and $end[$i + 3] -eq 6) { $at = $i; break } }
+    if ($at -lt 0) { return -1 }
+    $size = [BitConverter]::ToUInt32($end, $at + 12)
+    if ([BitConverter]::ToUInt32($end, $at + 16) -eq [uint32]::MaxValue -or $size -gt 64MB) { return -1 }
+    $start = $stream.Length - $tail + $at - $size
+    if ($start -lt 0) { return -1 }
+    $directory = & $read $start ([int]$size)
+    $count = 0
+    $i = 0
+    while ($i + 46 -le $directory.Length -and $directory[$i] -eq 0x50 -and $directory[$i + 1] -eq 0x4B -and $directory[$i + 2] -eq 1 -and $directory[$i + 3] -eq 2) {
+      $nameLength = [BitConverter]::ToUInt16($directory, $i + 28)
+      # A folder's entry holds no bytes to lock, whatever its flag says.
+      $isFolder = $nameLength -gt 0 -and $i + 46 + $nameLength -le $directory.Length -and $directory[$i + 45 + $nameLength] -eq 0x2F
+      if (($directory[$i + 8] -band 1) -ne 0 -and -not $isFolder) { $count++ }
+      $i += 46 + $nameLength +[BitConverter]::ToUInt16($directory, $i + 30) + [BitConverter]::ToUInt16($directory, $i + 32)
+    }
+    $count
+  } catch { -1 } finally { $stream.Dispose() }
+}
+
+function Read-ZipListing([string]$file) {
+  Use-Zip
+  $byPath = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+  $files = 0; $total = [long]0; $packed = [long]0; $entries = 0
+  $zip = [System.IO.Compression.ZipFile]::OpenRead($file)
+  try {
+    foreach ($entry in $zip.Entries) {
+      $entries++
+      $name = $entry.FullName.Replace('\', '/')
+      $isFolder = $name.EndsWith('/')
+      if (-not $isFolder) { $files++; $total += $entry.Length; $packed += $entry.CompressedLength }
+      $byPath[$name] = [pscustomobject]@{ Path = $name; Folder = $isFolder; Size = $entry.Length; Packed = $entry.CompressedLength; Date = $entry.LastWriteTime }
+      $cut = $name.TrimEnd('/').LastIndexOf('/')
+      while ($cut -gt 0) {
+        $parent = $name.Substring(0, $cut + 1)
+        if ($byPath.ContainsKey($parent)) { break }
+        $byPath[$parent] = [pscustomobject]@{ Path = $parent; Folder = $true; Size = 0; Packed = 0; Date = $null }
+        $cut = $parent.TrimEnd('/').LastIndexOf('/')
+      }
+    }
+  } finally { $zip.Dispose() }
+  # Tree order: a folder's rows right after it, as '/' sorts before any other character.
+  # Each key carries its row's place after a NUL, as Windows PowerShell hands Array.Sort a copy of a second
+  # array and leaves the rows unsorted.
+  $unsorted = @($byPath.Values)
+  $keys = [string[]]@(for ($i = 0; $i -lt $unsorted.Count; $i++) { $unsorted[$i].Path.ToLowerInvariant().Replace('/', [string][char]1) + [char]0 + $i })
+  [Array]::Sort($keys, [StringComparer]::Ordinal)
+  $rows = @(foreach ($key in $keys) { $unsorted[[int]$key.Substring($key.LastIndexOf([char]0) + 1)] })
+  $folders = @($rows | Where-Object { $_.Folder }).Count
+  [pscustomobject]@{ Rows = $rows; Files = $files; Folders = $folders; Total = $total; Packed = $packed; Entries = $entries; Encrypted = (Get-ZipEncryptedCount $file) }
+}
+
+function Format-ZipDate($date) { if ($null -eq $date) { '' } else { $date.ToString('yyyy-MM-dd HH:mm') } }
+
+function Get-ZipShownRows($listing) { if ($listing.Rows.Count -gt $zipRowCap) { $listing.Rows[0..($zipRowCap - 1)] } else { $listing.Rows } }
+
+function New-ZipPage($listing) {
+  $html = New-Object System.Text.StringBuilder
+  $about = ('{0:N0}' -f $listing.Files) + $(if ($listing.Files -eq 1) { ' archivo' } else { ' archivos' }) + ', ' + ('{0:N0}' -f $listing.Folders) + $(if ($listing.Folders -eq 1) { ' carpeta' } else { ' carpetas' })
+  $about += ' &middot; ' + (Format-ShortSize $listing.Total) + ' en total &middot; ' + (Format-ShortSize $listing.Packed) + ' comprimido'
+  [void]$html.Append('<div class="sheets"><p class="note">' + $about + '</p>')
+  if ($listing.Encrypted -gt 0) { [void]$html.Append('<p class="note" style="color:#ffd43b">Cifrado con contrase&ntilde;a: ' + $listing.Encrypted + ' de ' + $listing.Files + ' archivos. Se ve la lista, no su contenido.</p>') }
+  if ($listing.Rows.Count -eq 0) { [void]$html.Append('<p class="note">(ZIP vac&iacute;o)</p></div>'); return New-Page $html.ToString() $sheetCss }
+  [void]$html.Append('<table class="grid"><tr><th style="text-align:left">Nombre</th><th>Tama&ntilde;o</th><th>Comprimido</th><th>Fecha</th></tr>')
+  foreach ($row in (Get-ZipShownRows $listing)) {
+    $depth = ($row.Path.TrimEnd('/').Split('/')).Count - 1
+    $leaf = $row.Path.TrimEnd('/').Substring($row.Path.TrimEnd('/').LastIndexOf('/') + 1)
+    $style = 'padding-left:' + (8 + 18 * $depth) + 'px' + $(if ($row.Folder) { ';color:#74c0fc' } else { '' })
+    [void]$html.Append('<tr><td style="' + $style + '" title="' + (Html $row.Path) + '">' + (Html $leaf) + $(if ($row.Folder) { '/' } else { '' }) + '</td>')
+    if ($row.Folder) { [void]$html.Append('<td></td><td></td>') }
+    else { [void]$html.Append('<td class="n">' + (Format-ShortSize $row.Size) + '</td><td class="n">' + (Format-ShortSize $row.Packed) + '</td>') }
+    [void]$html.Append('<td>' + (Format-ZipDate $row.Date) + '</td></tr>')
+  }
+  [void]$html.Append('</table>')
+  if ($listing.Rows.Count -gt $zipRowCap) { [void]$html.Append('<p class="note">Se muestran las primeras ' + ('{0:N0}' -f $zipRowCap) + ' entradas de ' + ('{0:N0}' -f $listing.Rows.Count) + '.</p>') }
+  [void]$html.Append('</div>')
+  New-Page $html.ToString() $sheetCss
+}
+
+# The rows shown, for Copiar: the full path, the sizes in bytes and the date, apart by tabs.
+function Get-ZipText($listing) {
+  $text = New-Object System.Text.StringBuilder
+  [void]$text.Append((T 'Nombre\tTama\u00f1o\tComprimido\tFecha')).Append("`r`n")
+  foreach ($row in (Get-ZipShownRows $listing)) {
+    $sizes = if ($row.Folder) { "`t" } else { "$($row.Size)`t$($row.Packed)" }
+    [void]$text.Append($row.Path + "`t" + $sizes + "`t" + (Format-ZipDate $row.Date)).Append("`r`n")
+  }
+  $text.ToString()
+}
+
+# A short zip gets a popup sized to its rows.
+function Get-ZipFitSize($listing) {
+  $shown = [Math]::Min($listing.Rows.Count, $zipRowCap)
+  $longest = 0
+  foreach ($row in (Get-ZipShownRows $listing)) { $width = $row.Path.Length - $row.Path.TrimEnd('/').LastIndexOf('/') + 2 * ($row.Path.TrimEnd('/').Split('/').Count - 1); if ($width -gt $longest) { $longest = $width } }
+  New-Object System.Drawing.Size(([int][Math]::Min($room.Width, [Math]::Max(640, 8 * $longest + 420))), ([int][Math]::Min($room.Height, [Math]::Max(220, 23 * $shown + 120))))
+}
+
 # A Windows shortcut's own fields, read through WScript.Shell, which only reads it here: nothing is saved.
 function Get-ShortcutInfo([string]$file) {
   $shell = New-Object -ComObject WScript.Shell
@@ -1023,10 +1160,21 @@ function New-SvgView([string]$text) {
   $number = { param($value) if ($value -match '^\s*([\d.]+)\s*(px)?\s*$') { [double]$Matches[1] } else { 0.0 } }
   $width = & $number $svg.GetAttribute('width')
   $height = & $number $svg.GetAttribute('height')
+  $sized = $width -gt 0 -and $height -gt 0
   $viewBox = $svg.GetAttribute('viewBox') -split '[\s,]+' | Where-Object { $_ -ne '' }
   if (($width -le 0 -or $height -le 0) -and $viewBox.Count -eq 4) { $width = [double]$viewBox[2]; $height = [double]$viewBox[3] }
   if ($width -le 0 -or $height -le 0) { $width = 300.0; $height = 150.0 }
   if ($viewBox.Count -ne 4) { $svg.SetAttribute('viewBox', "0 0 $width $height") }
+  # Copiar on the Preview draws it as a PNG at its own size; with only a viewBox, a small one grows to 512
+  # on its longer side. Never past 4096.
+  $exportScale = if ($sized) { 1.0 } else { [Math]::Max(1.0, 512 / [Math]::Max($width, $height)) }
+  $exportScale = [Math]::Min($exportScale, 4096 / [Math]::Max($width, $height))
+  $export = $svg.CloneNode($true)
+  $exportWidth = [int][Math]::Max(1, [Math]::Round($width * $exportScale))
+  $exportHeight = [int][Math]::Max(1, [Math]::Round($height * $exportScale))
+  $export.SetAttribute('width', "$exportWidth")
+  $export.SetAttribute('height', "$exportHeight")
+  $script:svgExport = [pscustomobject]@{ Markup = $export.OuterXml; Width = $exportWidth; Height = $exportHeight }
   $fit = [Math]::Min(($room.Width - 48) / $width, ($room.Height - 48) / $height)
   $scale = [Math]::Min($fit, [Math]::Max(1.0, 256 / [Math]::Max($width, $height)))
   $shownWidth = [int][Math]::Max(1, [Math]::Round($width * $scale))
@@ -1048,15 +1196,32 @@ function New-MessagePage([string]$html) { New-Page ('<p class="note" style="font
 try {
   # A SQLite database is told by its first 16 bytes, whatever its name; a .db that is not one (a Thumbs.db)
   # is read as any other file.
+  # A zip is told by its first four bytes too (an .odt, a .pptx, a zip with no extension); a Chrome
+  # extension keeps its own page, as its zip starts past a header.
   if ($kind -in @('text', 'binary', 'sqlite')) {
-    $isSqlite = Test-SqliteHead (Read-Bytes $path 16)
+    $head = Read-Bytes $path 16
+    $isSqlite = Test-SqliteHead $head
     if ($isSqlite) { $kind = 'sqlite' } elseif ($kind -eq 'sqlite') { $kind = 'text' }
+    if ($kind -in @('text', 'binary') -and $extension -ne '.crx' -and (Test-ZipHead $head)) { $kind = 'zip' }
   }
   if ($kind -eq 'sqlite') {
     # db_view.py reads it while the popup stands; the timer draws its tables when it is through.
     $views['Page'] = New-PageView (New-MessagePage 'Leyendo la base de datos...')
     $dbJob = Start-PythonScript 'db_view.py' $path 'No se pudo abrir la base de datos: '
     if ($dbJob.Done) { $views['Page'].DocumentText = New-MessagePage (Html $dbJob.Text) }
+  } elseif ($kind -eq 'zip') {
+    try {
+      $listing = Read-ZipListing $path
+      $views['Page'] = New-PageView (New-ZipPage $listing)
+      $rawText = Get-ZipText $listing
+      $inner = Get-ZipFitSize $listing
+    } catch {
+      $why = $_.Exception
+      while ($why.InnerException) { $why = $why.InnerException }
+      $size = try { Format-Size (Get-Item -LiteralPath $path).Length } catch { '' }
+      $views['Page'] = New-PageView (New-MessagePage ('No se pudo leer este ZIP: est&aacute; da&ntilde;ado, incompleto o no es un ZIP.<br><br>' + (Html $why.Message) + '<br><br>' + (Html $fileName) + ' &middot; ' + (Html $size)))
+      $inner = New-Object System.Drawing.Size(([int][Math]::Min($room.Width, 640)), 220)
+    }
   } elseif ($kind -eq 'shortcut') {
     $info = Get-ShortcutInfo $path
     $views['Text'] = New-SourceBox $info $false
@@ -1513,6 +1678,9 @@ function Copy-View {
   $view = $views[$state.View]
   $text = $null
   try {
+    if ($view -is [System.Windows.Forms.WebBrowser] -and $svgExport -and $state.View -eq 'Preview') {
+      Copy-SvgPicture; return
+    }
     if ($view -is [System.Windows.Forms.WebBrowser]) {
       $selected = $null
       try { $selected = [string]$view.Document.InvokeScript('eval', [object[]]@('window.getSelection ? String(window.getSelection()) : ""')) } catch { }
@@ -1526,7 +1694,7 @@ function Copy-View {
     } elseif ($view -is [System.Windows.Forms.RichTextBox]) {
       $text = if ($view.SelectionLength -gt 0) { $view.SelectedText } else { $view.Text }
     } elseif ($image) {
-      [System.Windows.Forms.Clipboard]::SetImage($image); Show-Copied; return
+      [System.Windows.Forms.Clipboard]::SetImage($image); Send-Attach $path; Show-Copied; return
     } elseif ($pdfText) {
       # On the pages, Copiar takes the whole text, once it is read.
       if ($pdfText.Done) { $text = $pdfText.Text }
@@ -1543,6 +1711,48 @@ function Copy-View {
 function Send-Copied([string]$text) {
   $plain = $text -replace "`r`n", "`n"
   try { Say ('copied ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($plain))) } catch { }
+}
+
+# A picture file for the mod to attach to the prompt: one line, `attach ` and its absolute path's UTF-8 in
+# Base64.
+function Send-Attach([string]$file) {
+  try { Say ('attach ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($file)))) } catch { }
+}
+
+# An SVG's Preview as a picture: drawn at its export size by a WebBrowser of its own that is never shown, on
+# the Preview's dark paper, then put on the clipboard and saved as a PNG under %TEMP%\speedy-code\copies for
+# the mod to attach.
+function Copy-SvgPicture {
+  if ($state.Drawing) { return }
+  $state.Drawing = $true
+  $browser = $null
+  $bitmap = $null
+  try {
+    $width = $svgExport.Width; $height = $svgExport.Height
+    $browser = New-Object System.Windows.Forms.WebBrowser
+    $browser.ScrollBarsEnabled = $false
+    $browser.ScriptErrorsSuppressed = $true
+    $browser.Size = New-Object System.Drawing.Size($width, $height)
+    $css = 'html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #16181d; overflow: hidden; } svg { display: block; }'
+    $browser.DocumentText = New-Page $svgExport.Markup $css
+    $until = [DateTime]::Now.AddSeconds(5)
+    while ($browser.ReadyState -ne [System.Windows.Forms.WebBrowserReadyState]::Complete -and [DateTime]::Now -lt $until) {
+      [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 10
+    }
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $browser.DrawToBitmap($bitmap, (New-Object System.Drawing.Rectangle(0, 0, $width, $height)))
+    $folder = Join-Path ([IO.Path]::GetTempPath()) 'speedy-code\copies'
+    [void][IO.Directory]::CreateDirectory($folder)
+    $file = Join-Path $folder ([IO.Path]::GetFileNameWithoutExtension($path) + '-' + [DateTime]::Now.ToString('yyMMdd-HHmmss') + '.png')
+    $bitmap.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+    [System.Windows.Forms.Clipboard]::SetImage($bitmap)
+    Send-Attach $file
+    Show-Copied
+  } finally {
+    if ($bitmap) { $bitmap.Dispose() }
+    if ($browser) { $browser.Dispose() }
+    $state.Drawing = $false
+  }
 }
 
 function Set-CopyLabels([string]$text, $back, $fore) {
