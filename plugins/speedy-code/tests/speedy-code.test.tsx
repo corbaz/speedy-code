@@ -2137,7 +2137,9 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     const key = path.replace(/\\/g, '/').toLowerCase()
     if (/^[cd]:\/$/.test(key) || Object.keys(TREE).some(folder => folder.toLowerCase() === key)) return 'dir'
     const at = key.lastIndexOf('/')
-    const folder = Object.entries(TREE).find(([name]) => name.toLowerCase() === (key.slice(0, at) || key))?.[1]
+    // A disk's own entry is under `C:/`, with its slash.
+    const parent = /^[a-z]:$/.test(key.slice(0, at)) ? key.slice(0, at + 1) : key.slice(0, at)
+    const folder = Object.entries(TREE).find(([name]) => name.toLowerCase() === parent)?.[1]
     return folder?.some(entry => entry.name.toLowerCase() === key.slice(at + 1)) ? 'file' : undefined
   }
   on('fs.stat', (_, e) => {
@@ -2296,6 +2298,9 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // Any press in the explorer takes the mark off: the yellow fill is the pointer's again, and follows it.
   await near.press({ key: 'explorer:C:/Users/Public' })
   expect(await marked()).toEqual([])
+  // A link is marked too, as a macOS app in /Applications often is one.
+  await near.input({ key: 'explorer-goto', text: 'C:\\Documents and Settings', kind: 'submit' })
+  expect(await marked()).toEqual(['  ↪ Documents and Settings'])
   await near.input({ key: 'explorer-goto', text: 'D:\\fotos\\viaje.jpg', kind: 'submit' })
   expect(await marked()).toEqual(['      viaje.jpg'])
   await near.post({ isClicked: true }, { in: 'speedy:explorer-path:D:/fotos/viaje.jpg' })

@@ -2653,7 +2653,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         }
         if (row.kind !== 'dir') {
           const mark = row.kind === 'link' ? '↪ ' : '  '
-          return <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
+          // A link or a file the viewer does not show, found by the field, is marked as any row found.
+          return row.isFound
+            ? <Text key={`explorer-entry:${row.path}`} bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
+            : <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
         }
         return (
           <Button key={`explorer:${row.path}`} plain onPress={() => { void toggleTreeFolder($, row.path) }}>
