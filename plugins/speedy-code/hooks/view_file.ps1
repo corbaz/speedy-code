@@ -637,6 +637,46 @@ function ConvertFrom-WordBlocks($parent) {
   $html.ToString()
 }
 
+# A docx's text as Copiar takes it: a line to a paragraph, a tab between a table's cells and a line to its
+# row, a line break where the document breaks a line. The page the browser draws loses them in its own text.
+function Get-WordText($parent) {
+  $out = New-Object System.Text.StringBuilder
+  foreach ($node in $parent.ChildNodes) {
+    if ($node.LocalName -eq 'p') {
+      foreach ($piece in $node.SelectNodes('.//w:t|.//w:tab|.//w:br|.//w:cr', $wordNsm)) {
+        switch ($piece.LocalName) {
+          't' { [void]$out.Append($piece.InnerText) }
+          'tab' { [void]$out.Append("`t") }
+          default { [void]$out.Append("`n") }
+        }
+      }
+      [void]$out.Append("`n")
+    } elseif ($node.LocalName -eq 'tbl') {
+      foreach ($row in $node.SelectNodes('w:tr', $wordNsm)) {
+        $cells = foreach ($cell in $row.SelectNodes('w:tc', $wordNsm)) { (Get-WordText $cell).Trim() -replace "`n", ' ' }
+        [void]$out.Append((@($cells) -join "`t") + "`n")
+      }
+    } elseif ($node.LocalName -in @('sdt', 'sdtContent', 'customXml', 'smartTag')) {
+      [void]$out.Append((Get-WordText $node))
+    }
+  }
+  $out.ToString()
+}
+
+function Get-DocxText([string]$file) {
+  Use-Zip
+  $zip = [System.IO.Compression.ZipFile]::OpenRead($file)
+  try {
+    $document = Read-ZipXml $zip 'word/document.xml'
+    if ($null -eq $document) { return $null }
+    $script:wordNsm = New-Object System.Xml.XmlNamespaceManager($document.NameTable)
+    $script:wordNsm.AddNamespace('w', $wordNs)
+    $body = $document.SelectSingleNode('/w:document/w:body', $script:wordNsm)
+    if ($null -eq $body) { return $null }
+    (Get-WordText $body).TrimEnd()
+  } finally { $zip.Dispose() }
+}
+
 function ConvertFrom-Docx([string]$file) {
   Use-Zip
   $zip = [System.IO.Compression.ZipFile]::OpenRead($file)
@@ -2168,7 +2208,10 @@ try {
           $views['Page'] = New-PageView (New-MessagePage ('No se puede previsualizar .xls sin Excel instalado.<br><br>' + (Html $fileName) + ' &middot; ' + (Html (Format-Size $bytes.Length))))
         }
       }
-      'docx' { $views['Page'] = New-PageView (New-Page (ConvertFrom-Docx $path) $documentCss) }
+      'docx' {
+        $views['Page'] = New-PageView (New-Page (ConvertFrom-Docx $path) $documentCss)
+        $rawText = try { Get-DocxText $path } catch { $null }
+      }
       'doc' {
         if ([Type]::GetTypeFromProgID('Word.Application')) {
           $views['Page'] = New-PageView (New-MessagePage 'Abriendo con Word...')
@@ -2176,7 +2219,7 @@ try {
             param($copyPath, $problem)
             $views['Page'].DocumentText = if ($problem) {
               New-Page ('<p class="note">Word no pudo abrir este .doc: ' + $problem + '<br>Texto aproximado: los textos legibles del archivo.</p><pre>' + (Html (Get-LooseText $bytes)) + '</pre>') $documentCss
-            } else { New-Page (ConvertFrom-Docx $copyPath) $documentCss }
+            } else { $script:rawText = try { Get-DocxText $copyPath } catch { $null }; New-Page (ConvertFrom-Docx $copyPath) $documentCss }
           }
         } else {
           $views['Text'] = New-SourceBox ((T 'Texto aproximado: sin Word instalado, se muestran los textos legibles del archivo.') + "`r`n`r`n" + (Get-LooseText $bytes)) $true
