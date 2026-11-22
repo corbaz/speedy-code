@@ -7,10 +7,17 @@
 #   Markdown, HTML and SVG: drawn as a page, the Preview, with a switch beside the title to their source;
 #   a spreadsheet (xlsx, xlsm; xls through Excel) or a Word document (docx; doc through Word): drawn as a page;
 #   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume;
-#   any other file that reads as text: its text, read-only but selectable, with scroll bars when it does not fit;
-#   anything else (crx, .DS_Store, other binaries): what can be told about it, as selectable text.
-# Every scroll bar is dark. The close mark or Esc closes it. It says "shown" once it is up, then "." every
-# tenth of a second, so the mod wakes to end it; with no one reading, the write fails and it closes.
+#   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
+#   each, with their columns and first rows, read by db_view.py;
+#   a Windows shortcut (.lnk) or an Internet shortcut (.url): where it leads, as selectable text;
+#   any other file that reads as text (yaml, toml, xml, csv, logs, dotfiles, LICENSE and other files with no
+#   extension, .bak and .tmp that hold text; JSONL a record per block): its text, read-only but selectable;
+#   anything else (crx, .DS_Store, .sys, other binaries): what can be told about it, as selectable text.
+# The bottom line repeats Copiar and the close mark, for a popup taller than the eye's reach. Every scroll
+# bar is dark. The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a
+# second, so the mod wakes to end it; with no one reading, the write fails and it closes. When Copiar takes
+# text, it also says "copied " and that text in Base64 (UTF-8, LF line ends), for the mod to put it in the
+# prompt.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
@@ -182,11 +189,12 @@ function Read-Text([byte[]]$bytes) {
 
 # Minified JSON laid out with indents. Only whitespace between tokens changes; anything that is not plain
 # JSON (comments, a broken file) is left exactly as it is.
-function Format-Json([string]$text) {
+# -Always lays out short JSON too, as a JSONL record.
+function Format-Json([string]$text, [switch]$Always) {
   $trimmed = $text.Trim()
   if ($trimmed.Length -eq 0 -or $trimmed.Length -gt 1MB -or $trimmed[0] -notin @('{', '[')) { return $text }
   $longest = ($trimmed -split "`n" | Measure-Object -Property Length -Maximum).Maximum
-  if ($longest -lt 300) { return $text }
+  if ($longest -lt 300 -and -not $Always) { return $text }
   $tokens = [regex]::Matches($trimmed, '"(?:[^"\\]|\\.)*"|[{}\[\],:]|[^\s{}\[\],:"]+')
   $out = New-Object System.Text.StringBuilder
   $depth = 0
@@ -211,6 +219,25 @@ function Format-Json([string]$text) {
     }
   }
   $out.ToString()
+}
+
+# JSON Lines: each line that is JSON laid out, the rest kept as it is, a blank line between records.
+function Format-JsonLines([string]$text) {
+  $records = foreach ($one in ($text -split "`r?`n")) { if ($one.Trim()) { Format-Json $one -Always } }
+  @($records) -join "`r`n`r`n"
+}
+
+# A file's bytes, shared with a program still writing it (a log, a database), which ReadAllBytes refuses.
+function Read-Bytes([string]$file, [int]$limit = 0) {
+  $stream = New-Object System.IO.FileStream($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+  try {
+    $length = if ($limit -gt 0) { [int][Math]::Min($limit, $stream.Length) } else { [int]$stream.Length }
+    $buffer = New-Object byte[] $length
+    $read = 0
+    while ($read -lt $length) { $n = $stream.Read($buffer, $read, $length - $read); if ($n -le 0) { break }; $read += $n }
+    if ($read -lt $length) { [Array]::Resize([ref]$buffer, $read) }
+    ,$buffer
+  } finally { $stream.Dispose() }
 }
 
 function Format-Size([long]$size) {
@@ -485,6 +512,7 @@ table.grid { border-collapse: collapse; margin: 0; font: 13px Consolas, monospac
 .grid th { background: #25282e; color: #868e96; font-weight: normal; padding: 2px 8px; border: 1px solid #343a40; text-align: center; }
 .grid td { border: 1px solid #2b2f36; padding: 2px 8px; white-space: nowrap; max-width: 480px; overflow: hidden; text-overflow: ellipsis; color: #e9ecef; }
 .grid td.n { text-align: right; color: #a5d8ff; }
+.grid td.alt { color: #868e96; font-style: italic; }
 '@
 
 # The sheets as text for Copiar: each sheet's name, then its rows with the cells apart by tabs, as Excel
@@ -700,6 +728,8 @@ $videoTypes = @('.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg',
 $kinds = @{
   '.pdf' = 'pdf'; '.md' = 'markdown'; '.markdown' = 'markdown'; '.html' = 'html'; '.htm' = 'html'; '.xhtml' = 'html'; '.svg' = 'svg'
   '.xlsx' = 'xlsx'; '.xlsm' = 'xlsx'; '.xls' = 'xls'; '.docx' = 'docx'; '.docm' = 'docx'; '.doc' = 'doc'; '.crx' = 'binary'; '.ds_store' = 'binary'
+  '.sqlite' = 'sqlite'; '.sqlite3' = 'sqlite'; '.db' = 'sqlite'; '.db3' = 'sqlite'; '.lnk' = 'shortcut'; '.url' = 'url'
+  '.sys' = 'binary'; '.dll' = 'binary'; '.exe' = 'binary'
 }
 foreach ($type in $imageTypes) { $kinds[$type] = 'image' }
 foreach ($type in $audioTypes) { $kinds[$type] = 'audio' }
@@ -712,7 +742,8 @@ $line = 2
 $margin = 12
 $band = 16
 $extraWidth = 2 * ($contour + $line + $margin)
-$extraHeight = 2 * ($contour + $line) + $band + $margin
+# The bottom line carries Copiar and the close mark as the top one does, so it gets the same band.
+$extraHeight = 2 * ($contour + $line) + 2 * $band
 
 $black = [System.Drawing.Color]::Black
 $blue = [System.Drawing.ColorTranslator]::FromHtml('#74c0fc')
@@ -744,13 +775,14 @@ function Find-Python {
   $null
 }
 
-# Starts pdf_text.py on the file; its output is read as it runs and looked at by the timer.
-function Start-PdfText([string]$file) {
+# Starts one of the hook's Python scripts on the file; its output is read as it runs and looked at by the
+# timer. With no Python, or when it cannot start, the job is done at once with $failure and the reason.
+function Start-PythonScript([string]$script, [string]$file, [string]$failure) {
   $python = Find-Python
-  if (-not $python) { return [pscustomobject]@{ Done = $true; Text = (T 'No encontr\u00e9 el Python de speedy-code: instalalo desde \u2699 \u2192 Instalaci\u00f3n.') } }
+  if (-not $python) { return [pscustomobject]@{ Done = $true; Failed = $true; Text = (T 'No encontr\u00e9 el Python de speedy-code: instalalo desde \u2699 \u2192 Instalaci\u00f3n.') } }
   $start = New-Object System.Diagnostics.ProcessStartInfo
   $start.FileName = $python
-  $start.Arguments = '"' + (Join-Path $PSScriptRoot 'pdf_text.py') + '" "' + $file + '"'
+  $start.Arguments = '"' + (Join-Path $PSScriptRoot $script) + '" "' + $file + '"'
   $start.UseShellExecute = $false
   $start.CreateNoWindow = $true
   $start.RedirectStandardOutput = $true
@@ -760,11 +792,14 @@ function Start-PdfText([string]$file) {
   $start.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
   try {
     $process = [System.Diagnostics.Process]::Start($start)
-    [pscustomobject]@{ Done = $false; Process = $process; Out = $process.StandardOutput.ReadToEndAsync(); Err = $process.StandardError.ReadToEndAsync(); Text = $null }
+    [pscustomobject]@{ Done = $false; Failed = $false; Process = $process; Out = $process.StandardOutput.ReadToEndAsync(); Err = $process.StandardError.ReadToEndAsync(); Text = $null }
   } catch {
-    [pscustomobject]@{ Done = $true; Text = (T 'No se pudo leer el texto del PDF: ') + $_.Exception.Message }
+    [pscustomobject]@{ Done = $true; Failed = $true; Text = $failure + $_.Exception.Message }
   }
 }
+
+# Starts pdf_text.py on the file.
+function Start-PdfText([string]$file) { Start-PythonScript 'pdf_text.py' $file (T 'No se pudo leer el texto del PDF: ') }
 
 # The text read, or why there is none, once pdf_text.py has ended.
 function Complete-PdfText($job) {
@@ -777,6 +812,143 @@ function Complete-PdfText($job) {
   $views['Texto'].Text = $job.Text -replace "(?<!`r)`n", "`r`n"
   $views['Texto'].SelectionStart = 0
   $views['Texto'].ScrollToCaret()
+}
+
+# ---- Databases -------------------------------------------------------------------------------------------
+$sqliteMagic = [System.Text.Encoding]::ASCII.GetBytes("SQLite format 3`0")
+$dbTables = $null      # each table's text for Copiar, by the tab shown
+$dbJob = $null
+
+function Test-SqliteHead([byte[]]$head) {
+  if ($null -eq $head -or $head.Length -lt 16) { return $false }
+  for ($k = 0; $k -lt 16; $k++) { if ($head[$k] -ne $sqliteMagic[$k]) { return $false } }
+  $true
+}
+
+# A table's text for Copiar: the column names, then the rows, the cells apart by tabs.
+function Get-TableText($table) {
+  $text = New-Object System.Text.StringBuilder
+  [void]$text.Append((@($table.columns) -join "`t")).Append("`r`n")
+  foreach ($row in @($table.rows)) { [void]$text.Append((@($row) -join "`t")).Append("`r`n") }
+  $text.ToString()
+}
+
+# The tables as a page, as the spreadsheets are drawn: a tab each, the column names over the columns and
+# the rows numbered. The page keeps the tab shown in `cur`, for Copiar.
+function New-TablesPage($tables) {
+  $html = New-Object System.Text.StringBuilder
+  $tabbed = $tables.Count -gt 1
+  if ($tabbed) {
+    [void]$html.Append('<div class="tabs">')
+    for ($s = 0; $s -lt $tables.Count; $s++) {
+      [void]$html.Append("<span class=""tab$(if ($s -eq 0) { ' on' })"" id=""t$s"" onclick=""show($s)"">" + (Html $tables[$s].name) + '</span>')
+    }
+    [void]$html.Append('</div>')
+  }
+  [void]$html.Append("<div class=""sheets$(if ($tabbed) { ' tabbed' })"">")
+  for ($s = 0; $s -lt $tables.Count; $s++) {
+    $table = $tables[$s]
+    $rows = @($table.rows)
+    [void]$html.Append("<div class=""sheet"" id=""s$s""$(if ($s -gt 0) { ' style=""display:none""' })>")
+    $what = if ($table.type -eq 'view') { 'vista' } else { 'tabla' }
+    $count = [long]$table.count
+    $about = (Html $table.name) + " &middot; $what &middot; " + ('{0:N0}' -f $count) + $(if ($count -eq 1) { ' fila' } else { ' filas' })
+    if ($count -gt $rows.Count) { $about += ' &middot; se muestran las primeras ' + $rows.Count }
+    [void]$html.Append('<p class="note">' + $about + '</p>')
+    if ($table.error) { [void]$html.Append('<p class="note">No se pudo leer: ' + (Html $table.error) + '</p></div>'); continue }
+    [void]$html.Append('<table class="grid"><tr><th></th>')
+    foreach ($column in @($table.columns)) { [void]$html.Append('<th>' + (Html $column) + '</th>') }
+    [void]$html.Append('</tr>')
+    $r = 0
+    foreach ($row in $rows) {
+      $r++
+      [void]$html.Append("<tr><th>$r</th>")
+      foreach ($value in @($row)) {
+        $value = [string]$value
+        if ($value -eq '') { [void]$html.Append('<td></td>') }
+        elseif ($value -match '^-?\d+(\.\d+)?([eE][-+]?\d+)?$') { [void]$html.Append('<td class="n">' + $value + '</td>') }
+        elseif ($value -match '^<blob \d+ bytes>$') { [void]$html.Append('<td class="alt">' + (Html $value) + '</td>') }
+        else { [void]$html.Append('<td title="' + (Html $value) + '">' + (Html $value) + '</td>') }
+      }
+      [void]$html.Append('</tr>')
+    }
+    [void]$html.Append('</table>')
+    if ($rows.Count -eq 0) { [void]$html.Append('<p class="note">(sin filas)</p>') }
+    [void]$html.Append('</div>')
+  }
+  [void]$html.Append('</div>')
+  [void]$html.Append('<script>var cur=0;function show(n){var i=0,d;while(d=document.getElementById("s"+i)){d.style.display=(i==n)?"":"none";document.getElementById("t"+i).className=(i==n)?"tab on":"tab";i++;}cur=n;window.scrollTo(0,0);}</script>')
+  New-Page $html.ToString() $sheetCss
+}
+
+# Once db_view.py has ended: its tables drawn, or why not.
+function Complete-DbView($job) {
+  $job.Done = $true
+  $page = $views['Page']
+  if ($job.Process.ExitCode -ne 0) {
+    $page.DocumentText = New-MessagePage ('No se pudo abrir la base de datos: ' + (Html $job.Err.Result.Trim()))
+    return
+  }
+  Add-Type -AssemblyName System.Web.Extensions
+  $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+  $serializer.MaxJsonLength = [int]::MaxValue
+  $data = $serializer.DeserializeObject($job.Out.Result)
+  $tables = @(foreach ($one in $data['tables']) { [pscustomobject]@{ name = $one['name']; type = $one['type']; columns = @($one['columns']); count = $one['count']; rows = @($one['rows']); error = $one['error'] } })
+  if ($tables.Count -eq 0) { $page.DocumentText = New-MessagePage 'La base de datos no tiene tablas.'; return }
+  $script:dbTables = @(foreach ($table in $tables) { Get-TableText $table })
+  $page.DocumentText = New-TablesPage $tables
+}
+
+# A Windows shortcut's own fields, read through WScript.Shell, which only reads it here: nothing is saved.
+function Get-ShortcutInfo([string]$file) {
+  $shell = New-Object -ComObject WScript.Shell
+  try {
+    $link = $shell.CreateShortcut($file)
+    try {
+      $style = switch ([int]$link.WindowStyle) { 3 { 'maximizada' } 7 { 'minimizada' } default { 'normal' } }
+      $target = [string]$link.TargetPath
+      $exists = if ($target -and -not (Test-Path -LiteralPath $target)) { T '   (no existe)' } else { '' }
+      $out = New-Object System.Collections.Generic.List[string]
+      $out.Add((T 'Archivo:            ') + $fileName)
+      $out.Add((T 'Tipo:               acceso directo de Windows (.lnk)'))
+      $out.Add('')
+      $out.Add((T 'Destino:            ') + $target + $exists)
+      $out.Add((T 'Argumentos:         ') + $link.Arguments)
+      $out.Add((T 'Carpeta de inicio:  ') + $link.WorkingDirectory)
+      $out.Add((T 'Descripci\u00f3n:        ') + $link.Description)
+      $out.Add((T 'Icono:              ') + $link.IconLocation)
+      $out.Add((T 'Tecla:              ') + $link.Hotkey)
+      $out.Add((T 'Ventana:            ') + $style)
+      $out -join "`r`n"
+    } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($link) }
+  } finally { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+}
+
+# An Internet shortcut: its URL from the INI text, then the text itself.
+function Get-UrlInfo([string]$text) {
+  $url = ''
+  $icon = ''
+  foreach ($one in ($text -split "`r?`n")) {
+    if (-not $url -and $one -match '^\s*URL\s*=\s*(.*)$') { $url = $Matches[1].Trim() }
+    if (-not $icon -and $one -match '^\s*IconFile\s*=\s*(.*)$') { $icon = $Matches[1].Trim() }
+  }
+  $out = New-Object System.Collections.Generic.List[string]
+  $out.Add((T 'Archivo:  ') + $fileName)
+  $out.Add((T 'Tipo:     acceso directo de Internet (.url)'))
+  $out.Add('')
+  $out.Add((T 'URL:      ') + $(if ($url) { $url } else { T '(no tiene)' }))
+  if ($icon) { $out.Add((T 'Icono:    ') + $icon) }
+  $out.Add('')
+  $out.Add((T 'Contenido:'))
+  $out.Add($text.TrimEnd())
+  $out -join "`r`n"
+}
+
+# A view holding a few lines of text gets a popup sized to them, not the whole room.
+function Get-FitSize([string]$text) {
+  $lines = @($text -split "`r?`n")
+  $longest = ($lines | Measure-Object -Property Length -Maximum).Maximum
+  New-Object System.Drawing.Size(([int][Math]::Min($room.Width, [Math]::Max(520, 9 * $longest + 60))), ([int][Math]::Min($room.Height, [Math]::Max(160, 19 * $lines.Count + 40))))
 }
 
 function New-SourceBox([string]$text, [bool]$wrap) {
@@ -867,7 +1039,22 @@ svg { display: block; }
 function New-MessagePage([string]$html) { New-Page ('<p class="note" style="font-size:15px">' + $html + '</p>') }
 
 try {
-  if ($kind -eq 'image') {
+  # A SQLite database is told by its first 16 bytes, whatever its name; a .db that is not one (a Thumbs.db)
+  # is read as any other file.
+  if ($kind -in @('text', 'binary', 'sqlite')) {
+    $isSqlite = Test-SqliteHead (Read-Bytes $path 16)
+    if ($isSqlite) { $kind = 'sqlite' } elseif ($kind -eq 'sqlite') { $kind = 'text' }
+  }
+  if ($kind -eq 'sqlite') {
+    # db_view.py reads it while the popup stands; the timer draws its tables when it is through.
+    $views['Page'] = New-PageView (New-MessagePage 'Leyendo la base de datos...')
+    $dbJob = Start-PythonScript 'db_view.py' $path 'No se pudo abrir la base de datos: '
+    if ($dbJob.Done) { $views['Page'].DocumentText = New-MessagePage (Html $dbJob.Text) }
+  } elseif ($kind -eq 'shortcut') {
+    $info = Get-ShortcutInfo $path
+    $views['Text'] = New-SourceBox $info $false
+    $inner = Get-FitSize $info
+  } elseif ($kind -eq 'image') {
     # Read into memory, not with FromFile, which holds the file till the popup closes.
     $image = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(, [System.IO.File]::ReadAllBytes($path))))
     $disposables += $image
@@ -1102,9 +1289,9 @@ try {
     if ($kind -eq 'audio') { $player.Open((New-Object System.Uri($path))) }
     $player.Play()
   } else {
-    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $bytes = Read-Bytes $path
     $text = $null
-    if ($kind -in @('text', 'markdown', 'html', 'svg')) {
+    if ($kind -in @('text', 'markdown', 'html', 'svg', 'url')) {
       $text = Read-Text $bytes
       if ($null -eq $text) { $kind = 'binary' }
       else {
@@ -1163,9 +1350,17 @@ try {
           $views['Text'] = New-SourceBox ((T 'Texto aproximado: sin Word instalado, se muestran los textos legibles del archivo.') + "`r`n`r`n" + (Get-LooseText $bytes)) $true
         }
       }
+      'url' {
+        $info = Get-UrlInfo $text
+        $views['Text'] = New-SourceBox $info $false
+        $inner = Get-FitSize $info
+      }
       'text' {
         if ($extension -eq '.json') { $text = Format-Json $text }
-        $views['Text'] = New-SourceBox $text (@('.txt', '.log') -contains $extension)
+        if ($extension -eq '.jsonl' -or $extension -eq '.ndjson') { $text = Format-JsonLines $text }
+        # Prose wraps: plain text, logs, and a LICENSE or README with no extension.
+        $prose = (@('.txt', '.log') -contains $extension) -or ($extension -eq '' -and $fileName -match '^(LICENSE|LICENCE|COPYING|README|AUTHORS|NOTICE|CHANGELOG)$')
+        $views['Text'] = New-SourceBox $text $prose
       }
     }
     if ($kind -eq 'binary') { $views['Text'] = New-SourceBox (Get-BinaryInfo $bytes '') $false }
@@ -1176,7 +1371,7 @@ try {
   $views.Clear()
   $kind = 'binary'
   $bytes = New-Object byte[] 0
-  try { $bytes = [System.IO.File]::ReadAllBytes($path) } catch { }
+  try { $bytes = Read-Bytes $path } catch { }
   $info = try { Get-BinaryInfo $bytes $problem } catch { (T 'No se pudo mostrar este archivo: ') + $problem }
   $views['Text'] = New-SourceBox $info $false
   $inner = $room
@@ -1192,13 +1387,19 @@ $title.ForeColor = $blue
 $title.BackColor = $black
 
 # [char] keeps the file ASCII: PowerShell 5.1 reads a script with no BOM in the system's code page.
-$close = New-Object System.Windows.Forms.Label
-$close.Text = " $([string][char]0x2715) "
-$close.AutoSize = $true
-$close.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-$close.ForeColor = $red
-$close.BackColor = $black
-$close.Cursor = [System.Windows.Forms.Cursors]::Hand
+function New-CloseLabel {
+  $label = New-Object System.Windows.Forms.Label
+  $label.Text = " $([string][char]0x2715) "
+  $label.AutoSize = $true
+  $label.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+  $label.ForeColor = $red
+  $label.BackColor = $black
+  $label.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $label
+}
+$close = New-CloseLabel
+# The bottom line's close mark, the same as the top one's.
+$closeBelow = New-CloseLabel
 
 function New-TopLabel([string]$text) {
   $label = New-Object System.Windows.Forms.Label
@@ -1211,9 +1412,12 @@ function New-TopLabel([string]$text) {
   $label
 }
 
-# Copiar: what is selected, else all the text (a Preview's source); a picture as itself.
+# Copiar: what is selected, else all the text (a Preview's source, a database's table shown); a picture as
+# itself. Text copied is also said on stdout, for the mod to put in the prompt.
 $copy = $null
-if ($kind -notin @('audio', 'video')) { $copy = New-TopLabel 'Copiar' }
+$copyBelow = $null
+if ($kind -notin @('audio', 'video')) { $copy = New-TopLabel 'Copiar'; $copyBelow = New-TopLabel 'Copiar' }
+$copyLabels = @($copy, $copyBelow | Where-Object { $_ })
 
 $switch = @{}
 if ($viewNames.Count -gt 1) {
@@ -1237,14 +1441,14 @@ $frame.Padding = New-Object System.Windows.Forms.Padding($line)
 $inside = New-Object System.Windows.Forms.Panel
 $inside.Dock = 'Fill'
 $inside.BackColor = $black
-$inside.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $margin)
+$inside.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $band)
 
 foreach ($view in $viewNames) { $inside.Controls.Add($views[$view]) }
 $frame.Controls.Add($inside)
 $form.Controls.Add($frame)
 
 $lineMiddle = $contour + [int]($line / 2)
-$topLabels = @($title, $close) + @($switch.Values) + @($copy | Where-Object { $_ })
+$topLabels = @($title, $close, $closeBelow) + @($switch.Values) + $copyLabels
 foreach ($label in $topLabels) { $form.Controls.Add($label); $label.BringToFront() }
 
 # The top line: the title in the middle, the switch after it, Copiar and the close mark at the right.
@@ -1260,6 +1464,10 @@ function Set-TopLine {
   }
   $close.Location = New-Object System.Drawing.Point(($width - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
   if ($copy) { $copy.Location = New-Object System.Drawing.Point(($close.Location.X - $copy.PreferredWidth - 6), ($lineMiddle - [int]($copy.PreferredHeight / 2))) }
+  # The bottom line: the same Copiar and close mark, at the same places on it.
+  $bottomMiddle = $form.ClientSize.Height - $lineMiddle
+  $closeBelow.Location = New-Object System.Drawing.Point($close.Location.X, ($bottomMiddle - [int]($closeBelow.PreferredHeight / 2)))
+  if ($copyBelow) { $copyBelow.Location = New-Object System.Drawing.Point(($closeBelow.Location.X - $copyBelow.PreferredWidth - 6), ($bottomMiddle - [int]($copyBelow.PreferredHeight / 2))) }
 }
 
 # The popup at a size, in the middle of the screen; a small one still leaves the top line room.
@@ -1292,7 +1500,13 @@ function Copy-View {
     if ($view -is [System.Windows.Forms.WebBrowser]) {
       $selected = $null
       try { $selected = [string]$view.Document.InvokeScript('eval', [object[]]@('window.getSelection ? String(window.getSelection()) : ""')) } catch { }
-      $text = if ($selected) { $selected } elseif ($rawText) { $rawText } elseif ($view.Document -and $view.Document.Body) { $view.Document.Body.InnerText } else { $null }
+      $shownTable = $null
+      if (-not $selected -and $dbTables) {
+        $at = 0
+        try { $at = [int][string]$view.Document.InvokeScript('eval', [object[]]@('String(window.cur || 0)')) } catch { }
+        if ($at -ge 0 -and $at -lt $dbTables.Count) { $shownTable = $dbTables[$at] }
+      }
+      $text = if ($selected) { $selected } elseif ($shownTable) { $shownTable } elseif ($rawText) { $rawText } elseif ($view.Document -and $view.Document.Body) { $view.Document.Body.InnerText } else { $null }
     } elseif ($view -is [System.Windows.Forms.RichTextBox]) {
       $text = if ($view.SelectionLength -gt 0) { $view.SelectedText } else { $view.Text }
     } elseif ($image) {
@@ -1301,23 +1515,36 @@ function Copy-View {
       # On the pages, Copiar takes the whole text, once it is read.
       if ($pdfText.Done) { $text = $pdfText.Text }
     }
-    if ($text) { [System.Windows.Forms.Clipboard]::SetText(($text -replace "(?<!`r)`n", "`r`n")); Show-Copied }
+    if ($text) {
+      [System.Windows.Forms.Clipboard]::SetText(($text -replace "(?<!`r)`n", "`r`n"))
+      Send-Copied $text
+      Show-Copied
+    }
   } catch { }
 }
 
-function Show-Copied {
-  $copy.Text = ' Copiado '
-  $copy.BackColor = $blue
-  $copy.ForeColor = $black
-  $state.CopyFlash = 10
+# The text copied, for the mod: one line, `copied ` and the text's UTF-8 in Base64, with LF line ends.
+function Send-Copied([string]$text) {
+  $plain = $text -replace "`r`n", "`n"
+  try { Say ('copied ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($plain))) } catch { }
+}
+
+function Set-CopyLabels([string]$text, $back, $fore) {
+  foreach ($one in $copyLabels) { $one.Text = $text; $one.BackColor = $back; $one.ForeColor = $fore }
   Set-TopLine
 }
-if ($copy) { $copy.Add_Click({ Copy-View }) }
+
+function Show-Copied {
+  Set-CopyLabels ' Copiado ' $blue $black
+  $state.CopyFlash = 10
+}
+foreach ($one in $copyLabels) { $one.Add_Click({ Copy-View }) }
 
 Set-PopupSize ($inner.Width + $extraWidth) ($inner.Height + $extraHeight)
 # The view it opens on: the first, or the one SPEEDY_VIEW names when it has it (`Texto` for a PDF's text).
 Show-View $(if ($env:SPEEDY_VIEW -and $viewNames -contains $env:SPEEDY_VIEW) { $env:SPEEDY_VIEW } else { $viewNames[0] })
 $close.Add_Click({ $form.Close() })
+$closeBelow.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({
   if ($_.KeyCode -eq 'Escape') { $form.Close(); return }
@@ -1331,6 +1558,8 @@ $form.Add_FormClosing({
   if ($player) { try { $player.Stop(); $player.Close() } catch { } }
   # Office left at work finishes on its own and quits; its folder goes if it can.
   if ($state.Office) { try { Remove-Item -LiteralPath $state.Office.Folder -Recurse -Force } catch { } }
+  # A database still being read is not waited for.
+  if ($dbJob -and -not $dbJob.Done) { try { $dbJob.Process.Kill() } catch { } }
 })
 
 $timer = New-Object System.Windows.Forms.Timer
@@ -1348,6 +1577,9 @@ $timer.Add_Tick({
     }
   }
   if ($pdfText -and -not $pdfText.Done -and $pdfText.Process.HasExited) { try { Complete-PdfText $pdfText } catch { $pdfText.Done = $true } }
+  if ($dbJob -and -not $dbJob.Done -and $dbJob.Process.HasExited) {
+    try { Complete-DbView $dbJob } catch { $dbJob.Done = $true; $views['Page'].DocumentText = New-MessagePage ('No se pudo mostrar la base de datos: ' + (Html $_.Exception.Message)) }
+  }
   if ($pdfPages -and $pdfPages.Next -lt $pdfPages.Count) {
     try { Add-Page $pdfPages.Next } catch { }
     $pdfPages.Next++
@@ -1360,7 +1592,7 @@ $timer.Add_Tick({
   }
   if ($state.CopyFlash -gt 0) {
     $state.CopyFlash--
-    if ($state.CopyFlash -eq 0) { $copy.Text = ' Copiar '; $copy.BackColor = $black; $copy.ForeColor = $blue; Set-TopLine }
+    if ($state.CopyFlash -eq 0) { Set-CopyLabels ' Copiar ' $black $blue }
   }
 })
 $form.Add_Shown({
