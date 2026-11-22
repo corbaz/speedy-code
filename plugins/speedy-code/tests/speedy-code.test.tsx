@@ -179,7 +179,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('key code 36'))) return { value: { exitCode: 0, stdout: 'sent\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    if (e.argv.includes('Get-Clipboard -Raw')) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv.some(arg => arg.includes('Get-Clipboard -Raw'))) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
     // The folder after ✕: open_folder.ps1 opens it in Explorer and brings its window to the front.
     if (e.argv.some(arg => arg.endsWith('open_folder.ps1'))) { opened.push(`folder ${e.init?.env?.SPEEDY_FOLDER ?? ''}`); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } }

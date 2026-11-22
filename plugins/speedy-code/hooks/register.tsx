@@ -975,8 +975,12 @@ async function takeSelection ($: EngineInterface) {
 }
 
 /** The clipboard's text, as Windows holds it: the clip reads it, the paste button puts it in the prompt. */
+/** The clipboard's text, written in UTF-8 whatever the console's code page. */
+export const CLIPBOARD_READ = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Raw'
+
 async function clipboardText ($: EngineInterface) {
-  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'] : MAC.clipboardRead
+  // PowerShell writes to a pipe in the console's code page, where á and ñ come out as `?`: UTF-8 keeps them.
+  const argv = (await osNow($)) === 'windows' ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', CLIPBOARD_READ] : MAC.clipboardRead
   const clipboard = await $.process.run(argv).catch(() => undefined)
   return clipboard?.exitCode === 0 ? clipboard.stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '') : ''
 }
