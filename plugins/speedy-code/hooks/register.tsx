@@ -2510,8 +2510,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
           const name = isViewable(row.name)
             ? (
+              // While the pointer is anywhere on the row, its tools included, the name keeps the yellow fill
+              // it takes under the pointer: the row is marked as the one the tools act on.
               <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
-                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{label}</Text>
+                <Text color={EXPLORER_VIEWABLE_COLOR} hover={{ backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' }} wrap="truncate-end">{label}</Text>
               </Button>
               )
             : <Text dimColor wrap="truncate-end">{label}</Text>
