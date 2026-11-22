@@ -326,6 +326,11 @@ const codeMode = atom({ plugin: 'speedy-code', key: 'codeMode' } as const, '' as
 const barLevels = atom({ plugin: 'speedy-code', key: 'barLevels' } as const, DEFAULT_LEVELS, { shape: 'bar-1' })
 const barOrder = atom({ plugin: 'speedy-code', key: 'barOrder' } as const, DEFAULT_ORDER, { shape: 'order-1' })
 const mic = atom({ plugin: 'speedy-code', key: 'mic' } as const, '')
+/** Whether a footer control's name shows above it while the pointer is on it, as set in ⚙ → Barra de estado. */
+const hasLabels = atom({ plugin: 'speedy-code', key: 'hasLabels' } as const, true)
+/** A control's name above it: dark on yellow, as the explorer marks the row under the pointer. */
+const LABEL_TEXT = '#1a1a1a'
+const LABEL_FILL = '#ffd43b'
 /** The icons the footer is drawn with, as set in ⚙ → Barra de estado. */
 const icons = atom({ plugin: 'speedy-code', key: 'icons' } as const, 'emoji' as IconSet)
 /** The size, in points, the terminal's font was last set to from ⚙ → Barra de estado; 0 while it never was. */
@@ -1594,6 +1599,14 @@ async function switchIcons ($: EngineInterface) {
   $.ui.invalidate('ui.render')
 }
 
+/** Shows or hides the controls' names above them, kept for the next sessions, and draws the footer again. */
+async function switchLabels ($: EngineInterface) {
+  const next = !(await read($, hasLabels))
+  await update($, hasLabels, () => next)
+  await $.store.set('labels', next)
+  $.ui.invalidate('ui.render')
+}
+
 /** The microphone dictation listens to, kept for the next sessions. */
 async function pickMic ($: EngineInterface, name: string) {
   await update($, mic, () => name)
@@ -2822,9 +2835,24 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   isGlyphs = isNerd
   // How wide a label is as it is drawn: a sign's glyph takes a cell more than the sign.
   const wide = (label: string) => cells(isNerd ? nerdText(label) : label)
-  const control = (key: string, label: string, color: string, bold = false) => (
-    <Client key={key} module="./control.tsx" width={wide(label)} props={{ label: isNerd ? nerdText(label) : label, color: isNerd ? NERD_COLORS[key] ?? color : color, bold }} />
-  )
+  // With ⚙ → Ver labels on, a control of the footer's row given a name (`tip`) carries it hidden above it, and
+  // the pointer on the control reveals it: the two share a hover group, so nothing runs and nothing moves.
+  const isLabeled = await read($, hasLabels)
+  const control = (key: string, label: string, color: string, bold = false, tip = '') => {
+    const tint = isNerd ? NERD_COLORS[key] ?? color : color
+    const scope = `tip:${key}`
+    const hasTip = isLabeled && tip !== ''
+    const client = <Client key={key} module="./control.tsx" width={wide(label)} props={{ label: isNerd ? nerdText(label) : label, color: tint, bold, ...(hasTip ? { hover: { scope, color: tint } } : {}) }} />
+    if (!hasTip) return client
+    return (
+      <Box key={`tipped:${key}`} flexShrink={0}>
+        {client}
+        <Box key={scope} position="absolute" top={-1} left={0} display="none" hover={{ scope, display: 'flex' }}>
+          <Text color={LABEL_TEXT} backgroundColor={LABEL_FILL} bold>{` ${tip} `}</Text>
+        </Box>
+      </Box>
+    )
+  }
   const modelText = level ? ` ${model} ` : ` ${model} ▾ `
   const effortText = `· ${level} ▾ `
   // Short: the model's family alone (`Opus`), no effort; the status line still shows both.
@@ -2840,31 +2868,31 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   // The bar between the tools and the model, as the networks have theirs.
   const bar = <Text dimColor>│</Text>
   const named = [
-    { group: 'copy', key: 'speedy:copy', footer: ' 📋 ', panel: ' 📋 copiar ', color: '#adb5bd' },
-    { group: 'paste', key: 'speedy:paste', footer: ' 📥 ', panel: ' 📥 pegar ', color: '#adb5bd' },
-    { group: 'image', key: 'speedy:image', footer: ' 🖼️ ', panel: ' 🖼️ imagen ', color: '#adb5bd' },
-    { group: 'image', key: 'speedy:images', footer: ' 👁️ ', panel: ' 👁️ ver imágenes ', color: '#74c0fc' },
+    { group: 'copy', key: 'speedy:copy', footer: ' 📋 ', panel: ' 📋 copiar ', color: '#adb5bd', tip: 'copiar' },
+    { group: 'paste', key: 'speedy:paste', footer: ' 📥 ', panel: ' 📥 pegar ', color: '#adb5bd', tip: 'pegar' },
+    { group: 'image', key: 'speedy:image', footer: ' 🖼️ ', panel: ' 🖼️ imagen ', color: '#adb5bd', tip: 'pegar imagen' },
+    { group: 'image', key: 'speedy:images', footer: ' 👁️ ', panel: ' 👁️ ver imágenes ', color: '#74c0fc', tip: 'ver imágenes' },
     // An emoji takes no color: the glyph tells it is at work.
-    { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2' },
-    { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66' },
-    { group: 'send', key: 'speedy:new', footer: ' + ', panel: ' + conversación nueva ', color: '#51cf66' },
-    { group: 'send', key: 'speedy:sessions', footer: ' ☰ ', panel: ' ☰ conversaciones ', color: SESSIONS_COLOR },
-    { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd' },
-    { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96' },
-    { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED },
-    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 audios y selección ', color: enabled ? '#ffd43b' : DISABLED },
-    { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen] },
-    { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off },
-    { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd' },
-    { group: 'compact', key: 'speedy:compact', footer: ' 🗜️ ', panel: ' 🗜️ compactar ', color: '#ff6b6b' },
-    { group: 'settings', key: 'speedy:settings', footer: ' ⚙️ ', panel: ' ⚙️ configuración ', color: '#adb5bd' }
+    { group: 'polish', key: 'speedy:polish', footer: polishing ? ' ⏳ ' : ' 🖋️ ', panel: polishing ? ' ⏳ corrigiendo ' : ' 🖋️ corregir ', color: '#da77f2', tip: polishing ? 'corrigiendo…' : 'corregir el texto' },
+    { group: 'send', key: 'speedy:send', footer: ' ⏎ ', panel: ' ⏎ enviar ', color: '#51cf66', tip: 'enviar' },
+    { group: 'send', key: 'speedy:new', footer: ' + ', panel: ' + conversación nueva ', color: '#51cf66', tip: 'conversación nueva' },
+    { group: 'send', key: 'speedy:sessions', footer: ' ☰ ', panel: ' ☰ conversaciones ', color: SESSIONS_COLOR, tip: 'conversaciones' },
+    { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd', tip: 'borrar el prompt' },
+    { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96', tip: enabled ? 'apagar el narrador' : 'encender el narrador' },
+    { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED, tip: now === 'playing' ? 'pausar' : 'leer de nuevo' },
+    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 audios y selección ', color: enabled ? '#ffd43b' : DISABLED, tip: 'audios y selección' },
+    { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen], tip: listen === 'off' ? 'dictar' : 'dejar de dictar' },
+    { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off, tip: 'micrófono' },
+    { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd', tip: 'recargar' },
+    { group: 'compact', key: 'speedy:compact', footer: ' 🗜️ ', panel: ' 🗜️ compactar ', color: '#ff6b6b', tip: 'compactar' },
+    { group: 'settings', key: 'speedy:settings', footer: ' ⚙️ ', panel: ' ⚙️ configuración ', color: '#adb5bd', tip: 'configuración' }
   ]
   const namedGroup = (name: string) => {
     const members = named.filter(one => one.group === name)
     return {
       name,
       width: members.reduce((sum, one) => sum + wide(one.footer), 0),
-      node: <Box key={`group:${name}`} flexDirection="row" flexShrink={0}>{members.map(one => control(one.key, one.footer, one.color))}</Box>,
+      node: <Box key={`group:${name}`} flexDirection="row" flexShrink={0}>{members.map(one => control(one.key, one.footer, one.color, false, one.tip))}</Box>,
       labels: members.map(one => cells(one.panel)),
       panel: members.map(one => control(one.key, one.panel, one.color))
     }
@@ -2877,7 +2905,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       width: linked.length > 0 ? cells(SOCIALS_LABEL) + 1 : 0,
       node: (
         <Box key="group:socials" flexDirection="row" flexShrink={0}>
-          {linked.length > 0 ? control('speedy:socials', SOCIALS_LABEL, SOCIALS_COLOR, true) : null}
+          {linked.length > 0 ? control('speedy:socials', SOCIALS_LABEL, SOCIALS_COLOR, true, 'redes sociales') : null}
           {bar}
         </Box>
       ),
@@ -2892,12 +2920,12 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       node: (
         <Box key="group:model" flexDirection="row" flexShrink={0}>
           {bar}
-          {control('speedy:model', modelText, modelColor, true)}
+          {control('speedy:model', modelText, modelColor, true, 'modelo')}
           {/* The effort in force beside the model, in its traffic-light color; a click opens the same menu. */}
-          {level ? control('speedy:effort', effortText, effortColor(level), true) : null}
+          {level ? control('speedy:effort', effortText, effortColor(level), true, 'esfuerzo') : null}
         </Box>
       ),
-      compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{bar}{control('speedy:model', modelShort, modelColor, true)}</Box>,
+      compactNode: <Box key="group:model" flexDirection="row" flexShrink={0}>{bar}{control('speedy:model', modelShort, modelColor, true, 'modelo y esfuerzo')}</Box>,
       panel: [],
       labels: []
     },
@@ -2905,15 +2933,15 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
       name: 'voice',
       width: cells(voiceText),
       compactWidth: cells(voiceShort),
-      node: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceText, languageColor(active))}</Box>,
-      compactNode: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceShort, languageColor(active))}</Box>,
+      node: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceText, languageColor(active), false, 'voz del narrador')}</Box>,
+      compactNode: <Box key="group:voice" flexShrink={0}>{control('speedy:voice', voiceShort, languageColor(active), false, 'voz del narrador')}</Box>,
       panel: [control('speedy:voice', ` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `, languageColor(active))],
       labels: [cells(` 🗣  ${nameOf(voice).name} · ${active.toUpperCase()} `)]
     },
     {
       name: 'mode',
       width: cells(modeText),
-      node: <Box key="group:mode" flexShrink={0}>{control('speedy:mode', modeText, modeColor, true)}</Box>,
+      node: <Box key="group:mode" flexShrink={0}>{control('speedy:mode', modeText, modeColor, true, 'modo de permisos')}</Box>,
       panel: [control('speedy:mode', ` modo: ${modeName} `, modeColor, true)],
       labels: [cells(` modo: ${modeName} `)]
     },
@@ -2926,7 +2954,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     namedGroup('send'),
     namedGroup('reload'),
     namedGroup('settings'),
-    { name: 'exit', width: wide(' × '), node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' × ', '#ff6b6b', true)}</Box>, panel: [], labels: [] }
+    { name: 'exit', width: wide(' × '), node: <Box key="group:exit" flexShrink={0}>{control('speedy:exit', ' × ', '#ff6b6b', true, 'salir')}</Box>, panel: [], labels: [] }
   ]
 }
 
@@ -3251,6 +3279,7 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
   const installing = await read($, isInstalling)
   const bar = await read($, statusLine)
   const iconSet = await read($, icons)
+  const isLabeled = await read($, hasLabels)
   const sizeNow = await read($, fontSize)
   const familyNow = await read($, fontFamily)
   const mark = { '': ['·', '#868e96'], working: ['…', '#ffd43b'], ok: ['✔', '#51cf66'], fail: ['✘', '#ff6b6b'] } as const
@@ -3365,6 +3394,11 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
         <Text key="bar:icons:proof" color="#b197fc">{' prueba: \uf0c5 \uf0ea \uf03e \uf130 \uf013 '}</Text>,
         narrow ? null : <Text key="bar:icons:hint" dimColor>(¿cuadrados? falta una Nerd Font)</Text>
       ])}
+      {setting('labels', ' ⓘ  Ver labels ', LABEL_FILL, isLabeled ? '● al pasar el mouse' : '○ ocultas', isLabeled, (
+        <Button key="bar:labels" plain onPress={() => { void switchLabels($) }}>
+          <Text bold color="black" backgroundColor={isLabeled ? '#868e96' : LABEL_FILL}>{isLabeled ? ' Ocultar labels ' : ' Mostrar labels '}</Text>
+        </Button>
+      ))}
       {/* The terminal's own font: a program in a terminal has none, so the terminal's settings are changed. */}
       {setting('font', ' Aa  Fuente de la terminal ', '#ffa94d', sizeNow ? `● ${familyName} · ${sizeNow} pt` : '○ la de tu terminal', sizeNow > 0, FONT_FAMILIES.map(([id, name]) => (
         <Button key={`bar:family:${id}`} plain onPress={() => { void setTerminalFont($, id, sizeNow || DEFAULT_FONT_SIZE) }}>
@@ -3853,6 +3887,7 @@ export const register: Register = on => {
     if ((await osNow($)) === 'mac') glyphGap = ' '
     isGlyphs = (await $.store.get('icons')) === 'nerd'
     if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
+    if ((await $.store.get('labels')) === false) await update($, hasLabels, () => false)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)
     void loadMics($)

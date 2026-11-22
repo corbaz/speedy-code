@@ -1859,6 +1859,55 @@ test('⚙ → Barra de estado → Usar Nerd Fonts draws the footer with glyphs, 
   await back.unmount()
 })
 
+test('⚙ → Barra de estado → Ver labels: each control’s name shows above it while the pointer is on it; the switch hides them, and the choice is kept', { timeoutMs: 30000 }, async ($, on) => {
+  const store: Record<string, unknown> = { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }
+  const { w, ui } = await footerSession($, on, store)
+  // The name waits hidden above the control, and the pointer on the control reveals it: one hover group.
+  const tip = async (view: { find: typeof ui.find; findAll: typeof ui.findAll }, key: string) => {
+    // The drawing in order: the card's Box, then its Text.
+    const drawn = await view.findAll({})
+    const at = drawn.findIndex(element => element.type === 'Box' && element.key === `tip:${key}`)
+    if (at < 0) return undefined
+    const client = (await view.find({ key }))?.props?.props as { hover?: { scope?: string } } | undefined
+    return { card: drawn[at]?.props, scope: client?.hover?.scope, text: drawn[at + 1]?.text }
+  }
+  expect(await tip(ui, 'speedy:copy')).toEqual({
+    // The kit leaves a Box's `hover` out of what it reports: the Client's own carries the group.
+    card: expect.objectContaining({ position: 'absolute', top: -1, display: 'none' }),
+    scope: 'tip:speedy:copy',
+    text: ' copiar '
+  })
+  expect((await tip(ui, 'speedy:paste'))?.text).toBe(' pegar ')
+  expect((await tip(ui, 'speedy:image'))?.text).toBe(' pegar imagen ')
+  expect((await tip(ui, 'speedy:settings'))?.text).toBe(' configuración ')
+  expect((await tip(ui, 'speedy:exit'))?.text).toBe(' salir ')
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:bar' })
+  await band.unmount()
+  const setup = await $.ui.mount(BAND)
+  expect((await setup.find({ type: 'Text', text: /Ver labels/ }))?.text).toContain('Ver labels')
+  expect((await setup.find({ type: 'Text', text: /Ocultar labels/ }))?.text).toBe(' Ocultar labels ')
+  await setup.press({ key: 'bar:labels' })
+  await setup.unmount()
+  await ui.unmount()
+  // Off: no name waits above any control, and the choice is kept for the next sessions.
+  const plain = await $.ui.mount(FOOTER)
+  expect(await tip(plain, 'speedy:copy')).toBeUndefined()
+  expect(await tip(plain, 'speedy:exit')).toBeUndefined()
+  await plain.unmount()
+  expect(w.kept.labels).toBe(false)
+  const again = await $.ui.mount(BAND)
+  expect((await again.find({ type: 'Text', text: /Mostrar labels/ }))?.text).toBe(' Mostrar labels ')
+  await again.press({ key: 'bar:labels' })
+  await again.unmount()
+  const back = await $.ui.mount(FOOTER)
+  expect((await tip(back, 'speedy:copy'))?.text).toBe(' copiar ')
+  await back.unmount()
+  expect(w.kept.labels).toBe(true)
+})
+
 test('nextMode: where shift+tab goes from each mode, by what the line then offers and what the session has', () => {
   expect(nextMode('default', true, false)).toBe('acceptEdits')
   expect(nextMode('acceptEdits', true, false)).toBe('plan')

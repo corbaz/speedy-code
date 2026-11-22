@@ -119,6 +119,8 @@ declare module 'claude-code' {
       fontSize: number
       /** The font the terminal was last set to from here. */
       fontFamily: 'jetbrains' | 'meslo'
+      /** Whether a footer control's name shows above it while the pointer is on it (⚙ → Ver labels). */
+      hasLabels: boolean
       /** The icons the footer is drawn with: emojis, or Nerd Fonts glyphs. */
       icons: 'emoji' | 'nerd'
       /** The microphone dictation listens to; empty: the system's default. */

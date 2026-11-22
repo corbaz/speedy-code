@@ -81,6 +81,10 @@ glyphs to tell whether the terminal draws them. The setup installs Symbols Nerd 
 fonts; a terminal whose font is not a Nerd Font, and that does not fall back to the fonts installed,
 needs a Nerd Font picked in its settings.
 
+With **Ver labels** on (the default), the pointer on a footer control shows what it does just above it,
+dark on yellow: `copiar`, `pegar`, `pegar imagen`, `salir`. ⚙️ → **Barra de estado** → **Ocultar labels**
+turns them off, and the choice is kept.
+
 The same tab sets the terminal's font: **Fuente de la terminal** puts JetBrains Mono or Meslo (their
 Nerd Fonts builds, so the icons are in them) at 8 to 16 points in Windows Terminal, macOS Terminal (while open),
 Ghostty, kitty, the terminal of VS Code, Kiro, Cursor, Windsurf, Antigravity or Zed (their own settings, when TERM_PROGRAM says it runs there) and iTerm2 (a profile of its own, `speedy-code`, that the tab is put on and whose new windows open maximized; set it as the default for new tabs), by `setup/terminal_font.py`. A program in a terminal has no font of its own: the
