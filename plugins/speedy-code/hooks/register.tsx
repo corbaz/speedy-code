@@ -1436,6 +1436,12 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
       const lines = pending.split(/\r?\n/)
       pending = lines.pop() ?? ''
       for (const line of lines) {
+        // `attach <base64 path>`: a picture Copiar took (an SVG drawn, an image), attached to the prompt.
+        if (line.startsWith('attach ')) {
+          const file = fromBase64Utf8(line.slice('attach '.length).trim())
+          if (file) await insertInPrompt($, fileMention(file), ' ')
+          continue
+        }
         if (!line.startsWith('copied ')) continue
         const copied = fromBase64Utf8(line.slice('copied '.length).trim())
         // Between two line breaks, always: what came from a popup stands apart in the prompt.
@@ -2083,12 +2089,13 @@ function followDock ($: EngineInterface, width: number) {
   $.ui.invalidate('ui.render')
 }
 /** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
-const EXPLORER_TOOLS_WIDTH = 10
+const EXPLORER_TOOLS_WIDTH = 13
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
  * Fonts) and its color. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['copy', '📋', '\uf0c5', '#74c0fc'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
+  ['rename', '✏', '\uf044', '#ffd43b'],
   ['trash', '🗑', '\uf1f8', '#ff8787']
 ]
 
@@ -2248,11 +2255,9 @@ const VIEWABLE_NAMES = new Set(['.gitignore', '.ds_store'])
 
 /** Whether the explorer opens a file of this name in the viewer. */
 export function isViewable (name: string) {
-  const lower = name.toLowerCase()
-  const dot = lower.lastIndexOf('.')
-  // A name with no extension (LICENSE, Makefile) or a dotfile (.gitattributes): the viewer reads it as text, or describes it.
-  if (dot === -1 || dot === 0) return true
-  return VIEWABLE_NAMES.has(lower) || VIEWABLE_EXTENSIONS.has(lower.slice(dot + 1))
+  // Every file: the kinds it knows it draws (VIEWABLE_EXTENSIONS, VIEWABLE_NAMES), any other it reads as
+  // text when it is text (.py, .pem) and describes when it is not (an .exe, a zip's entries).
+  return name.length > 0
 }
 
 /** A file of the tree to the clipboard as a file, to paste in Explorer or Finder; it says whether it went. */
@@ -2301,6 +2306,53 @@ async function trashFile ($: EngineInterface, path: string) {
   const state = await read($, explorer)
   const key = pathKey(folder, state.caseless)
   const listed = await readFolder($, folder)
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+}
+
+/** The file whose ✏ was pressed: its row is a field with its name; empty: none. */
+const explorerRename = atom({ plugin: 'speedy-code', key: 'explorerRename' } as const, '')
+
+/** Why a new file name cannot be used, or empty when it can: not empty, no folder separators, none of Windows' forbidden characters. */
+export function badFileName (name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return 'el nombre está vacío'
+  if (trimmed === '.' || trimmed === '..') return 'ese nombre no es válido'
+  if (/[\\/:*?"<>|]/.test(trimmed) || /\p{Cc}/u.test(trimmed)) return 'el nombre no puede tener \\ / : * ? " < > |'
+  return ''
+}
+
+/** Renames a file of the tree in its folder, then reads the folder again. The same name, or none, leaves it as it was. */
+async function renameFile ($: EngineInterface, path: string, wanted: string) {
+  await update($, explorerRename, () => '')
+  const name = wanted.trim()
+  const old = path.split('/').pop() ?? path
+  if (name === old) return
+  const why = badFileName(name)
+  if (why) {
+    $.ui.toast(`speedy-code: no renombré ${old}: ${why}.`)
+    return
+  }
+  const folder = path.slice(0, path.lastIndexOf('/'))
+  const target = joinPath(folder.endsWith(':') ? `${folder}/` : folder, name)
+  // A different name that is the same file whatever its case (Windows) is a rename too; another file is not overwritten.
+  if (name.toLowerCase() !== old.toLowerCase() && await $.fs.stat(target).then(() => true, () => false)) {
+    $.ui.toast(`speedy-code: ya hay un archivo ${name} en esa carpeta.`)
+    return
+  }
+  const isWindows = (await osNow($)) === 'windows'
+  const argv = isWindows
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Rename-Item -LiteralPath $env:SPEEDY_FILE -NewName $env:SPEEDY_NAME -ErrorAction Stop; 'renamed'"]
+    : ['/bin/sh', '-c', 'mv -n -- "$SPEEDY_FILE" "$SPEEDY_TARGET" && echo renamed']
+  const result = await $.process.run(argv, { env: { SPEEDY_FILE: await nativePath($, path), SPEEDY_NAME: name, SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
+  if (result?.stdout.trim() !== 'renamed') {
+    $.ui.toast(`speedy-code: no pude renombrar ${old}.`)
+    return
+  }
+  $.ui.toast(`speedy-code: ${old} ahora se llama ${name}.`)
+  const parent = folder.endsWith(':') ? `${folder}/` : folder
+  const state = await read($, explorer)
+  const key = pathKey(parent, state.caseless)
+  const listed = await readFolder($, parent)
   await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
 }
 
@@ -2388,8 +2440,11 @@ async function pickDrive ($: EngineInterface, drive: string) {
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const asking = await read($, explorerTrash)
+  const renaming = await read($, explorerRename)
   const flashed = await read($, explorerFlash)
   const elements = $.ui.resolve(e)
+  // A field to type in, where the surface draws one: the rename's.
+  const Input = 'Input' in elements ? elements.Input : undefined
   const { Box, Button, Text } = elements
   // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
   const Client = 'Client' in elements ? elements.Client : undefined
@@ -2428,6 +2483,20 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           // 🔗 its path and 🗑 sends it to the trash, after a Sí.
           // The name is cut to its room, so a long one keeps to its row and the tools stay in sight.
           // Asking ¿Borrar? Sí No takes more room than the three tools.
+          // ✏ pressed: a field with the name in place of the row, Enter renames, × leaves it as it was.
+          if (renaming === row.path && Input) {
+            return (
+              <Box key={`explorer-renaming:${row.path}`} flexDirection="row" width={width}>
+                <Text>{`${indent}  `}</Text>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Input key={`explorer-rename-input:${row.path}`} value={row.name} placeholder="nombre nuevo" submitLabel="↵" autoFocus onSubmit={value => { void renameFile($, row.path, value) }} />
+                </Box>
+                {Client
+                  ? <Client key={`speedy:explorer-rename-no:${row.path}`} module="./control.tsx" width={3} props={{ label: ' × ', color: '#ff6b6b', bold: true }} />
+                  : <Text color="#ff6b6b">{' × '}</Text>}
+              </Box>
+            )
+          }
           const toolsWidth = asking === row.path ? EXPLORER_ASK_WIDTH : EXPLORER_TOOLS_WIDTH
           const label = cutCells(`${indent}  ${row.name}`, Math.max(4, width - toolsWidth))
           const name = isViewable(row.name)
@@ -3857,6 +3926,10 @@ export const register: Register = on => {
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
       else if (kind === 'trash') await update($, explorerTrash, () => path)
+      else if (kind === 'rename') {
+        await update($, explorerTrash, () => '')
+        await update($, explorerRename, () => path)
+      } else if (kind === 'rename-no') await update($, explorerRename, () => '')
       else if (kind === 'trash-yes') await trashFile($, path)
       else if (kind === 'trash-no') await update($, explorerTrash, () => '')
       else if (kind === 'collapse') {

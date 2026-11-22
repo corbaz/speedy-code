@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -14,7 +14,7 @@ const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails
 /** What code_mode.py keeps in the user's settings, and each action it was run with. */
 const CODE_MODE = { on: false, ran: [] as string[] }
 /** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
-const FILES = { copied: [] as string[], trashed: [] as string[] }
+const FILES = { copied: [] as string[], trashed: [] as string[], renamed: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 const VIEWER = { says: '' }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
@@ -211,6 +211,10 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.includes('SetFileDropList'))) {
       FILES.copied.push(e.init?.env?.SPEEDY_FILE ?? '')
       return { value: { exitCode: 0, stdout: 'copied\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv.some(arg => arg.includes('Rename-Item'))) {
+      FILES.renamed.push(`${e.init?.env?.SPEEDY_FILE ?? ''} -> ${e.init?.env?.SPEEDY_NAME ?? ''}`)
+      return { value: { exitCode: 0, stdout: 'renamed\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.includes('SendToRecycleBin'))) {
       FILES.trashed.push(e.init?.env?.SPEEDY_FILE ?? '')
@@ -2131,10 +2135,11 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // Windows PowerShell by its path: `powershell` on the PATH may be a shim to PowerShell 7.
   expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
-  expect(await pane.find({ key: 'explorer-file:C:/setup.exe' })).toBeUndefined()
+  // Every file opens in the viewer, the ones it does not draw too: it describes them.
+  expect(await pane.find({ key: 'explorer-file:C:/setup.exe' })).toBeDefined()
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
   // They are Clients, as the footer's controls: a Button would fill them under the pointer.
-  for (const tool of ['copy', 'path', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', trash: '🗑' }[tool]}`)
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool]}`)
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
@@ -2154,6 +2159,20 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // The path goes into the prompt as well; the text before it already ends in a space.
   expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
+  // ✏ makes the row a field with the name; × leaves it; Enter with a new name renames it in its folder.
+  FILES.renamed = []
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
+  expect(await pane.find({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt' })).toBeDefined()
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename-no:C:/Users/test/proyectos/notas.txt' })
+  expect(await pane.find({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt' })).toBeUndefined()
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
+  await pane.input({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt', text: 'a/b.txt', kind: 'submit' })
+  expect(FILES.renamed).toEqual([])
+  expect(TOASTS.at(-1)).toBe('speedy-code: no renombré notas.txt: el nombre no puede tener \\ / : * ? " < > |.')
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
+  await pane.input({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt', text: 'apuntes.txt', kind: 'submit' })
+  expect(FILES.renamed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt -> apuntes.txt'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ahora se llama apuntes.txt.')
   // 🗑 asks first: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
   expect(await texts()).toContain(' ¿Borrar? ')
@@ -2199,7 +2218,7 @@ test('isViewable: the explorer opens text and code, pages, PDF, pictures, spread
     'a.ts', 'a.tsx', 'a.json', 'bun.lock', 'a.js', 'a.jsx', 'a.cjs', 'a.mjs', 'index.html', 'a.htm', 'a.d', 'a.ini', 'a.crx', 'a.po', 'a.poe', '.DS_Store', 'logo.svg',
     'a.xls', 'a.xlsx', 'a.doc', 'a.docx', 'song.mp3', 'a.mpa', 'a.wav', 'a.flac', 'a.ogg', 'a.m4a', 'clip.mp4', 'a.mkv', 'a.webm', 'a.avi', 'a.mov']) expect([name, isViewable(name)]).toEqual([name, true])
   for (const name of ['config.yaml', 'a.yml', 'site.min.css', 'a.scss', 'a.less', 'blocklist', '.gitattributes', '.graphifyignore', 'old.bak', 'LICENSE', 'Makefile', '.env', 'data.jsonl', 'x.tmp', 'app.log', 'cache.sqlite', 'app.db', 'Atajo.lnk', 'web.url', 'pagefile.sys']) expect([name, isViewable(name)]).toEqual([name, true])
-  for (const name of ['app.exe', 'x.webp', 'a.dll', 'archive.zip']) expect([name, isViewable(name)]).toEqual([name, false])
+  for (const name of ['app.exe', 'x.webp', 'a.dll', 'archive.zip', 'main.py', 'cert.pem', 'site.css']) expect([name, isViewable(name)]).toEqual([name, true])
 })
 
 test('⚙ → Claude Code: Code Mode is off until switched on; the switch writes the settings, says it applies next time, and switches it off again', { timeoutMs: 30000 }, async ($, on) => {
@@ -2281,3 +2300,11 @@ test('popupPaste: what a popup copied goes into the prompt between two line brea
   expect(popupPaste('línea 1\nlínea 2\n\n')).toBe('\nlínea 1\nlínea 2\n')
 })
 
+
+test('badFileName: a new name is refused empty, as . or .., or with a folder separator or a character Windows forbids', () => {
+  expect(badFileName('apuntes.txt')).toBe('')
+  expect(badFileName('año 2026 (copia).md')).toBe('')
+  expect(badFileName('  ')).toBe('el nombre está vacío')
+  expect(badFileName('..')).toBe('ese nombre no es válido')
+  for (const name of ['a/b', 'a\\b', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b']) expect([name, badFileName(name)]).toEqual([name, 'el nombre no puede tener \\ / : * ? " < > |'])
+})

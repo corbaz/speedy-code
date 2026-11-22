@@ -132,6 +132,8 @@ declare module 'claude-code' {
       explorer: Shaped<Explorer>
       /** The file of the explorer whose trash was pressed once, waiting for its Sí; empty: none. */
       explorerTrash: string
+      /** The explorer's file being renamed, its row a field; empty: none. */
+      explorerRename: string
       /** The explorer's file tool just pressed, green for a second; empty: none. */
       explorerFlash: string
     }
