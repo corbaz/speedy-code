@@ -2437,6 +2437,11 @@ async function toggleExplorer ($: EngineInterface) {
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
+/** What the explorer's field says while empty: a path as the system writes one. */
+export function gotoHint (isWindows: boolean) {
+  return `pegá una ruta y Enter: ${isWindows ? 'D:\\carpeta\\archivo' : '/Users/carpeta/archivo'}`
+}
+
 /** A file row's hover group: its name and tools light together. A path may be long; a group name is 64 at most. */
 export function hoverScope (path: string) {
   let hash = 5381
@@ -2592,7 +2597,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {Input
         ? (
           <Box width={width}>
-            <Input key="explorer-goto" placeholder="pegá una ruta y Enter: D:\carpeta\archivo" submitLabel="ir" onSubmit={value => { void goToPath($, value) }} />
+            <Input key="explorer-goto" placeholder={gotoHint(state.caseless)} submitLabel="ir" onSubmit={value => { void goToPath($, value) }} />
           </Box>
           )
         : null}
