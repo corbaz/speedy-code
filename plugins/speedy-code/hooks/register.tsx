@@ -2423,8 +2423,17 @@ async function toggleExplorer ($: EngineInterface) {
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
+/**
+ * Any press in the explorer takes the mark off the path the field found: from then on the yellow fill is
+ * the pointer's alone, and follows it.
+ */
+async function forgetFound ($: EngineInterface) {
+  if ((await read($, explorer)).found !== undefined) await update($, explorer, now => ({ ...now, found: undefined }))
+}
+
 /** A folder of the tree pressed: open, it closes; closed, it opens and is read afresh. */
 async function toggleTreeFolder ($: EngineInterface, path: string) {
+  await forgetFound($)
   const state = await read($, explorer)
   const key = pathKey(path, state.caseless)
   if (state.open.includes(key)) {
@@ -2508,6 +2517,7 @@ async function goToPath ($: EngineInterface, text: string) {
 /** A disk pressed: its tree is shown, its root open; each disk keeps what was open in it. The session's disk
  * shows the session's folder in the middle again; another, its top. */
 async function pickDrive ($: EngineInterface, drive: string) {
+  await forgetFound($)
   const state = await read($, explorer)
   const key = pathKey(drive, state.caseless)
   const top = driveOf(state.here, state.drives, state.caseless) === drive ? -1 : 0
@@ -2580,7 +2590,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             ? (
               // While the pointer is anywhere on the row, its tools included, the name keeps the yellow fill
               // it takes under the pointer: the row is marked as the one the tools act on.
-              <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
+              <Button key={`explorer-file:${row.path}`} plain onPress={() => { void forgetFound($); void runViewer($, 'view_file.ps1', row.path) }}>
                 {row.isFound
                   ? <Text color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} bold wrap="truncate-end">{label}</Text>
                   : <Text color={EXPLORER_VIEWABLE_COLOR} hover={{ backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' }} wrap="truncate-end">{label}</Text>}
@@ -3998,6 +4008,7 @@ export const register: Register = on => {
       const rest = e.element.slice('speedy:explorer-'.length)
       const kind = rest.slice(0, rest.indexOf(':'))
       const path = rest.slice(rest.indexOf(':') + 1)
+      await forgetFound($)
       if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)

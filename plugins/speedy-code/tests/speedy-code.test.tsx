@@ -2217,6 +2217,14 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await near.input({ key: 'explorer-goto', text: 'C:\\nada\\falta.txt', kind: 'submit' })
   expect(TOASTS.at(-1)).toBe('speedy-code: no existe C:/nada/falta.txt.')
   expect(await marked()).toEqual(['    ▾ test'])
+  // Any press in the explorer takes the mark off: the yellow fill is the pointer's again, and follows it.
+  await near.press({ key: 'explorer:C:/Users/Public' })
+  expect(await marked()).toEqual([])
+  await near.input({ key: 'explorer-goto', text: 'D:\\fotos\\viaje.jpg', kind: 'submit' })
+  expect(await marked()).toEqual(['      viaje.jpg'])
+  await near.post({ isClicked: true }, { in: 'speedy:explorer-path:D:/fotos/viaje.jpg' })
+  expect(await marked()).toEqual([])
+  await near.press({ key: 'explorer-drive:C:/' })
   await near.unmount()
   // ⊟ beside the disks collapses the tree back to the session's folder.
   const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
