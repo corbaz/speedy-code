@@ -2198,7 +2198,7 @@ test('isViewable: the explorer opens text and code, pages, PDF, pictures, spread
   for (const name of ['README.md', 'notas.TXT', 'run.sh', 'start.bat', 'install.PS1', 'doc.pdf', 'foto.PNG', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.ico', 'a.tif', 'a.tiff', 'b.markdown', '.gitignore',
     'a.ts', 'a.tsx', 'a.json', 'bun.lock', 'a.js', 'a.jsx', 'a.cjs', 'a.mjs', 'index.html', 'a.htm', 'a.d', 'a.ini', 'a.crx', 'a.po', 'a.poe', '.DS_Store', 'logo.svg',
     'a.xls', 'a.xlsx', 'a.doc', 'a.docx', 'song.mp3', 'a.mpa', 'a.wav', 'a.flac', 'a.ogg', 'a.m4a', 'clip.mp4', 'a.mkv', 'a.webm', 'a.avi', 'a.mov']) expect([name, isViewable(name)]).toEqual([name, true])
-  for (const name of ['config.yaml', 'a.yml', '.gitattributes', '.graphifyignore', 'old.bak', 'LICENSE', 'Makefile', '.env', 'data.jsonl', 'x.tmp', 'app.log', 'cache.sqlite', 'app.db', 'Atajo.lnk', 'web.url', 'pagefile.sys']) expect([name, isViewable(name)]).toEqual([name, true])
+  for (const name of ['config.yaml', 'a.yml', 'site.min.css', 'a.scss', 'a.less', 'blocklist', '.gitattributes', '.graphifyignore', 'old.bak', 'LICENSE', 'Makefile', '.env', 'data.jsonl', 'x.tmp', 'app.log', 'cache.sqlite', 'app.db', 'Atajo.lnk', 'web.url', 'pagefile.sys']) expect([name, isViewable(name)]).toEqual([name, true])
   for (const name of ['app.exe', 'x.webp', 'a.dll', 'archive.zip']) expect([name, isViewable(name)]).toEqual([name, false])
 })
 

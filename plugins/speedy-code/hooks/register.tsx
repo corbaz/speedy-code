@@ -2231,7 +2231,7 @@ async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number)
 /** The files the explorer opens in the viewer when pressed: text, PDF and pictures. */
 const VIEWABLE_EXTENSIONS = new Set([
   // Text and code, shown selectable.
-  'txt', 'sh', 'bat', 'ps1', 'ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'json', 'lock', 'ini', 'po', 'poe', 'd',
+  'txt', 'sh', 'bat', 'ps1', 'ts', 'tsx', 'js', 'jsx', 'cjs', 'mjs', 'json', 'lock', 'ini', 'po', 'poe', 'd', 'css', 'scss', 'less',
   // Drawn, with a switch to their source.
   'md', 'markdown', 'html', 'htm', 'svg',
   // Pictures and documents.
