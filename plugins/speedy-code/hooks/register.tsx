@@ -1394,6 +1394,11 @@ async function insertInPrompt ($: EngineInterface, text: string, separator: ' ' 
   await $.prompt.fill({ text: `${lead}${text}${separator === ' ' ? ' ' : ''}`, mode: 'insert' }).catch(() => undefined)
 }
 
+/** What a popup's Copiar puts into the prompt: a line break, the text without its own trailing ones, a line break. */
+export function popupPaste (text: string) {
+  return `\n${text.replace(/\n+$/, '')}\n`
+}
+
 /** A file as Claude Code mentions it in a prompt: `@path`, quoted when it holds a space. */
 export function fileMention (path: string) {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`
@@ -1433,7 +1438,8 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
       for (const line of lines) {
         if (!line.startsWith('copied ')) continue
         const copied = fromBase64Utf8(line.slice('copied '.length).trim())
-        if (copied) await insertInPrompt($, copied, '\n')
+        // Between two line breaks, always: what came from a popup stands apart in the prompt.
+        if (copied) await $.prompt.fill({ text: popupPaste(copied), mode: 'insert' }).catch(() => undefined)
       }
     }
   } catch (error) {

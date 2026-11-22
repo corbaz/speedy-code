@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2123,7 +2123,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   VIEWER.says = 'copied aG9sYSDDsQ==\r\n'
   await pane.press({ key: 'explorer-file:C:/Users/test/proyectos/notas.txt' })
   await w.clock.advance(100)
-  expect(prompt.fills.at(-1)).toBe('\nhola ñ')
+  expect(prompt.fills.at(-1)).toBe('\nhola ñ\n')
   VIEWER.says = ''
   await w.clock.advance(100)
   const viewer = w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1')))
@@ -2141,7 +2141,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt' })
   expect(FILES.copied).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // And attached to the prompt, as Claude Code mentions a file.
-  expect(prompt.fills.at(-1)).toBe(' @C:\\Users\\test\\proyectos\\notas.txt ')
+  // The prompt already ends in the line break the popup's text left: no space before the mention.
+  expect(prompt.fills.at(-1)).toBe('@C:\\Users\\test\\proyectos\\notas.txt ')
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.')
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' })
   // The tool pressed turns green for a second, with no fill, then goes back to its color.
@@ -2274,3 +2275,9 @@ test('the explorer docked beside the transcript gives its columns back to the fo
   expect(await has(after, 'speedy:more')).toBe(true)
   await after.unmount()
 })
+
+test('popupPaste: what a popup copied goes into the prompt between two line breaks, never doubled at its end', () => {
+  expect(popupPaste('hola ñ')).toBe('\nhola ñ\n')
+  expect(popupPaste('línea 1\nlínea 2\n\n')).toBe('\nlínea 1\nlínea 2\n')
+})
+
