@@ -2054,6 +2054,21 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
   expect(rows[3]?.path).toBe('C:/Users')
 })
 
+/**
+ * The explorer's rows as a pane draws them, in order: its Texts, and each file's name, which is a Client
+ * (its label and its look); the file tools are left out.
+ */
+async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
+  return (await ui.findAll({})).flatMap(element => {
+    if (element.type === 'Text') return [{ text: element.text ?? '', look: element.props ?? {} }]
+    if (element.type === 'Client' && String(element.key).startsWith('speedy:explorer-view:')) {
+      const props = element.props?.props ?? {}
+      return [{ text: String(props.label ?? ''), look: props }]
+    }
+    return []
+  })
+}
+
 test('the footer’s folder opens the explorer beside the chat: the disks above, the tree open down to the session’s folder; a folder opens and closes, a disk shows its own, and the folder clicked again closes it', { timeoutMs: 30000 }, async ($, on) => {
   const panes: string[] = []
   const closed: string[] = []
@@ -2110,7 +2125,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
   // A file's name is filled with spaces up to its tools: the rows are read without that fill.
-  const texts = async () => (await pane.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text?.replace(/ {2,}$/, ''))
+  const texts = async () => (await explorerRows(pane)).map(row => row.text.replace(/ {2,}$/, ''))
   expect(await texts()).toEqual([
     ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44),
     '▾ C:\\',
@@ -2144,7 +2159,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
   // Its Copiar says what it took: the text goes into the prompt too, on a line of its own.
   VIEWER.says = 'copied aG9sYSDDsQ==\r\n'
-  await pane.press({ key: 'explorer-file:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-view:C:/Users/test/proyectos/notas.txt' })
   await w.clock.advance(100)
   expect(prompt.fills.at(-1)).toBe('\nhola ñ\n')
   VIEWER.says = ''
@@ -2155,7 +2170,18 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
   // Every file opens in the viewer, the ones it does not draw too: it describes them.
-  expect(await pane.find({ key: 'explorer-file:C:/setup.exe' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', in: 'speedy:explorer-view:C:/setup.exe' })).toBeDefined()
+  // The name is a Client, as the tools are, so no Button inverts it into a grey bar under the pointer. It
+  // and its tools are one hover group: the name takes the yellow fill while the pointer is on any of them,
+  // the tools keep their own colors.
+  // What each Client is given to draw: the test kit does not report a hover inside a Client's drawing.
+  const look = async (key: string) => (await pane.find({ key }))?.props?.props as { hover?: { scope?: string, color?: string, backgroundColor?: string } } | undefined
+  const nameLook = await look('speedy:explorer-view:C:/setup.exe')
+  expect(nameLook?.hover).toMatchObject({ backgroundColor: '#ffd43b', color: '#1a1a1a' })
+  expect(nameLook?.hover?.scope).toBeTruthy()
+  expect((await look('speedy:explorer-trash:C:/setup.exe'))?.hover).toEqual({ scope: nameLook?.hover?.scope, color: '#ff8787' })
+  expect(String(nameLook?.hover?.scope).length).toBeLessThanOrEqual(64)
+  expect((await look('speedy:explorer-view:C:/Users/test/proyectos/notas.txt'))?.hover?.scope).not.toBe(nameLook?.hover?.scope)
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
   // They are Clients, as the footer's controls: a Button would fill them under the pointer.
   for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool]}`)
@@ -2206,7 +2232,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
   const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 6 } }, surface: 'terminal' })
   await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
-  const marked = async () => (await near.findAll({ type: 'Text' })).filter(text => text.props?.backgroundColor === '#ffd43b').map(text => text.text?.trimEnd())
+  const marked = async () => (await explorerRows(near)).filter(row => row.look.backgroundColor === '#ffd43b').map(row => row.text.trimEnd())
   expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
   expect(await marked()).toEqual(['      viaje.jpg'])
   // A folder is marked the same way, and the tree shows it in the middle of a short body.
@@ -2231,12 +2257,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await tree.press({ key: 'explorer:C:/Windows' })
   await tree.press({ key: 'explorer-drive:D:/' })
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
-  const shown = (await tree.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text?.replace(/ {2,}$/, ''))
+  const shown = (await explorerRows(tree)).map(row => row.text.replace(/ {2,}$/, ''))
   expect(shown).toContain('      ▾ proyectos ●')
   expect(shown).toContain('  ▸ Windows')
   expect(shown).not.toContain('    ▸ System32')
   // Collapsed, nothing is marked: the path found goes.
-  expect((await tree.findAll({ type: 'Text' })).some(text => text.props?.backgroundColor === '#ffd43b')).toBe(false)
+  expect((await explorerRows(tree)).some(row => row.look.backgroundColor === '#ffd43b')).toBe(false)
   await tree.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })

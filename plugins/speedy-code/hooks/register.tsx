@@ -2423,6 +2423,13 @@ async function toggleExplorer ($: EngineInterface) {
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
+/** A file row's hover group: its name and tools light together. A path may be long; a group name is 64 at most. */
+export function hoverScope (path: string) {
+  let hash = 5381
+  for (const char of path) hash = ((hash * 33) ^ char.codePointAt(0)!) >>> 0
+  return `explorer:${hash.toString(36)}:${path.length}`
+}
+
 /**
  * Any press in the explorer takes the mark off the path the field found: from then on the yellow fill is
  * the pointer's alone, and follows it.
@@ -2586,21 +2593,32 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const nameRoom = Math.max(4, width - toolsWidth)
           const cut = cutCells(`${indent}  ${row.name}`, nameRoom)
           const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
-          const name = isViewable(row.name)
+          // The row's hover group: its name and its tools. While the pointer is anywhere on them the name
+          // takes the yellow fill, the tools none: the row is marked as the one the tools act on.
+          const scope = hoverScope(row.path)
+          // The name is a Client, as the tools are: a Button under the pointer inverts its cells, a grey bar
+          // over the yellow. A press reaches the ui.message hook by its key and opens the viewer.
+          const name = Client
             ? (
-              // While the pointer is anywhere on the row, its tools included, the name keeps the yellow fill
-              // it takes under the pointer: the row is marked as the one the tools act on.
+              <Client
+                key={`speedy:explorer-view:${row.path}`}
+                module="./control.tsx"
+                width={cells(label)}
+                props={row.isFound
+                  ? { label, color: '#1a1a1a', bold: true, backgroundColor: EXPLORER_VIEWABLE_COLOR }
+                  : { label, color: EXPLORER_VIEWABLE_COLOR, hover: { scope, backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' } }}
+              />
+              )
+            : (
               <Button key={`explorer-file:${row.path}`} plain onPress={() => { void forgetFound($); void runViewer($, 'view_file.ps1', row.path) }}>
-                {row.isFound
-                  ? <Text color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} bold wrap="truncate-end">{label}</Text>
-                  : <Text color={EXPLORER_VIEWABLE_COLOR} hover={{ backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' }} wrap="truncate-end">{label}</Text>}
+                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{label}</Text>
               </Button>
               )
-            : <Text dimColor wrap="truncate-end">{label}</Text>
           // Each tool is a Client, as the footer's are: a Button fills its cell under the pointer, and the
-          // fill framed the icons. A press reaches the ui.message hook by the Client's key.
-          const tool = (kind: string, label: string, color: string, backgroundColor?: string) => Client
-            ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={backgroundColor ? { label, color, bold: true, backgroundColor } : { label, color, bold: true }} />
+          // fill framed the icons. A press reaches the ui.message hook by the Client's key. A tool is in its
+          // row's hover group, and keeps its own color in it.
+          const tool = (kind: string, label: string, color: string) => Client
+            ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
             : <Text key={kind} color={color}>{label}</Text>
           const tools = EXPLORER_TOOLS.map(([kind, emoji, glyph, color]) => tool(kind, ` ${isGlyphs ? glyph : emoji}`, flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color))
           return (
@@ -4009,6 +4027,7 @@ export const register: Register = on => {
       const kind = rest.slice(0, rest.indexOf(':'))
       const path = rest.slice(rest.indexOf(':') + 1)
       await forgetFound($)
+      if (kind === 'view') void runViewer($, 'view_file.ps1', path)
       if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
