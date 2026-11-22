@@ -2453,14 +2453,18 @@ async function toggleTreeFolder ($: EngineInterface, path: string) {
 }
 
 /**
- * Collapses the tree: every folder closes but those down to the session's folder, on its disk, and the
- * window goes back to it, so a tree opened far and long is short again.
+ * Collapses every disk: on the session's, every folder closes but those down to the session's folder; on the
+ * others, all close but the disk's root, so each shows its first level. The disk shown stays shown: the
+ * session's puts its folder in the middle again, another goes to its top.
  */
 async function collapseExplorer ($: EngineInterface) {
   await update($, explorer, now => {
-    const drive = driveOf(now.here, now.drives, now.caseless) || now.drive
-    const chain = drive ? chainOf(now.here, drive).map(path => pathKey(path, now.caseless)) : []
-    return { ...now, drive, open: chain, top: -1, found: undefined }
+    const home = driveOf(now.here, now.drives, now.caseless)
+    const chain = home ? chainOf(now.here, home).map(path => pathKey(path, now.caseless)) : []
+    const drive = now.drive || home
+    const root = pathKey(drive, now.caseless)
+    const open = chain.includes(root) || !drive ? chain : [...chain, root]
+    return { ...now, drive, open, top: drive === home ? -1 : 0, found: undefined }
   })
 }
 
@@ -2545,7 +2549,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const Client = 'Client' in elements ? elements.Client : undefined
   const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
-  // Beside the disks: collapse the whole tree, back to the session's folder.
+  // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)

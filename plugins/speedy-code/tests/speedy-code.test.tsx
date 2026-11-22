@@ -2252,11 +2252,19 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await marked()).toEqual([])
   await near.press({ key: 'explorer-drive:C:/' })
   await near.unmount()
-  // ⊟ beside the disks collapses the tree back to the session's folder.
+  // ⊟ beside the disks collapses every disk: the session's is left open down to its folder, the others all
+  // closed. The disk shown stays shown, the session's or not.
   const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   await tree.press({ key: 'explorer:C:/Windows' })
   await tree.press({ key: 'explorer-drive:D:/' })
+  expect((await explorerRows(tree)).map(row => row.text.trimEnd())).toContain('  ▾ fotos')
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
+  expect((await tree.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
+  const onD = (await explorerRows(tree)).map(row => row.text.trimEnd())
+  expect(onD).toContain('▾ D:\\')
+  expect(onD).toContain('  ▸ fotos')
+  expect(onD).not.toContain('    viaje.jpg')
+  await tree.press({ key: 'explorer-drive:C:/' })
   const shown = (await explorerRows(tree)).map(row => row.text.replace(/ {2,}$/, ''))
   expect(shown).toContain('      ▾ proyectos ●')
   expect(shown).toContain('  ▸ Windows')
