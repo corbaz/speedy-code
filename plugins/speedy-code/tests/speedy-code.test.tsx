@@ -2075,7 +2075,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
-  const texts = async () => (await pane.findAll({ type: 'Text' })).map(text => text.text).filter(text => ![' 📋', ' 🔗', ' 🗑'].includes(text ?? ''))
+  const texts = async () => (await pane.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text)
   expect(await texts()).toEqual([
     ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44),
     '▾ C:\\',
@@ -2116,24 +2116,31 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
   expect(await pane.find({ key: 'explorer-file:C:/pagefile.sys' })).toBeUndefined()
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
-  for (const key of ['explorer-copy:C:/pagefile.sys', 'explorer-path:C:/pagefile.sys', 'explorer-trash:C:/pagefile.sys']) expect(await pane.find({ key })).toBeDefined()
+  // They are Clients, as the footer's controls: a Button would fill them under the pointer.
+  for (const tool of ['copy', 'path', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/pagefile.sys` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', trash: '🗑' }[tool]}`)
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
-  await pane.press({ key: 'explorer-copy:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt' })
   expect(FILES.copied).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: copié notas.txt al portapapeles; pegalo en una carpeta.')
-  await pane.press({ key: 'explorer-path:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' })
+  // The tool pressed turns green for a second, with no fill, then goes back to its color.
+  const pathColor = async () => (await pane.find({ type: 'Text', in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' }))?.props
+  expect(await pathColor()).toMatchObject({ color: '#51cf66' })
+  expect((await pathColor())?.backgroundColor).toBeUndefined()
+  await w.clock.advance(1000)
+  expect(await pathColor()).toMatchObject({ color: '#63e6be' })
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // 🗑 asks first: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
-  await pane.press({ key: 'explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
   expect(await texts()).toContain(' ¿Borrar? ')
-  await pane.press({ key: 'explorer-trash-no:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash-no:C:/Users/test/proyectos/notas.txt' })
   expect(await texts()).not.toContain(' ¿Borrar? ')
   expect(FILES.trashed).toEqual([])
-  await pane.press({ key: 'explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
   TREE['C:/Users/test/proyectos'] = [{ name: 'facturas', kind: 'dir' }]
-  await pane.press({ key: 'explorer-trash-yes:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash-yes:C:/Users/test/proyectos/notas.txt' })
   expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')

@@ -2018,6 +2018,30 @@ const EXPLORER_SHARE = 0.38
 let terminalColumns = 0
 /** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
 const EXPLORER_TOOLS_WIDTH = 10
+/** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
+ * Fonts) and its color. */
+const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['copy', '📋', '\uf0c5', '#74c0fc'],
+  ['path', '🔗', '\uf0c1', '#63e6be'],
+  ['trash', '🗑', '\uf1f8', '#ff8787']
+]
+
+/** The file tool just pressed, green for a second as a sign the press was taken; empty: none. */
+const explorerFlash = atom({ plugin: 'speedy-code', key: 'explorerFlash' } as const, '')
+const FLASH_MS = 1000
+const FLASH_COLOR = '#51cf66'
+
+/** Turns a pressed tool green, with no fill, and back to its color a second later. */
+async function flashTool ($: EngineInterface, key: string) {
+  try {
+    await update($, explorerFlash, () => key)
+    await $.clock.sleep(FLASH_MS)
+    await update($, explorerFlash, now => now === key ? '' : now)
+  } catch {
+    // The mod unloaded meanwhile: nothing is left to turn back.
+  }
+}
+
 /** The cells ` ¿Borrar?  Sí  No ` takes in their place, a spare one with them. */
 const EXPLORER_ASK_WIDTH = 20
 
@@ -2278,7 +2302,11 @@ async function pickDrive ($: EngineInterface, drive: string) {
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const asking = await read($, explorerTrash)
-  const { Box, Button, Text } = $.ui.resolve(e)
+  const flashed = await read($, explorerFlash)
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
+  // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
+  const Client = 'Client' in elements ? elements.Client : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
@@ -2318,18 +2346,19 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               </Button>
               )
             : <Text dimColor wrap="truncate-end">{label}</Text>
+          // Each tool is a Client, as the footer's are: a Button fills its cell under the pointer, and the
+          // fill framed the icons. A press reaches the ui.message hook by the Client's key.
+          const tool = (kind: string, label: string, color: string, backgroundColor?: string) => Client
+            ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={backgroundColor ? { label, color, bold: true, backgroundColor } : { label, color, bold: true }} />
+            : <Text key={kind} color={color}>{label}</Text>
           const tools = asking === row.path
             ? [
               <Text key="ask" bold color="#ff6b6b">{' ¿Borrar? '}</Text>,
-              <Button key={`explorer-trash-yes:${row.path}`} plain onPress={() => { void trashFile($, row.path) }}><Text bold color="black" backgroundColor="#ff6b6b">{' Sí '}</Text></Button>,
+              tool('trash-yes', ' Sí ', 'black', '#ff6b6b'),
               <Text key="gap"> </Text>,
-              <Button key={`explorer-trash-no:${row.path}`} plain onPress={() => { void update($, explorerTrash, () => '') }}><Text bold color="black" backgroundColor="#868e96">{' No '}</Text></Button>
+              tool('trash-no', ' No ', 'black', '#868e96')
               ]
-            : [
-              <Button key={`explorer-copy:${row.path}`} plain onPress={() => { void copyFileToClipboard($, row.path) }}><Text>{' 📋'}</Text></Button>,
-              <Button key={`explorer-path:${row.path}`} plain onPress={() => { void copyPathToClipboard($, row.path, e.surface) }}><Text>{' 🔗'}</Text></Button>,
-              <Button key={`explorer-trash:${row.path}`} plain onPress={() => { void update($, explorerTrash, () => row.path) }}><Text>{' 🗑'}</Text></Button>
-              ]
+            : EXPLORER_TOOLS.map(([kind, emoji, glyph, color]) => tool(kind, ` ${isGlyphs ? glyph : emoji}`, flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color))
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
               <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
@@ -3700,6 +3729,17 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:sessions') {
       await closeMenu($, 'more')
       await openMenu($, 'sessions')
+    } else if (e.element.startsWith('speedy:explorer-')) {
+      // A file tool of the explorer: what it does, then the file's path, which may hold `:` itself.
+      const rest = e.element.slice('speedy:explorer-'.length)
+      const kind = rest.slice(0, rest.indexOf(':'))
+      const path = rest.slice(rest.indexOf(':') + 1)
+      if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
+      if (kind === 'copy') await copyFileToClipboard($, path)
+      else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
+      else if (kind === 'trash') await update($, explorerTrash, () => path)
+      else if (kind === 'trash-yes') await trashFile($, path)
+      else if (kind === 'trash-no') await update($, explorerTrash, () => '')
     } else if (e.element === 'speedy:place') {
       await toggleExplorer($)
     } else if (e.element === 'speedy:socials') {
