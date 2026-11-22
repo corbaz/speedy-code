@@ -21,8 +21,10 @@
 # A minified file (one-line JSON, even with no extension; JSON Lines; minified JavaScript, CSS, HTML, XML,
 # SVG) also gets its text laid out by pretty.py while the popup stands, the file itself untouched: once it
 # comes, a switch beside the title shows it, Formateado, or the text as it is, Original.
-# The bottom line repeats Copiar and the close mark, for a popup taller than the eye's reach. Every scroll
-# bar is dark. The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a
+# The bottom line repeats Copiar and the close mark, for a popup taller than the eye's reach. Beside each close
+# mark, at its left, the move mark: held down with the mouse, it carries the popup where it is dropped, to read
+# what is behind it; a popup opened again stands in the middle once more. Every scroll bar is dark. The close
+# mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a
 # second, so the mod wakes to end it; with no one reading, the write fails and it closes. When Copiar takes
 # text, it also says "copied " and that text in Base64 (UTF-8, LF line ends), for the mod to put it in the
 # prompt. When Copiar takes a picture (an image file, or an SVG's Preview drawn as a PNG), it says
@@ -774,7 +776,7 @@ $pdfPages = $null
 $pdfText = $null
 $player = $null
 $svgExport = $null      # an SVG's markup and size for Copiar's PNG
-$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false; Ticks = 0 }
+$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false; Ticks = 0; Drag = $null; Moved = $false }
 $disposables = @()
 $inner = $room
 $toolbars = [ordered]@{}  # a view's bar above it, by the view's name
@@ -2304,6 +2306,33 @@ $close = New-CloseLabel
 # The bottom line's close mark, the same as the top one's.
 $closeBelow = New-CloseLabel
 
+# The move mark, at the close mark's left: held down, the popup follows the pointer, and stays where it is let go.
+function New-MoveLabel {
+  $label = New-Object System.Windows.Forms.Label
+  $label.Text = " $([string][char]0x2725) "
+  $label.AutoSize = $true
+  $label.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 12, [System.Drawing.FontStyle]::Bold)
+  $label.ForeColor = $blue
+  $label.BackColor = $black
+  $label.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+  # A label pressed keeps the mouse until it is let go, so the moves reach it even off the mark.
+  $label.Add_MouseDown({
+    if ($_.Button -ne 'Left') { return }
+    $at = [System.Windows.Forms.Cursor]::Position
+    $state.Drag = @(($at.X - $form.Left), ($at.Y - $form.Top))
+  })
+  $label.Add_MouseMove({
+    if (-not $state.Drag) { return }
+    $at = [System.Windows.Forms.Cursor]::Position
+    $form.Location = New-Object System.Drawing.Point(($at.X - $state.Drag[0]), ($at.Y - $state.Drag[1]))
+    $state.Moved = $true
+  })
+  $label.Add_MouseUp({ $state.Drag = $null })
+  $label
+}
+$move = New-MoveLabel
+$moveBelow = New-MoveLabel
+
 function New-TopLabel([string]$text) {
   $label = New-Object System.Windows.Forms.Label
   $label.Text = " $text "
@@ -2362,10 +2391,10 @@ $frame.Controls.Add($inside)
 $form.Controls.Add($frame)
 
 $lineMiddle = $contour + [int]($line / 2)
-$topLabels = @($title, $close, $closeBelow) + @($switch.Values) + $copyLabels
+$topLabels = @($title, $close, $closeBelow, $move, $moveBelow) + @($switch.Values) + $copyLabels
 foreach ($label in $topLabels) { $form.Controls.Add($label); $label.BringToFront() }
 
-# The top line: the title in the middle, the switch after it, Copiar and the close mark at the right.
+# The top line: the title in the middle, the switch after it, Copiar, the move mark and the close mark at the right.
 function Set-TopLine {
   $width = $form.ClientSize.Width
   $title.Location = New-Object System.Drawing.Point(([int](($width - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
@@ -2377,25 +2406,29 @@ function Set-TopLine {
     $left += $label.PreferredWidth + 4
   }
   $close.Location = New-Object System.Drawing.Point(($width - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
-  if ($copy) { $copy.Location = New-Object System.Drawing.Point(($close.Location.X - $copy.PreferredWidth - 6), ($lineMiddle - [int]($copy.PreferredHeight / 2))) }
+  $move.Location = New-Object System.Drawing.Point(($close.Location.X - $move.PreferredWidth - 2), ($lineMiddle - [int]($move.PreferredHeight / 2)))
+  if ($copy) { $copy.Location = New-Object System.Drawing.Point(($move.Location.X - $copy.PreferredWidth - 6), ($lineMiddle - [int]($copy.PreferredHeight / 2))) }
   # The bottom line: the same Copiar and close mark, at the same places on it, only on a large popup
   # (two thirds of the screen's height or more); a small or middling one keeps them on top alone.
   $isLarge = $form.ClientSize.Height -ge ($area.Height * 0.65)
   $closeBelow.Visible = $isLarge
+  $moveBelow.Visible = $isLarge
   if ($copyBelow) { $copyBelow.Visible = $isLarge }
   $bottomMiddle = $form.ClientSize.Height - $lineMiddle
   $closeBelow.Location = New-Object System.Drawing.Point($close.Location.X, ($bottomMiddle - [int]($closeBelow.PreferredHeight / 2)))
-  if ($copyBelow) { $copyBelow.Location = New-Object System.Drawing.Point(($closeBelow.Location.X - $copyBelow.PreferredWidth - 6), ($bottomMiddle - [int]($copyBelow.PreferredHeight / 2))) }
+  $moveBelow.Location = New-Object System.Drawing.Point($move.Location.X, ($bottomMiddle - [int]($moveBelow.PreferredHeight / 2)))
+  if ($copyBelow) { $copyBelow.Location = New-Object System.Drawing.Point(($moveBelow.Location.X - $copyBelow.PreferredWidth - 6), ($bottomMiddle - [int]($copyBelow.PreferredHeight / 2))) }
 }
 
-# The popup at a size, in the middle of the screen; a small one still leaves the top line room.
+# The popup at a size, in the middle of the screen, or where it was moved to; a small one still leaves the top
+# line room.
 function Set-PopupSize([int]$width, [int]$height) {
-  $sides = $close.PreferredWidth + 24 + 40
+  $sides = $close.PreferredWidth + $move.PreferredWidth + 2 + 24 + 40
   if ($copy) { $sides += $copy.PreferredWidth + 6 }
   foreach ($label in $switch.Values) { $sides += $label.PreferredWidth + 4 }
   $width = [Math]::Max($width, 2 * $contour + $title.PreferredWidth + 2 * $sides)
   $form.ClientSize = New-Object System.Drawing.Size($width, $height)
-  $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $width) / 2)), ([int]($area.Y + ($area.Height - $height) / 2)))
+  if (-not $state.Moved) { $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $width) / 2)), ([int]($area.Y + ($area.Height - $height) / 2))) }
   Set-TopLine
 }
 
