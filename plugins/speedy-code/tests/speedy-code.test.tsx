@@ -1873,7 +1873,8 @@ test('⚙ → Barra de estado → Ver labels: each control’s name shows above 
   }
   expect(await tip(ui, 'speedy:copy')).toEqual({
     // The kit leaves a Box's `hover` out of what it reports: the Client's own carries the group.
-    card: expect.objectContaining({ position: 'absolute', top: -1, display: 'none' }),
+    // Centered over the control: ` copiar ` is 8 cells, ` 📋 ` 4, so it starts 2 to the left.
+    card: expect.objectContaining({ position: 'absolute', top: -1, left: -2, display: 'none' }),
     scope: 'tip:speedy:copy',
     text: ' copiar '
   })

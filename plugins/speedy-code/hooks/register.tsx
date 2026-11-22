@@ -1958,7 +1958,8 @@ export const NERD_ICONS: Readonly<Record<string, string>> = {
   '✦': '\uf005', // fa-star
   '✎': '\uf044', // fa-edit
   '▤': '\uf1de', // fa-sliders
-  '◈': '\uefcc' // fa-palette
+  '◈': '\uefcc', // fa-palette
+  'ⓘ': '\uf05a' // fa-info_circle
 }
 
 const EMOJI = new RegExp(`(${Object.keys(NERD_ICONS).join('|')})[\ufe0e\ufe0f]?`, 'gu')
@@ -2844,10 +2845,12 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     const hasTip = isLabeled && tip !== ''
     const client = <Client key={key} module="./control.tsx" width={wide(label)} props={{ label: isNerd ? nerdText(label) : label, color: tint, bold, ...(hasTip ? { hover: { scope, color: tint } } : {}) }} />
     if (!hasTip) return client
+    // Centered over the control, as much to its left as to its right.
+    const left = Math.floor((wide(label) - cells(` ${tip} `)) / 2)
     return (
       <Box key={`tipped:${key}`} flexShrink={0}>
         {client}
-        <Box key={scope} position="absolute" top={-1} left={0} display="none" hover={{ scope, display: 'flex' }}>
+        <Box key={scope} position="absolute" top={-1} left={left} display="none" hover={{ scope, display: 'flex' }}>
           <Text color={LABEL_TEXT} backgroundColor={LABEL_FILL} bold>{` ${tip} `}</Text>
         </Box>
       </Box>
