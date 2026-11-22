@@ -3,9 +3,12 @@
 # a wide black contour, a blue line, the file's name in the middle of the top line and the close mark at
 # its right, with "Copiar" beside it when there is something to copy. What it holds depends on the file:
 #   an image (png, jpg, jpeg, gif, bmp, ico, tif, tiff): the picture, scaled down to fit, never deformed;
-#   a PDF: its pages one under the other, drawn by Windows' own PDF reader, with a scroll bar;
+#   a PDF: its pages one under the other, drawn by Windows' own PDF reader, with a scroll bar and a bar
+#   above them to go to a page (first, previous, its number, next, last) and to zoom (out, a list of sizes,
+#   in, fit the width, the whole page);
 #   Markdown, HTML and SVG: drawn as a page, the Preview, with a switch beside the title to their source;
 #   a spreadsheet (xlsx, xlsm; xls through Excel) or a Word document (docx; doc through Word): drawn as a page;
+#   a Word document, a Markdown or an HTML Preview also gets the bar's zoom;
 #   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume;
 #   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
 #   each, with their columns and first rows, read by db_view.py;
@@ -731,9 +734,12 @@ $pdfPages = $null
 $pdfText = $null
 $player = $null
 $svgExport = $null      # an SVG's markup and size for Copiar's PNG
-$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false }
+$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false; Ticks = 0 }
 $disposables = @()
 $inner = $room
+$toolbars = [ordered]@{}  # a view's bar above it, by the view's name
+$webZooms = @{}           # a page view's zoom, by the view's name
+$pdf = $null              # the PDF's pages, as New-PdfView lays them out
 
 # The Python that reads a PDF's text: the host's, by SPEEDY_PYTHON, else the one the setup made for
 # Claude Code or for OpenCode.
@@ -812,6 +818,8 @@ function Complete-Pretty($job) {
   $box = New-SourceBox $laid $false
   $box.Visible = $false
   $inside.Controls.Add($box)
+  # Docked last, as the views are, below any bar.
+  $box.BringToFront()
   $views.Insert([Array]::IndexOf($viewNames, $prettySource), 'Formateado', $box)
   $labelNames[$prettySource] = 'Original'
   $script:viewNames = @($views.Keys)
@@ -1196,6 +1204,675 @@ svg { display: block; }
 
 function New-MessagePage([string]$html) { New-Page ('<p class="note" style="font-size:15px">' + $html + '</p>') }
 
+# ---- The bar above a view --------------------------------------------------------------------------------
+# A slim dark bar of flat buttons, centered: a PDF's pages and zoom, a page view's zoom. Shown with its view.
+$toolbarHeight = 34
+$barColor = [System.Drawing.ColorTranslator]::FromHtml('#0f1115')
+$boxColor = [System.Drawing.ColorTranslator]::FromHtml('#25282e')
+$edgeColor = [System.Drawing.ColorTranslator]::FromHtml('#343a40')
+$thumbColor = [System.Drawing.ColorTranslator]::FromHtml('#495057')
+$fitWidthText = T 'Ajustar al ancho'
+$fitPageText = T 'P\u00e1gina completa'
+$zoomPercents = @(50, 75, 100, 125, 150, 200, 300, 400)
+# The steps - and + go through.
+$zoomSteps = @(10, 25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400)
+$toolTips = $null
+$zoomMenu = $null
+$zoomMenuPick = $null
+
+# Windows' symbol font when it has it; a font it lacks comes back as another, and the buttons fall back to ASCII.
+$symbolFont = $null
+try { $probe = New-Object System.Drawing.Font('Segoe MDL2 Assets', 10); if ($probe.Name -eq 'Segoe MDL2 Assets') { $symbolFont = 'Segoe MDL2 Assets' }; $probe.Dispose() } catch { }
+
+function Set-DoubleBuffered($control) {
+  [System.Windows.Forms.Control].GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'NonPublic, Instance').SetValue($control, $true, $null)
+}
+
+function New-Toolbar {
+  $bar = New-Object System.Windows.Forms.Panel
+  $bar.Dock = 'Top'
+  $bar.Height = $toolbarHeight
+  $bar.BackColor = $barColor
+  $bar.Visible = $false
+  $bar.Tag = New-Object System.Collections.Generic.List[object]
+  $bar.Add_Paint({
+    $pen = New-Object System.Drawing.Pen($edgeColor)
+    $_.Graphics.DrawLine($pen, 0, $this.Height - 1, $this.Width, $this.Height - 1)
+    $pen.Dispose()
+  })
+  $bar.Add_Resize({ Set-ToolbarLayout $this })
+  $bar
+}
+
+function Add-ToolItem($bar, $control, [int]$gap = 2) {
+  $bar.Controls.Add($control)
+  $bar.Tag.Add([pscustomobject]@{ Control = $control; Gap = $gap })
+}
+
+function Set-ToolbarLayout($bar) {
+  $total = 0
+  foreach ($item in $bar.Tag) { $total += $item.Gap + $item.Control.Width }
+  $x = [Math]::Max(6, [int](($bar.ClientSize.Width - $total) / 2))
+  foreach ($item in $bar.Tag) {
+    $x += $item.Gap
+    $item.Control.Location = New-Object System.Drawing.Point($x, ([int](($bar.ClientSize.Height - 1 - $item.Control.Height) / 2)))
+    $x += $item.Control.Width
+  }
+}
+
+function Set-ToolTip($control, [string]$tip) {
+  if (-not $tip) { return }
+  if (-not $script:toolTips) { $script:toolTips = New-Object System.Windows.Forms.ToolTip }
+  $script:toolTips.SetToolTip($control, $tip)
+}
+
+# A flat button: a glyph of the symbol font (or its ASCII stand-in), or a word. A click runs $action with $arg.
+function New-ToolButton([int]$glyph, [string]$text, [string]$tip, [scriptblock]$action, $arg = $null) {
+  $label = New-Object System.Windows.Forms.Label
+  $label.AutoSize = $false
+  $label.ForeColor = $blue
+  $label.BackColor = $barColor
+  $label.TextAlign = 'MiddleCenter'
+  $label.Cursor = [System.Windows.Forms.Cursors]::Hand
+  if ($glyph -and $symbolFont) {
+    $label.Font = New-Object System.Drawing.Font($symbolFont, 10)
+    $label.Text = [string][char]$glyph
+    $label.Size = New-Object System.Drawing.Size(30, 26)
+  } else {
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 9.75, $(if ($glyph) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }))
+    $label.Text = $text
+    $label.Size = New-Object System.Drawing.Size(([Math]::Max(30, $label.PreferredWidth + 14)), 26)
+  }
+  $label.Tag = [pscustomobject]@{ Action = $action; Arg = $arg; Active = $false }
+  $label.Add_Click({ & $this.Tag.Action $this.Tag.Arg })
+  $label.Add_MouseEnter({ if (-not $this.Tag.Active) { $this.BackColor = $boxColor } })
+  $label.Add_MouseLeave({ if (-not $this.Tag.Active) { $this.BackColor = $barColor } })
+  Set-ToolTip $label $tip
+  $label
+}
+
+# A button that stays lit while what it chose holds: fit the width, the whole page.
+function Set-ToolActive($label, [bool]$active) {
+  if ($null -eq $label -or $label.Tag.Active -eq $active) { return }
+  $label.Tag.Active = $active
+  $label.BackColor = if ($active) { $blue } else { $barColor }
+  $label.ForeColor = if ($active) { $black } else { $blue }
+}
+
+# A small dark box to type in: the page's number, the zoom. Enter runs $onEnter with the text.
+function New-ToolBox([int]$width, [string]$tip, [scriptblock]$onEnter, [int]$extra = 0) {
+  $holder = New-Object System.Windows.Forms.Panel
+  $holder.BackColor = $boxColor
+  $holder.Size = New-Object System.Drawing.Size(($width + 8 + $extra), 24)
+  $box = New-Object System.Windows.Forms.TextBox
+  $box.BorderStyle = 'None'
+  $box.BackColor = $boxColor
+  $box.ForeColor = $ink
+  $box.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+  $box.TextAlign = 'Center'
+  $box.Width = $width
+  $box.Location = New-Object System.Drawing.Point(4, ([int]((24 - $box.PreferredHeight) / 2) + 1))
+  $box.Tag = $onEnter
+  $box.Add_KeyDown({
+    if ($_.KeyCode -eq 'Enter') { $_.SuppressKeyPress = $true; $_.Handled = $true; & $this.Tag $this.Text }
+  })
+  $box.Add_Enter({ $this.SelectAll() })
+  $box.Add_MouseUp({ if ($this.SelectionLength -eq 0) { $this.SelectAll() } })
+  $holder.Controls.Add($box)
+  Set-ToolTip $box $tip
+  [pscustomobject]@{ Holder = $holder; Box = $box }
+}
+
+# The zoom's list, a dark menu under its box: a click on an item runs $pick with it.
+function Show-ZoomMenu($anchor, [string[]]$items, [scriptblock]$pick) {
+  if ($zoomMenu -and $zoomMenu.Visible) { Hide-ZoomMenu; return }
+  if (-not $zoomMenu) {
+    $script:zoomMenu = New-Object System.Windows.Forms.Panel
+    $zoomMenu.BackColor = $edgeColor
+    $zoomMenu.Visible = $false
+    $form.Controls.Add($zoomMenu)
+  }
+  foreach ($old in @($zoomMenu.Controls)) { $old.Dispose() }
+  $zoomMenu.Controls.Clear()
+  $y = 1
+  foreach ($item in $items) {
+    $label = New-Object System.Windows.Forms.Label
+    $label.AutoSize = $false
+    $label.Text = "   $item"
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $label.ForeColor = $ink
+    $label.BackColor = $boxColor
+    $label.TextAlign = 'MiddleLeft'
+    $label.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $label.SetBounds(1, $y, 160, 24)
+    $label.Tag = $item
+    $label.Add_MouseEnter({ $this.BackColor = $blue; $this.ForeColor = $black })
+    $label.Add_MouseLeave({ $this.BackColor = $boxColor; $this.ForeColor = $ink })
+    $label.Add_Click({ $item = $this.Tag; Hide-ZoomMenu; & $zoomMenuPick $item })
+    $zoomMenu.Controls.Add($label)
+    $y += 24
+  }
+  $script:zoomMenuPick = $pick
+  $zoomMenu.Size = New-Object System.Drawing.Size(162, ($y + 1))
+  $zoomMenu.Location = $form.PointToClient($anchor.PointToScreen((New-Object System.Drawing.Point(0, ($anchor.Height + 2)))))
+  $zoomMenu.Visible = $true
+  $zoomMenu.BringToFront()
+}
+
+function Hide-ZoomMenu { if ($zoomMenu) { $zoomMenu.Visible = $false } }
+
+# The zoom's controls, in the bar: -, the box with its list, +. $calls holds Step (by -1 or 1), Value (a
+# percentage typed), Pick (an item of the list) and Items.
+function Add-ZoomControls($bar, $calls) {
+  Add-ToolItem $bar (New-ToolButton 0xE738 '-' (T 'Alejar (Ctrl -)') $calls.Step -1) 0
+  $zoom = New-ToolBox 46 'Zoom' { param($text) & $zoomCalls[$state.View].Value $text } 24
+  $open = New-Object System.Windows.Forms.Label
+  $open.AutoSize = $false
+  $open.ForeColor = $blue
+  $open.BackColor = $boxColor
+  $open.TextAlign = 'MiddleCenter'
+  $open.Cursor = [System.Windows.Forms.Cursors]::Hand
+  if ($symbolFont) { $open.Font = New-Object System.Drawing.Font($symbolFont, 8); $open.Text = [string][char]0xE70D }
+  else { $open.Font = New-Object System.Drawing.Font('Segoe UI', 8); $open.Text = 'v' }
+  $open.SetBounds(($zoom.Holder.Width - 24), 0, 24, 24)
+  $open.Tag = $zoom.Holder
+  $open.Add_Click({ $calls = $zoomCalls[$state.View]; Show-ZoomMenu $this.Tag $calls.Items $calls.Pick })
+  $zoom.Holder.Controls.Add($open)
+  Add-ToolItem $bar $zoom.Holder 2
+  Add-ToolItem $bar (New-ToolButton 0xE710 '+' (T 'Acercar (Ctrl +)') $calls.Step 1) 2
+  $zoom.Box
+}
+$zoomCalls = @{}          # each view's zoom calls, by the view's name
+
+# The step after $percent toward $direction, or $null past the last.
+function Get-NextZoom([double]$percent, [int]$direction) {
+  if ($direction -gt 0) { foreach ($step in $zoomSteps) { if ($step -gt $percent + 0.5) { return $step } } }
+  else { for ($k = $zoomSteps.Count - 1; $k -ge 0; $k--) { if ($zoomSteps[$k] -lt $percent - 0.5) { return $zoomSteps[$k] } } }
+  $null
+}
+
+function Read-Percent([string]$text) {
+  if ($text -match '^\s*(\d+([.,]\d+)?)\s*%?\s*$') { return [double]($Matches[1].Replace(',', '.')) }
+  $null
+}
+
+# ---- A thin dark scroll bar --------------------------------------------------------------------------------
+# Drawn, as Windows' own scroll bar control keeps its light theme. Its Tag holds Value (the first pixel
+# shown), Content (all the pixels) and Page (the pixels shown); a drag or a click on it runs Change with the
+# new value.
+function New-DarkScrollBar([bool]$vertical) {
+  $bar = New-Object System.Windows.Forms.Panel
+  Set-DoubleBuffered $bar
+  $bar.BackColor = $paper
+  if ($vertical) { $bar.Width = 12 } else { $bar.Height = 12 }
+  $bar.Tag = [pscustomobject]@{ Vertical = $vertical; Value = 0.0; Content = 0.0; Page = 0.0; Grab = -1.0; Hover = $false; Change = $null }
+  $bar.Add_Paint({
+    $span = Get-ThumbSpan $this
+    if (-not $span) { return }
+    $s = $this.Tag
+    $g = $_.Graphics
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $pen = New-Object System.Drawing.Pen($(if ($s.Hover -or $s.Grab -ge 0) { $dim } else { $thumbColor }), 6)
+    $pen.StartCap = 'Round'; $pen.EndCap = 'Round'
+    $from = [single]($span[0] + 4); $to = [single]($span[0] + $span[1] - 4)
+    if ($s.Vertical) { $g.DrawLine($pen, [single]6, $from, [single]6, $to) } else { $g.DrawLine($pen, $from, [single]6, $to, [single]6) }
+    $pen.Dispose()
+  })
+  $bar.Add_MouseDown({
+    $span = Get-ThumbSpan $this
+    if (-not $span) { return }
+    $s = $this.Tag
+    $at = if ($s.Vertical) { $_.Y } else { $_.X }
+    if ($at -ge $span[0] -and $at -le $span[0] + $span[1]) { $s.Grab = $at - $span[0]; $this.Invalidate() }
+    elseif ($s.Change) { & $s.Change ($s.Value + $(if ($at -lt $span[0]) { -$s.Page } else { $s.Page })) }
+  })
+  $bar.Add_MouseMove({
+    $s = $this.Tag
+    if ($s.Grab -lt 0) { return }
+    $span = Get-ThumbSpan $this
+    if (-not $span) { return }
+    $at = if ($s.Vertical) { $_.Y } else { $_.X }
+    $room = [Math]::Max(1.0, $span[2] - $span[1])
+    if ($s.Change) { & $s.Change ((($at - $s.Grab) / $room) * ($s.Content - $s.Page)) }
+  })
+  $bar.Add_MouseUp({ $this.Tag.Grab = -1.0; $this.Invalidate() })
+  $bar.Add_MouseEnter({ $this.Tag.Hover = $true; $this.Invalidate() })
+  $bar.Add_MouseLeave({ $this.Tag.Hover = $false; $this.Invalidate() })
+  $bar
+}
+
+# The thumb's start and length along the bar, and the bar's length; $null when everything is in view.
+function Get-ThumbSpan($bar) {
+  $s = $bar.Tag
+  $length = [double]$(if ($s.Vertical) { $bar.ClientSize.Height } else { $bar.ClientSize.Width })
+  if ($s.Content -le $s.Page -or $length -le 0) { return $null }
+  $size = [Math]::Min($length, [Math]::Max(28.0, $length * $s.Page / $s.Content))
+  $at = ($length - $size) * $s.Value / ($s.Content - $s.Page)
+  , @($at, $size, $length)
+}
+
+function Set-DarkScrollBar($bar, [double]$value, [double]$content, [double]$page) {
+  $s = $bar.Tag
+  $s.Value = $value; $s.Content = $content; $s.Page = $page
+  $bar.Invalidate()
+}
+
+# ---- The PDF's pages ---------------------------------------------------------------------------------------
+# The pages are painted on one canvas, never a control a page: Windows places a child window no further down
+# than 32767 pixels, so pages past that would pile up there and the rest of a long PDF would show black. Each
+# page has its place from its own size and the zoom; only the pages in view, and two either side, are drawn
+# by Windows' PDF reader into bitmaps, the farther ones are let go, and a page not drawn yet shows as a dark
+# sheet saying it is coming. Drawing waits for the scrolling to stop for a moment, a few pages a tick.
+$pdfGap = 10
+$pdfPixelCap = 12000000   # a page's bitmap past this many pixels is drawn smaller and stretched
+
+function New-PdfView($document) {
+  $count = [int]$document.PageCount
+  $widths = New-Object double[] $count
+  $heights = New-Object double[] $count
+  for ($i = 0; $i -lt $count; $i++) {
+    $page = $document.GetPage([uint32]$i)
+    $widths[$i] = [double]$page.Size.Width; $heights[$i] = [double]$page.Size.Height
+    $page.Dispose()
+  }
+  $canvas = New-Object System.Windows.Forms.Panel
+  Set-DoubleBuffered $canvas
+  # Focusable, for the wheel and the keys.
+  [void][System.Windows.Forms.Control].GetMethod('SetStyle', [System.Reflection.BindingFlags]'NonPublic, Instance').Invoke($canvas, @([System.Windows.Forms.ControlStyles]::Selectable, $true))
+  $canvas.TabStop = $true
+  $canvas.BackColor = $paper
+  $canvas.Dock = 'Fill'
+  $vertical = New-DarkScrollBar $true
+  $vertical.Dock = 'Right'
+  $vertical.Tag.Change = { param($value) Set-PdfScroll $value $null }
+  $horizontal = New-DarkScrollBar $false
+  $horizontal.Dock = 'Bottom'
+  $horizontal.Visible = $false
+  $horizontal.Tag.Change = { param($value) Set-PdfScroll $pdf.Y $value }
+  $panel = New-Object System.Windows.Forms.Panel
+  $panel.BackColor = $paper
+  $panel.Dock = 'Fill'
+  $panel.Controls.Add($canvas)
+  $panel.Controls.Add($horizontal)
+  $panel.Controls.Add($vertical)
+  $format = New-Object System.Drawing.StringFormat
+  $format.Alignment = 'Center'
+  $format.LineAlignment = 'Center'
+  $script:pdf = [pscustomobject]@{
+    Document = $document; Count = $count; PageW = $widths; PageH = $heights
+    MaxW = [Math]::Max(1.0, ($widths | Measure-Object -Maximum).Maximum); MaxH = [Math]::Max(1.0, ($heights | Measure-Object -Maximum).Maximum)
+    Tops = (New-Object double[] $count); Widths = (New-Object double[] $count); Heights = (New-Object double[] $count)
+    Total = 0.0; Wide = 0.0; Zoom = 1.0; Mode = 'width'; Y = 0.0; X = 0.0
+    Bitmaps = @{}; Failed = @{}; LastMove = [DateTime]::MinValue; Pinned = 0; Jumping = $false; Busy = $false; Drag = $null
+    Canvas = $canvas; VBar = $vertical; HBar = $horizontal; PageBox = $null; ZoomBox = $null; FitWidth = $null; FitPage = $null
+    Sheet = (New-Object System.Drawing.SolidBrush($boxColor)); Note = (New-Object System.Drawing.SolidBrush($dim))
+    Font = (New-Object System.Drawing.Font('Segoe UI', 11)); Format = $format
+    Loading = (T 'Cargando p\u00e1gina '); Broken = (T 'No se pudo dibujar la p\u00e1gina ')
+  }
+  # Each page's place, before any event asks where a page is.
+  Update-PdfLayout
+  $canvas.Add_Paint({ Show-PdfPages $_.Graphics })
+  $canvas.Add_Resize({
+    if ($pdf.Busy) { return }
+    $pdf.Busy = $true
+    try {
+      if ($pdf.Mode -ne 'fixed') { Set-PdfZoom (Get-PdfFit $pdf.Mode) $pdf.Mode 0 }
+      else { Update-PdfLayout; Set-PdfScroll $pdf.Y $pdf.X }
+    } finally { $pdf.Busy = $false }
+  })
+  $canvas.Add_MouseWheel({
+    if (([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) -ne 0) {
+      Step-PdfZoom $(if ($_.Delta -gt 0) { 1 } else { -1 }) $_.Y
+    } elseif (([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Shift) -ne 0) {
+      Set-PdfScroll $pdf.Y ($pdf.X - $_.Delta)
+    } else {
+      Set-PdfScroll ($pdf.Y - $_.Delta * 100 / 120) $null
+    }
+  })
+  # A drag moves the pages, as a hand would.
+  $canvas.Add_MouseDown({
+    [void]$this.Focus()
+    Hide-ZoomMenu
+    if ($_.Button -eq 'Left') { $pdf.Drag = @($_.X, $_.Y, $pdf.X, $pdf.Y); $this.Cursor = [System.Windows.Forms.Cursors]::SizeAll }
+  })
+  $canvas.Add_MouseMove({ if ($pdf.Drag) { Set-PdfScroll ($pdf.Drag[3] - ($_.Y - $pdf.Drag[1])) ($pdf.Drag[2] - ($_.X - $pdf.Drag[0])) } })
+  $canvas.Add_MouseUp({ $pdf.Drag = $null; $this.Cursor = [System.Windows.Forms.Cursors]::Default })
+  $canvas.Add_PreviewKeyDown({ if ($_.KeyCode -in @('Up', 'Down', 'Left', 'Right')) { $_.IsInputKey = $true } })
+
+  # The bar: |< < [page] / total > >|, then - [zoom] +, then fit the width and the whole page.
+  $bar = New-Toolbar
+  Add-ToolItem $bar (New-ToolButton 0xE892 '|<' (T 'Primera p\u00e1gina (Inicio)') { Go-PdfPage 1 }) 0
+  Add-ToolItem $bar (New-ToolButton 0xE76B '<' (T 'P\u00e1gina anterior (RePag)') { Go-PdfPage ((Get-PdfCurrent) - 1) })
+  $pageBox = New-ToolBox 40 (T 'P\u00e1gina: escrib\u00ed un n\u00famero y Enter') {
+    param($text)
+    $n = 0
+    if ([int]::TryParse($text.Trim(), [ref]$n)) { Go-PdfPage $n }
+    [void]$pdf.Canvas.Focus()
+    Update-PdfPageBox
+  }
+  $pageBox.Box.Add_Leave({ Update-PdfPageBox })
+  Add-ToolItem $bar $pageBox.Holder 6
+  $total = New-Object System.Windows.Forms.Label
+  $total.AutoSize = $false
+  $total.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+  $total.ForeColor = $dim
+  $total.BackColor = $barColor
+  $total.TextAlign = 'MiddleLeft'
+  $total.Text = "/ $count"
+  $total.Size = New-Object System.Drawing.Size(($total.PreferredWidth + 4), 24)
+  Add-ToolItem $bar $total 4
+  Add-ToolItem $bar (New-ToolButton 0xE76C '>' (T 'P\u00e1gina siguiente (AvPag)') { Go-PdfPage ((Get-PdfCurrent) + 1) }) 2
+  Add-ToolItem $bar (New-ToolButton 0xE893 '>|' (T '\u00daltima p\u00e1gina (Fin)') { Go-PdfPage $pdf.Count })
+  $script:zoomCalls['PDF'] = [pscustomobject]@{
+    Step = { param($direction) Step-PdfZoom $direction 0 }
+    Value = { param($text) $percent = Read-Percent $text; if ($null -ne $percent) { Set-PdfZoom ($percent / 100) 'fixed' 0 }; [void]$pdf.Canvas.Focus(); Update-PdfZoomBox }
+    Pick = { param($item) if ($item -eq $fitWidthText) { Set-PdfFit 'width' } elseif ($item -eq $fitPageText) { Set-PdfFit 'page' } else { Set-PdfZoom ((Read-Percent $item) / 100) 'fixed' 0 }; [void]$pdf.Canvas.Focus() }
+    Items = [string[]](@($fitWidthText, $fitPageText) + @($zoomPercents | ForEach-Object { "$_%" }))
+  }
+  $spacer = New-Object System.Windows.Forms.Label
+  $spacer.Size = New-Object System.Drawing.Size(1, 18)
+  $spacer.BackColor = $edgeColor
+  Add-ToolItem $bar $spacer 14
+  $zoomBox = Add-ZoomControls $bar $zoomCalls['PDF']
+  $fitWidth = New-ToolButton 0 $fitWidthText (T 'Las p\u00e1ginas a lo ancho de la vista (Ctrl 0)') { Set-PdfFit 'width' }
+  $fitPage = New-ToolButton 0 $fitPageText (T 'Una p\u00e1gina entera a la vista') { Set-PdfFit 'page' }
+  Add-ToolItem $bar $fitWidth 12
+  Add-ToolItem $bar $fitPage 4
+  $pdf.PageBox = $pageBox.Box; $pdf.ZoomBox = $zoomBox; $pdf.FitWidth = $fitWidth; $pdf.FitPage = $fitPage
+  $script:toolbars['PDF'] = $bar
+  $panel
+}
+
+# Each page's place at the zoom, one under the other, and the scroll bars' extents.
+function Update-PdfLayout {
+  $z = $pdf.Zoom
+  $y = [double]$pdfGap
+  $wide = 0.0
+  for ($i = 0; $i -lt $pdf.Count; $i++) {
+    $w = $pdf.PageW[$i] * $z; $h = $pdf.PageH[$i] * $z
+    $pdf.Tops[$i] = $y; $pdf.Widths[$i] = $w; $pdf.Heights[$i] = $h
+    $y += $h + $pdfGap
+    if ($w -gt $wide) { $wide = $w }
+  }
+  $pdf.Total = $y
+  $pdf.Wide = $wide + 2 * $pdfGap
+  $pdf.HBar.Visible = $pdf.Wide -gt $pdf.Canvas.ClientSize.Width + 0.5
+}
+
+# The page at a height of the pages: the last one starting at or above it.
+function Find-PdfPage([double]$y) {
+  $lo = 0; $hi = $pdf.Count - 1
+  if ($hi -lt 0) { return 0 }
+  while ($lo -lt $hi) {
+    $mid = [int][Math]::Floor(($lo + $hi + 1) / 2)
+    if ($pdf.Tops[$mid] -le $y) { $lo = $mid } else { $hi = $mid - 1 }
+  }
+  $lo
+}
+
+function Set-PdfScroll([double]$y, $x) {
+  $w = $pdf.Canvas.ClientSize.Width; $h = $pdf.Canvas.ClientSize.Height
+  $pdf.Y = [Math]::Max(0.0, [Math]::Min($y, $pdf.Total - $h))
+  if ($null -ne $x) { $pdf.X = [Math]::Max(0.0, [Math]::Min([double]$x, $pdf.Wide - $w)) }
+  else { $pdf.X = [Math]::Max(0.0, [Math]::Min($pdf.X, $pdf.Wide - $w)) }
+  Set-DarkScrollBar $pdf.VBar $pdf.Y $pdf.Total $h
+  Set-DarkScrollBar $pdf.HBar $pdf.X $pdf.Wide $w
+  $pdf.LastMove = [DateTime]::Now
+  if (-not $pdf.Jumping) { $pdf.Pinned = 0 }
+  Update-PdfPageBox
+  $pdf.Canvas.Invalidate()
+}
+
+# The page the box shows: the one a third of the way down the view, the last at the end, or the one just
+# gone to.
+function Get-PdfCurrent {
+  if ($pdf.Count -eq 0) { return 0 }
+  if ($pdf.Pinned -gt 0) { return $pdf.Pinned }
+  $h = $pdf.Canvas.ClientSize.Height
+  if ($pdf.Total - $h -gt 0 -and $pdf.Y -ge $pdf.Total - $h - 1) { return $pdf.Count }
+  (Find-PdfPage ($pdf.Y + $h / 3)) + 1
+}
+
+function Update-PdfPageBox {
+  if ($pdf.PageBox -and -not $pdf.PageBox.Focused) { $pdf.PageBox.Text = [string](Get-PdfCurrent) }
+}
+
+function Go-PdfPage([int]$number) {
+  if ($pdf.Count -eq 0) { return }
+  $number = [Math]::Max(1, [Math]::Min($pdf.Count, $number))
+  $pdf.Jumping = $true
+  try { Set-PdfScroll ($pdf.Tops[$number - 1] - $pdfGap) $null } finally { $pdf.Jumping = $false }
+  $pdf.Pinned = $number
+  Update-PdfPageBox
+}
+
+# The zoom that fits the widest page to the view's width, or the tallest page whole in the view.
+function Get-PdfFit([string]$mode) {
+  $w = $pdf.Canvas.ClientSize.Width - 2 * $pdfGap - 1
+  $h = $pdf.Canvas.ClientSize.Height - 2 * $pdfGap
+  if ($w -le 0 -or $h -le 0) { return $pdf.Zoom }
+  $z = $w / $pdf.MaxW
+  if ($mode -eq 'page') { $z = [Math]::Min($z, $h / $pdf.MaxH) }
+  $z
+}
+
+# A zoom, the point $anchor pixels down the view kept where it is.
+function Set-PdfZoom([double]$zoom, [string]$mode, [double]$anchor) {
+  if ($pdf.Count -eq 0) { return }
+  $zoom = [Math]::Max(0.05, [Math]::Min(4.0, $zoom))
+  $w = $pdf.Canvas.ClientSize.Width
+  $at = $pdf.Y + $anchor
+  $p = Find-PdfPage $at
+  $within = ($at - $pdf.Tops[$p]) / ($pdf.Heights[$p] + $pdfGap)
+  $across = if ($pdf.Wide -gt 0) { ($pdf.X + $w / 2) / $pdf.Wide } else { 0.5 }
+  $pdf.Zoom = $zoom
+  $pdf.Mode = $mode
+  $wasBusy = $pdf.Busy
+  $pdf.Busy = $true
+  try { Update-PdfLayout } finally { $pdf.Busy = $wasBusy }
+  $w = $pdf.Canvas.ClientSize.Width
+  $pdf.Jumping = $true
+  try { Set-PdfScroll ($pdf.Tops[$p] + $within * ($pdf.Heights[$p] + $pdfGap) - $anchor) ($across * $pdf.Wide - $w / 2) } finally { $pdf.Jumping = $false }
+  Update-PdfZoomBox
+}
+
+function Set-PdfFit([string]$mode) {
+  $current = Get-PdfCurrent
+  Set-PdfZoom (Get-PdfFit $mode) $mode 0
+  if ($mode -eq 'page') { Go-PdfPage $current }
+}
+
+function Step-PdfZoom([int]$direction, [double]$anchor) {
+  $next = Get-NextZoom ($pdf.Zoom * 100) $direction
+  if ($null -ne $next) { Set-PdfZoom ($next / 100) 'fixed' $anchor }
+}
+
+function Update-PdfZoomBox {
+  if ($pdf.ZoomBox -and -not $pdf.ZoomBox.Focused) { $pdf.ZoomBox.Text = ('{0}%' -f [int][Math]::Round($pdf.Zoom * 100)) }
+  Set-ToolActive $pdf.FitWidth ($pdf.Mode -eq 'width')
+  Set-ToolActive $pdf.FitPage ($pdf.Mode -eq 'page')
+}
+
+# The pages in view: each drawn, stretched while a sharper one is coming, or a dark sheet saying it is coming.
+function Show-PdfPages($g) {
+  $g.Clear($paper)
+  if ($pdf.Count -eq 0) { return }
+  $w = $pdf.Canvas.ClientSize.Width; $h = $pdf.Canvas.ClientSize.Height
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::Bilinear
+  $i = Find-PdfPage $pdf.Y
+  while ($i -lt $pdf.Count -and $pdf.Tops[$i] -lt $pdf.Y + $h) {
+    $pw = $pdf.Widths[$i]
+    $x = if ($pdf.Wide -le $w) { ($w - $pw) / 2 } else { $pdfGap + ($pdf.Wide - 2 * $pdfGap - $pw) / 2 - $pdf.X }
+    $rect = New-Object System.Drawing.Rectangle(([int][Math]::Round($x)), ([int][Math]::Round($pdf.Tops[$i] - $pdf.Y)), ([int][Math]::Round($pw)), ([int][Math]::Round($pdf.Heights[$i])))
+    $bitmap = $pdf.Bitmaps[$i]
+    if ($bitmap) {
+      if ($bitmap.Width -eq $rect.Width -and $bitmap.Height -eq $rect.Height) { $g.DrawImageUnscaled($bitmap, $rect.X, $rect.Y) }
+      else { $g.DrawImage($bitmap, $rect) }
+    } else {
+      $g.FillRectangle($pdf.Sheet, $rect)
+      $words = if ($pdf.Failed.ContainsKey($i)) { $pdf.Broken + ($i + 1) } else { $pdf.Loading + ($i + 1) + '...' }
+      # The words where the eye is: the middle of the part of the sheet in view.
+      $seen = [System.Drawing.Rectangle]::Intersect($rect, (New-Object System.Drawing.Rectangle(0, 0, $w, $h)))
+      $g.DrawString($words, $pdf.Font, $pdf.Note, [System.Drawing.RectangleF]$seen, $pdf.Format)
+    }
+    $i++
+  }
+}
+
+# A page drawn by Windows' PDF reader, as a BMP (quicker than its PNG), copied into a bitmap of its own.
+function Get-PdfBitmap([int]$index, [int]$width) {
+  $page = $pdf.Document.GetPage([uint32]$index)
+  $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+  try {
+    $options = New-Object Windows.Data.Pdf.PdfPageRenderOptions
+    $options.DestinationWidth = [uint32]$width
+    $options.BitmapEncoderId = [guid]'69be8bb4-d66d-47c8-865a-ed1589433782'
+    Wait-Action ($page.RenderToStreamAsync($stream, $options))
+    $read = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream.GetInputStreamAt(0))
+    $decoded = [System.Drawing.Image]::FromStream($read)
+    try {
+      $bitmap = New-Object System.Drawing.Bitmap($decoded.Width, $decoded.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppPArgb)
+      $g = [System.Drawing.Graphics]::FromImage($bitmap)
+      $g.DrawImageUnscaled($decoded, 0, 0)
+      $g.Dispose()
+      $bitmap
+    } finally { $decoded.Dispose(); $read.Dispose() }
+  } finally { $stream.Dispose(); $page.Dispose() }
+}
+
+# Once the scrolling has stopped for a moment: the pages in view drawn at the zoom, then two either side;
+# the rest let go (one either side for big pages). A tick draws for up to about a tenth of a second; -All draws every page in view at once.
+function Update-PdfPages([switch]$All) {
+  if (-not $pdf -or $pdf.Count -eq 0 -or -not $pdf.Canvas.Visible) { return }
+  if (-not $All -and ([DateTime]::Now - $pdf.LastMove).TotalMilliseconds -lt 150) { return }
+  $h = $pdf.Canvas.ClientSize.Height
+  $first = Find-PdfPage $pdf.Y
+  $last = Find-PdfPage ($pdf.Y + $h)
+  # Big pages (a high zoom) keep one either side, not two.
+  $reach = if ($pdf.Widths[$first] * $pdf.Heights[$first] -gt 4000000) { 1 } else { 2 }
+  $low = [Math]::Max(0, $first - $reach); $high = [Math]::Min($pdf.Count - 1, $last + $reach)
+  foreach ($key in @($pdf.Bitmaps.Keys)) {
+    if ($key -lt $low -or $key -gt $high) { $pdf.Bitmaps[$key].Dispose(); $pdf.Bitmaps.Remove($key) }
+  }
+  $order = New-Object System.Collections.Generic.List[int]
+  for ($i = $first; $i -le $last; $i++) { $order.Add($i) }
+  for ($step = 1; $step -le $reach; $step++) { if ($last + $step -le $high) { $order.Add($last + $step) }; if ($first - $step -ge $low) { $order.Add($first - $step) } }
+  $clock = [System.Diagnostics.Stopwatch]::StartNew()
+  foreach ($i in $order) {
+    if ($pdf.Failed.ContainsKey($i)) { continue }
+    $width = [Math]::Max(1.0, [Math]::Round($pdf.Widths[$i]))
+    $pixels = $width * $pdf.Heights[$i]
+    if ($pixels -gt $pdfPixelCap) { $width = [Math]::Floor($width * [Math]::Sqrt($pdfPixelCap / $pixels)) }
+    $width = [int]$width
+    $have = $pdf.Bitmaps[$i]
+    if ($have -and $have.Width -eq $width) { continue }
+    if (-not ($All -and $i -le $last) -and $clock.ElapsedMilliseconds -gt 90) { break }
+    try {
+      $bitmap = Get-PdfBitmap $i $width
+      if ($have) { $have.Dispose() }
+      $pdf.Bitmaps[$i] = $bitmap
+    } catch { $pdf.Failed[$i] = $true }
+    $pdf.Canvas.Invalidate()
+  }
+}
+
+function Invoke-PdfKey($e) {
+  if ($e.Control) {
+    switch ($e.KeyCode) {
+      { $_ -in @('Add', 'Oemplus') } { Step-PdfZoom 1 0; return $true }
+      { $_ -in @('Subtract', 'OemMinus') } { Step-PdfZoom -1 0; return $true }
+      { $_ -in @('D0', 'NumPad0') } { Set-PdfFit 'width'; return $true }
+    }
+    return $false
+  }
+  if ($form.ActiveControl -is [System.Windows.Forms.TextBox]) { return $false }
+  $h = $pdf.Canvas.ClientSize.Height
+  switch ($e.KeyCode) {
+    'PageDown' { Go-PdfPage ((Get-PdfCurrent) + 1); return $true }
+    'PageUp' { Go-PdfPage ((Get-PdfCurrent) - 1); return $true }
+    'Home' { Go-PdfPage 1; return $true }
+    'End' { Go-PdfPage $pdf.Count; return $true }
+    'Down' { Set-PdfScroll ($pdf.Y + 60) $null; return $true }
+    'Up' { Set-PdfScroll ($pdf.Y - 60) $null; return $true }
+    'Right' { Set-PdfScroll $pdf.Y ($pdf.X + 60); return $true }
+    'Left' { Set-PdfScroll $pdf.Y ($pdf.X - 60); return $true }
+    'Space' { Set-PdfScroll ($pdf.Y + $(if ($e.Shift) { -1 } else { 1 }) * ($h - 40)) $null; return $true }
+  }
+  $false
+}
+
+# ---- A page view's zoom ------------------------------------------------------------------------------------
+# Internet Explorer's own zoom (OLECMDID_OPTICAL_ZOOM), which lays the page out again at the size, as its
+# Ctrl+wheel and Ctrl +/- do; the box follows those too, by the screen's DPI the page reports.
+function Add-WebZoom([string]$view) {
+  $browser = $views[$view]
+  $browser.Tag = $view
+  $zoom = [pscustomobject]@{ Browser = $browser; Zoom = 100; Ratio = 0.0; Mode = 'fixed'; Box = $null; FitWidth = $null }
+  $script:webZooms[$view] = $zoom
+  $script:zoomCalls[$view] = [pscustomobject]@{
+    Step = { param($direction) $one = $webZooms[$state.View]; $next = Get-NextZoom $one.Zoom $direction; if ($null -ne $next) { Set-WebZoom $one $next 'fixed' } }
+    Value = { param($text) $one = $webZooms[$state.View]; $percent = Read-Percent $text; if ($null -ne $percent) { Set-WebZoom $one $percent 'fixed' }; [void]$one.Browser.Focus(); Update-WebZoomBox $one }
+    Pick = { param($item) $one = $webZooms[$state.View]; if ($item -eq $fitWidthText) { Set-WebFit $one } else { Set-WebZoom $one (Read-Percent $item) 'fixed' }; [void]$one.Browser.Focus() }
+    Items = [string[]](@($fitWidthText) + @($zoomPercents | ForEach-Object { "$_%" }))
+  }
+  $bar = New-Toolbar
+  $zoom.Box = Add-ZoomControls $bar $zoomCalls[$view]
+  $zoom.FitWidth = New-ToolButton 0 $fitWidthText (T 'El texto a lo ancho de la vista') { Set-WebFit $webZooms[$state.View] }
+  Add-ToolItem $bar $zoom.FitWidth 12
+  $script:toolbars[$view] = $bar
+  # A page put in again (Office's copy, read later) keeps the zoom.
+  $browser.Add_DocumentCompleted({
+    $one = $webZooms[$this.Tag]
+    if ($one.Mode -eq 'width') { Set-WebFit $one } elseif ($one.Zoom -ne 100) { Set-WebZoom $one $one.Zoom $one.Mode } else { $one.Ratio = Get-WebRatio $one }
+  })
+  $browser.Add_Resize({ $one = $webZooms[$this.Tag]; if ($one.Mode -eq 'width') { Set-WebFit $one } })
+  Update-WebZoomBox $zoom
+}
+
+function Get-WebRatio($zoom) {
+  try { [double][string]$zoom.Browser.Document.InvokeScript('eval', [object[]]@('String(screen.deviceXDPI / screen.logicalXDPI)')) } catch { 0.0 }
+}
+
+function Set-WebZoom($zoom, [double]$percent, [string]$mode) {
+  # A whole number: the zoom takes a VT_I4 and refuses a double.
+  $whole = [int][Math]::Round([Math]::Max(25, [Math]::Min(400, $percent)))
+  try { [void]$zoom.Browser.ActiveXInstance.ExecWB(63, 2, $whole, $null) } catch { }
+  $zoom.Zoom = $whole
+  $zoom.Mode = $mode
+  $zoom.Ratio = Get-WebRatio $zoom
+  Update-WebZoomBox $zoom
+}
+
+# The width the page asks for (a Word document's body is 900 pixels at most) over the view's width; a page
+# with no limit fills any width at 100%.
+function Set-WebFit($zoom) {
+  $natural = 0.0
+  try { $natural = [double][string]$zoom.Browser.Document.InvokeScript('eval', [object[]]@('(function(){var s=window.getComputedStyle(document.body);var m=parseFloat(s.maxWidth);return String(m>0?m+parseFloat(s.marginLeft)+parseFloat(s.marginRight):0);})()')) } catch { }
+  $room = $zoom.Browser.ClientSize.Width - [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth - 4
+  $percent = if ($natural -gt 0 -and $room -gt 0) { [Math]::Floor($room * 100 / $natural) } else { 100 }
+  Set-WebZoom $zoom $percent 'width'
+}
+
+function Update-WebZoomBox($zoom) {
+  if ($zoom.Box -and -not $zoom.Box.Focused) { $zoom.Box.Text = "$($zoom.Zoom)%" }
+  Set-ToolActive $zoom.FitWidth ($zoom.Mode -eq 'width')
+}
+
+# Ctrl+wheel and Ctrl +/- zoom the page on their own: the box follows them.
+function Sync-WebZoom {
+  if (-not $webZooms.ContainsKey([string]$state.View)) { return }
+  $zoom = $webZooms[$state.View]
+  $ratio = Get-WebRatio $zoom
+  if ($ratio -le 0) { return }
+  if ($zoom.Ratio -le 0) { $zoom.Ratio = $ratio; return }
+  if ([Math]::Abs($ratio - $zoom.Ratio) -gt 0.004) {
+    $zoom.Zoom = [int][Math]::Round($zoom.Zoom * $ratio / $zoom.Ratio)
+    $zoom.Ratio = $ratio
+    $zoom.Mode = 'fixed'
+    Update-WebZoomBox $zoom
+  }
+}
+
 try {
   # A SQLite database is told by its first 16 bytes, whatever its name; a .db that is not one (a Thumbs.db)
   # is read as any other file.
@@ -1254,38 +1931,16 @@ try {
     function Wait-Action($action) { $asAction.Invoke($null, @($action)).Wait() }
     $file = Wait-Operation ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
     $document = Wait-Operation ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
-    $pageWidth = [int][Math]::Min($room.Width - [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth - 8, 1100)
-    $pages = New-Object System.Windows.Forms.FlowLayoutPanel
-    $pages.FlowDirection = 'TopDown'
-    $pages.WrapContents = $false
-    $pages.AutoScroll = $true
-    $pages.BackColor = $paper
-    $pages.Dock = 'Fill'
-    Set-DarkScrollBars $pages
-    $views['PDF'] = $pages
+    # The pages fit the view's width at first, up to 1100 pixels wide.
+    $pageWidth = [int][Math]::Min($room.Width - 12 - 2 * $pdfGap, 1100)
+    $views['PDF'] = New-PdfView $document
+    $pdf.Zoom = $pageWidth / $pdf.MaxW
+    Update-PdfLayout
     # Texto: the PDF's text, selectable and copied by Copiar, read by pdf_text.py (pdfminer.six) while the
     # pages are drawn; the timer puts it in place when it is read.
     $views['Texto'] = New-SourceBox (T 'Leyendo el texto del PDF...') $true
     $pdfText = Start-PdfText $path
-    $inner = New-Object System.Drawing.Size(($pageWidth + [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth + 8), $room.Height)
-    # One page drawn now; the rest as the popup stands, a page a tick, so it comes up at once.
-    $pdfPages = [pscustomobject]@{ Next = 0; Count = [int]$document.PageCount }
-    function Add-Page([int]$index) {
-      $page = $document.GetPage([uint32]$index)
-      $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
-      $options = New-Object Windows.Data.Pdf.PdfPageRenderOptions
-      $options.DestinationWidth = [uint32]$pageWidth
-      Wait-Action ($page.RenderToStreamAsync($stream, $options))
-      $bitmap = [System.Drawing.Image]::FromStream([System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream.GetInputStreamAt(0)))
-      $page.Dispose()
-      $box = New-Object System.Windows.Forms.PictureBox
-      $box.SizeMode = 'AutoSize'
-      $box.Image = $bitmap
-      $box.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 8)
-      $pages.Controls.Add($box)
-      $script:disposables += $bitmap
-    }
-    if ($pdfPages.Count -gt 0) { Add-Page 0; $pdfPages.Next = 1 }
+    $inner = New-Object System.Drawing.Size(($pageWidth + 12 + 2 * $pdfGap), $room.Height)
   } elseif ($kind -in @('audio', 'video')) {
     Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase, WindowsFormsIntegration
     # WPF drawn by the processor: with the graphics card, a WPF area inside a Windows Forms window can stay
@@ -1545,12 +2200,19 @@ try {
   # Whatever goes wrong, the popup still comes up and says so.
   $problem = $_.Exception.Message
   $views.Clear()
+  $toolbars.Clear()
+  $pdf = $null
   $kind = 'binary'
   $bytes = New-Object byte[] 0
   try { $bytes = Read-Bytes $path } catch { }
   $info = try { Get-BinaryInfo $bytes $problem } catch { (T 'No se pudo mostrar este archivo: ') + $problem }
   $views['Text'] = New-SourceBox $info $false
   $inner = $room
+}
+# A Word document's page and a Markdown or HTML Preview get the zoom's bar.
+foreach ($name in @($views.Keys)) {
+  $wantsZoom = ($name -eq 'Preview' -and $kind -in @('markdown', 'html')) -or ($name -eq 'Page' -and $kind -in @('docx', 'doc'))
+  if ($wantsZoom -and $views[$name] -is [System.Windows.Forms.WebBrowser]) { try { Add-WebZoom $name } catch { } }
 }
 $viewNames = @($views.Keys)
 
@@ -1573,6 +2235,8 @@ function Get-TextFit {
 }
 $fit = Get-TextFit
 if ($fit) { $inner = $fit }
+# A bar above a view takes its height inside the frame, within the room.
+if ($toolbars.Count -gt 0) { $inner = New-Object System.Drawing.Size($inner.Width, ([Math]::Min($inner.Height + $toolbarHeight, [Math]::Max($inner.Height, $room.Height)))) }
 
 # ---- The frame -------------------------------------------------------------------------------------------
 $title = New-Object System.Windows.Forms.Label
@@ -1649,6 +2313,8 @@ $inside.BackColor = $black
 $inside.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $band)
 
 foreach ($view in $viewNames) { $inside.Controls.Add($views[$view]) }
+# Added after the views, the bars are docked first: on top, the view below them.
+foreach ($bar in $toolbars.Values) { $inside.Controls.Add($bar) }
 $frame.Controls.Add($inside)
 $form.Controls.Add($frame)
 
@@ -1692,14 +2358,19 @@ function Set-PopupSize([int]$width, [int]$height) {
 
 function Show-View([string]$view) {
   $state.View = $view
+  Hide-ZoomMenu
   foreach ($name in $viewNames) { $views[$name].Visible = $name -eq $view }
+  foreach ($name in @($toolbars.Keys)) { $toolbars[$name].Visible = $name -eq $view }
   foreach ($one in $switch.Values) {
     $isShown = $one.Tag -eq $view
     $one.BackColor = if ($isShown) { $blue } else { $black }
     $one.ForeColor = if ($isShown) { $black } else { $blue }
   }
-  if ($form.Visible) { [void]$views[$view].Focus() }
+  if ($form.Visible) { [void](Get-FocusTarget $view).Focus() }
 }
+
+# What takes the keys and the wheel in a view: the PDF's canvas, else the view itself.
+function Get-FocusTarget([string]$view) { if ($view -eq 'PDF' -and $pdf) { $pdf.Canvas } else { $views[$view] } }
 
 function Copy-View {
   $view = $views[$state.View]
@@ -1800,7 +2471,11 @@ $close.Add_Click({ $form.Close() })
 $closeBelow.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({
-  if ($_.KeyCode -eq 'Escape') { $form.Close(); return }
+  if ($_.KeyCode -eq 'Escape') {
+    if ($zoomMenu -and $zoomMenu.Visible) { Hide-ZoomMenu; $_.Handled = $true; return }
+    $form.Close(); return
+  }
+  if ($state.View -eq 'PDF' -and $pdf -and (Invoke-PdfKey $_)) { $_.Handled = $true; $_.SuppressKeyPress = $true; return }
   $view = $views[$state.View]
   if ($player -and $_.KeyCode -eq 'Space') { Switch-Playing; $_.Handled = $true; $_.SuppressKeyPress = $true; return }
   if ($_.Control -and $_.KeyCode -eq 'A' -and $view -is [System.Windows.Forms.RichTextBox]) { $view.SelectAll(); $_.Handled = $true; $_.SuppressKeyPress = $true; return }
@@ -1835,10 +2510,9 @@ $timer.Add_Tick({
   if ($dbJob -and -not $dbJob.Done -and $dbJob.Process.HasExited) {
     try { Complete-DbView $dbJob } catch { $dbJob.Done = $true; $views['Page'].DocumentText = New-MessagePage ('No se pudo mostrar la base de datos: ' + (Html $_.Exception.Message)) }
   }
-  if ($pdfPages -and $pdfPages.Next -lt $pdfPages.Count) {
-    try { Add-Page $pdfPages.Next } catch { }
-    $pdfPages.Next++
-  }
+  if ($pdf) { try { Update-PdfPages } catch { } }
+  $state.Ticks++
+  if ($webZooms.Count -gt 0 -and $state.Ticks % 3 -eq 0) { try { Sync-WebZoom } catch { } }
   if ($player -and $mediaParts.Media.Ready -and -not $mediaParts.Seek.Tag.Drag) {
     $seconds = $player.Position.TotalSeconds
     $total = $mediaParts.Media.Seconds
@@ -1854,8 +2528,10 @@ $form.Add_Shown({
   $form.Activate()
   # Text starts at its top, with the caret out of sight and the wheel on it.
   foreach ($view in $views.Values) { if ($view -is [System.Windows.Forms.RichTextBox]) { $view.SelectionStart = 0; $view.ScrollToCaret() } }
-  if ($player) { [void]$form.Focus() } else { [void]$views[$state.View].Focus() }
+  if ($player) { [void]$form.Focus() } else { [void](Get-FocusTarget $state.View).Focus() }
   Say 'shown'
+  # The PDF's pages in view, drawn at once.
+  if ($pdf) { try { Update-PdfPages -All } catch { } }
   $timer.Start()
 })
 
@@ -1864,5 +2540,6 @@ try {
 } finally {
   $timer.Stop()
   foreach ($one in $disposables) { $one.Dispose() }
+  if ($pdf) { foreach ($one in @($pdf.Bitmaps.Values)) { $one.Dispose() } }
 }
 exit 0
