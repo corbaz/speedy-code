@@ -6,7 +6,7 @@
 # What it installs, all under the user's own folders (no administrator rights), as install.ps1 does on Windows:
 #   - uv, the Python manager, if missing (from astral.sh, its official installer)
 #   - a Python 3.12 environment at ~/.claude/speedy-code/venv (uv fetches Python 3.12 if missing)
-#   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation)
+#   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation), pdfminer.six (the viewer's PDF text)
 #   - the dictation model, NVIDIA's Nemotron 3.5 ASR Streaming (about 750 MB, from Hugging Face),
 #     at ~/.claude/speedy-code/models: dictation runs on this machine with it
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses. The key is read
@@ -54,8 +54,8 @@ python_step() {
 }
 
 packages_step() {
-  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy certifi truststore >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
-  "$python" -c "import edge_tts, transcribe_cpp, sounddevice, numpy" >/dev/null 2>&1 || { echo 'los paquetes no se pueden importar'; return 1; }
+  uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy pdfminer.six certifi truststore >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
+  "$python" -c "import edge_tts, transcribe_cpp, sounddevice, numpy, pdfminer" >/dev/null 2>&1 || { echo 'los paquetes no se pueden importar'; return 1; }
   # uv's Python on macOS does not read the macOS keychain, and edge-tts trusts certifi's list alone: a
   # network that inspects HTTPS (a company proxy, an antivirus) signs with a root only the keychain has,
   # and every connection fails (ClientConnectorCertificateError). truststore makes Python verify with the
@@ -79,7 +79,7 @@ packages_step() {
     '    except ImportError:' \
     '        pass' > "$site/speedy_trust.py"
   "$python" -c 'import ssl; assert "truststore" in ssl.SSLContext.__module__' >/dev/null 2>&1 || { echo 'HTTPS sin el llavero de macOS (truststore no se cargó)'; return 1; }
-  echo 'edge-tts, transcribe-cpp, sounddevice y numpy listos'
+  echo 'edge-tts, transcribe-cpp, sounddevice, numpy y pdfminer.six listos'
 }
 
 model_step() {

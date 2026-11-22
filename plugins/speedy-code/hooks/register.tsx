@@ -1379,7 +1379,8 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
         ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
         : MAC.view,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
-      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path) }
+      // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it.
     for await (const _line of viewer) {

@@ -730,10 +730,54 @@ $views = [ordered]@{}
 $rawText = $null        # what Copiar takes from a Preview with nothing selected
 $image = $null
 $pdfPages = $null
+$pdfText = $null
 $player = $null
 $state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null }
 $disposables = @()
 $inner = $room
+
+# The Python that reads a PDF's text: the host's, by SPEEDY_PYTHON, else the one the setup made for
+# Claude Code or for OpenCode.
+function Find-Python {
+  $candidates = @($env:SPEEDY_PYTHON, (Join-Path $env:USERPROFILE '.claude\speedy-code\venv\Scripts\python.exe'), (Join-Path $env:USERPROFILE '.config\opencode\speedy-code\venv\Scripts\python.exe'))
+  foreach ($one in $candidates) { if ($one -and (Test-Path -LiteralPath $one)) { return $one } }
+  $null
+}
+
+# Starts pdf_text.py on the file; its output is read as it runs and looked at by the timer.
+function Start-PdfText([string]$file) {
+  $python = Find-Python
+  if (-not $python) { return [pscustomobject]@{ Done = $true; Text = (T 'No encontr\u00e9 el Python de speedy-code: instalalo desde \u2699 \u2192 Instalaci\u00f3n.') } }
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $python
+  $start.Arguments = '"' + (Join-Path $PSScriptRoot 'pdf_text.py') + '" "' + $file + '"'
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $start.RedirectStandardOutput = $true
+  $start.RedirectStandardError = $true
+  $start.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+  $start.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+  $start.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+  try {
+    $process = [System.Diagnostics.Process]::Start($start)
+    [pscustomobject]@{ Done = $false; Process = $process; Out = $process.StandardOutput.ReadToEndAsync(); Err = $process.StandardError.ReadToEndAsync(); Text = $null }
+  } catch {
+    [pscustomobject]@{ Done = $true; Text = (T 'No se pudo leer el texto del PDF: ') + $_.Exception.Message }
+  }
+}
+
+# The text read, or why there is none, once pdf_text.py has ended.
+function Complete-PdfText($job) {
+  $job.Done = $true
+  $out = $job.Out.Result
+  if ($job.Process.ExitCode -eq 2) { $job.Text = T 'Falta pdfminer.six para leer el texto: \u2699 \u2192 Instalaci\u00f3n \u2192 Instalar / reparar todo.' }
+  elseif ($job.Process.ExitCode -ne 0) { $job.Text = (T 'No se pudo leer el texto del PDF: ') + $job.Err.Result.Trim() }
+  elseif (-not $out.Trim()) { $job.Text = T 'Este PDF no tiene texto: sus p\u00e1ginas son im\u00e1genes.' }
+  else { $job.Text = $out }
+  $views['Texto'].Text = $job.Text -replace "(?<!`r)`n", "`r`n"
+  $views['Texto'].SelectionStart = 0
+  $views['Texto'].ScrollToCaret()
+}
 
 function New-SourceBox([string]$text, [bool]$wrap) {
   $box = New-Object System.Windows.Forms.RichTextBox
@@ -856,7 +900,11 @@ try {
     $pages.BackColor = $paper
     $pages.Dock = 'Fill'
     Set-DarkScrollBars $pages
-    $views['Pages'] = $pages
+    $views['PDF'] = $pages
+    # Texto: the PDF's text, selectable and copied by Copiar, read by pdf_text.py (pdfminer.six) while the
+    # pages are drawn; the timer puts it in place when it is read.
+    $views['Texto'] = New-SourceBox (T 'Leyendo el texto del PDF...') $true
+    $pdfText = Start-PdfText $path
     $inner = New-Object System.Drawing.Size(($pageWidth + [System.Windows.Forms.SystemInformation]::VerticalScrollBarWidth + 8), $room.Height)
     # One page drawn now; the rest as the popup stands, a page a tick, so it comes up at once.
     $pdfPages = [pscustomobject]@{ Next = 0; Count = [int]$document.PageCount }
@@ -1165,7 +1213,7 @@ function New-TopLabel([string]$text) {
 
 # Copiar: what is selected, else all the text (a Preview's source); a picture as itself.
 $copy = $null
-if ($kind -notin @('pdf', 'audio', 'video')) { $copy = New-TopLabel 'Copiar' }
+if ($kind -notin @('audio', 'video')) { $copy = New-TopLabel 'Copiar' }
 
 $switch = @{}
 if ($viewNames.Count -gt 1) {
@@ -1249,6 +1297,9 @@ function Copy-View {
       $text = if ($view.SelectionLength -gt 0) { $view.SelectedText } else { $view.Text }
     } elseif ($image) {
       [System.Windows.Forms.Clipboard]::SetImage($image); Show-Copied; return
+    } elseif ($pdfText) {
+      # On the pages, Copiar takes the whole text, once it is read.
+      if ($pdfText.Done) { $text = $pdfText.Text }
     }
     if ($text) { [System.Windows.Forms.Clipboard]::SetText(($text -replace "(?<!`r)`n", "`r`n")); Show-Copied }
   } catch { }
@@ -1264,7 +1315,8 @@ function Show-Copied {
 if ($copy) { $copy.Add_Click({ Copy-View }) }
 
 Set-PopupSize ($inner.Width + $extraWidth) ($inner.Height + $extraHeight)
-Show-View $viewNames[0]
+# The view it opens on: the first, or the one SPEEDY_VIEW names when it has it (`Texto` for a PDF's text).
+Show-View $(if ($env:SPEEDY_VIEW -and $viewNames -contains $env:SPEEDY_VIEW) { $env:SPEEDY_VIEW } else { $viewNames[0] })
 $close.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({
@@ -1295,6 +1347,7 @@ $timer.Add_Tick({
       Complete-OfficeCopy $office $timedOut
     }
   }
+  if ($pdfText -and -not $pdfText.Done -and $pdfText.Process.HasExited) { try { Complete-PdfText $pdfText } catch { $pdfText.Done = $true } }
   if ($pdfPages -and $pdfPages.Next -lt $pdfPages.Count) {
     try { Add-Page $pdfPages.Next } catch { }
     $pdfPages.Next++
