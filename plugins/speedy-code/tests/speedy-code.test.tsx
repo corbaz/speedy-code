@@ -15,6 +15,8 @@ const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails
 const CODE_MODE = { on: false, ran: [] as string[] }
 /** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
 const FILES = { copied: [] as string[], trashed: [] as string[], renamed: [] as string[] }
+/** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
+const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 const VIEWER = { says: '' }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
@@ -211,6 +213,10 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.includes('SetFileDropList'))) {
       FILES.copied.push(e.init?.env?.SPEEDY_FILE ?? '')
       return { value: { exitCode: 0, stdout: 'copied\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv.some(arg => arg.endsWith('dialog.ps1'))) {
+      DIALOG.asked.push(e.init?.env?.SPEEDY_MODE ?? '')
+      return { value: { exitCode: 0, stdout: `${DIALOG.answer}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.includes('Rename-Item'))) {
       FILES.renamed.push(`${e.init?.env?.SPEEDY_FILE ?? ''} -> ${e.init?.env?.SPEEDY_NAME ?? ''}`)
@@ -2159,29 +2165,26 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // The path goes into the prompt as well; the text before it already ends in a space.
   expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
-  // ✏ makes the row a field with the name; × leaves it; Enter with a new name renames it in its folder.
+  // ✏ asks the new name in a dialog in the middle of the screen; Cancelar leaves the file; Aceptar renames it.
   FILES.renamed = []
+  DIALOG.asked = []
+  DIALOG.answer = 'cancel'
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
-  expect(await pane.find({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt' })).toBeDefined()
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename-no:C:/Users/test/proyectos/notas.txt' })
-  expect(await pane.find({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt' })).toBeUndefined()
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
-  await pane.input({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt', text: 'a/b.txt', kind: 'submit' })
+  expect(DIALOG.asked).toEqual(['rename'])
   expect(FILES.renamed).toEqual([])
-  expect(TOASTS.at(-1)).toBe('speedy-code: no renombré notas.txt: el nombre no puede tener \\ / : * ? " < > |.')
+  DIALOG.answer = 'rename YXB1bnRlcy50eHQ='
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
-  await pane.input({ key: 'explorer-rename-input:C:/Users/test/proyectos/notas.txt', text: 'apuntes.txt', kind: 'submit' })
   expect(FILES.renamed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt -> apuntes.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ahora se llama apuntes.txt.')
-  // 🗑 asks first: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
+  // 🗑 asks in a dialog: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
+  DIALOG.answer = 'cancel'
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
-  expect(await texts()).toContain(' ¿Borrar? ')
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash-no:C:/Users/test/proyectos/notas.txt' })
-  expect(await texts()).not.toContain(' ¿Borrar? ')
+  expect(DIALOG.asked.at(-1)).toBe('delete')
   expect(FILES.trashed).toEqual([])
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  DIALOG.answer = 'delete'
   TREE['C:/Users/test/proyectos'] = [{ name: 'facturas', kind: 'dir' }]
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash-yes:C:/Users/test/proyectos/notas.txt' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  DIALOG.answer = 'cancel'
   expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')

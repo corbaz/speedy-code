@@ -57,6 +57,10 @@ export const MAC = {
   open: (link: string) => ['open', link],
   /** A file to the clipboard as a file, as Finder's Copy leaves it. */
   copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
+  /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), or whether the file goes to the Trash. */
+  dialog: (mode: 'rename' | 'delete', name: string) => mode === 'rename'
+    ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog "Nombre nuevo:" default answer (item 1 of argv) with title "Renombrar" buttons {"Cancelar", "Aceptar"} default button "Aceptar" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
+    : ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'display dialog ("¿Mandar " & (item 1 of argv) & " a la papelera?") with title "Borrar" buttons {"No", "Sí, borrar"} default button "No" cancel button "No"', '-e', 'return "delete"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name],
   /** A file to the Trash by Finder, where Put Back brings it again. */
   trash: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', '-e', 'return "deleted"', '-e', 'end run', path],
   clearClips: ['/bin/sh', '-c', 'rm -f "$SPEEDY_HISTORY"/*.mp3 "$SPEEDY_HISTORY"/*.txt'],
@@ -2115,8 +2119,6 @@ async function flashTool ($: EngineInterface, key: string) {
   }
 }
 
-/** The cells ` ¿Borrar?  Sí  No ` takes in their place, a spare one with them. */
-const EXPLORER_ASK_WIDTH = 20
 
 /** The columns the explorer asks for: a little more than a third of the terminal, never less than it needs. */
 export function explorerColumns (terminal: number) {
@@ -2283,12 +2285,9 @@ async function copyPathToClipboard ($: EngineInterface, path: string, surface: P
   $.ui.toast(copied.isCopied ? `speedy-code: la ruta ${native} está en el prompt y en el portapapeles` : `speedy-code: la ruta ${native} está en el prompt; no pude copiarla al portapapeles.`)
 }
 
-/** The file whose 🗑 was pressed once: a second press, on Sí, sends it to the trash; empty: none. */
-const explorerTrash = atom({ plugin: 'speedy-code', key: 'explorerTrash' } as const, '')
 
 /** Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder again. */
 async function trashFile ($: EngineInterface, path: string) {
-  await update($, explorerTrash, () => '')
   const native = await nativePath($, path)
   const isWindows = (await osNow($)) === 'windows'
   const argv = isWindows
@@ -2309,8 +2308,6 @@ async function trashFile ($: EngineInterface, path: string) {
   await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
 }
 
-/** The file whose ✏ was pressed: its row is a field with its name; empty: none. */
-const explorerRename = atom({ plugin: 'speedy-code', key: 'explorerRename' } as const, '')
 
 /** Why a new file name cannot be used, or empty when it can: not empty, no folder separators, none of Windows' forbidden characters. */
 export function badFileName (name: string) {
@@ -2321,9 +2318,35 @@ export function badFileName (name: string) {
   return ''
 }
 
+/**
+ * Asks in a dialog in the middle of the screen, as the viewer's popups stand: dialog.ps1 on Windows (the
+ * rename with a field for the name and one for the extension), a Finder dialog on macOS. It answers
+ * `rename <base64 name>` (macOS: `name <name>`), `delete` or `cancel`.
+ */
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: string) {
+  const native = await nativePath($, path)
+  const isWindows = (await osNow($)) === 'windows'
+  const argv = isWindows
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
+    : MAC.dialog(mode, path.split('/').pop() ?? path)
+  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native, SPEEDY_MODE: mode } }).catch(() => undefined)
+  return (result?.stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? 'cancel'
+}
+
+/** ✏: the rename dialog, then the rename it asked for. */
+async function askRename ($: EngineInterface, path: string) {
+  const answer = await askDialog($, 'rename', path)
+  const name = answer.startsWith('rename ') ? fromBase64Utf8(answer.slice('rename '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : ''
+  if (name) await renameFile($, path, name)
+}
+
+/** 🗑: the dialog that asks, then the trash when it said yes. */
+async function askTrash ($: EngineInterface, path: string) {
+  if ((await askDialog($, 'delete', path)) === 'delete') await trashFile($, path)
+}
+
 /** Renames a file of the tree in its folder, then reads the folder again. The same name, or none, leaves it as it was. */
 async function renameFile ($: EngineInterface, path: string, wanted: string) {
-  await update($, explorerRename, () => '')
   const name = wanted.trim()
   const old = path.split('/').pop() ?? path
   if (name === old) return
@@ -2439,12 +2462,8 @@ async function pickDrive ($: EngineInterface, drive: string) {
  * A file the viewer shows is drawn yellow and opens it when pressed; the others are dim. */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
-  const asking = await read($, explorerTrash)
-  const renaming = await read($, explorerRename)
   const flashed = await read($, explorerFlash)
   const elements = $.ui.resolve(e)
-  // A field to type in, where the surface draws one: the rename's.
-  const Input = 'Input' in elements ? elements.Input : undefined
   const { Box, Button, Text } = elements
   // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
   const Client = 'Client' in elements ? elements.Client : undefined
@@ -2479,25 +2498,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
         if (row.kind === 'file') {
-          // A file: its name, which opens the viewer when it shows it, and at its right 📋 copies the file,
-          // 🔗 its path and 🗑 sends it to the trash, after a Sí.
+          // A file: its name, which opens the viewer, and at its right 📋 copies the file, 🔗 its path,
+          // ✏ renames it and 🗑 sends it to the trash, each of the last two after a dialog.
           // The name is cut to its room, so a long one keeps to its row and the tools stay in sight.
           // Asking ¿Borrar? Sí No takes more room than the three tools.
-          // ✏ pressed: a field with the name in place of the row, Enter renames, × leaves it as it was.
-          if (renaming === row.path && Input) {
-            return (
-              <Box key={`explorer-renaming:${row.path}`} flexDirection="row" width={width}>
-                <Text>{`${indent}  `}</Text>
-                <Box flexGrow={1} flexShrink={1}>
-                  <Input key={`explorer-rename-input:${row.path}`} value={row.name} placeholder="nombre nuevo" submitLabel="↵" autoFocus onSubmit={value => { void renameFile($, row.path, value) }} />
-                </Box>
-                {Client
-                  ? <Client key={`speedy:explorer-rename-no:${row.path}`} module="./control.tsx" width={3} props={{ label: ' × ', color: '#ff6b6b', bold: true }} />
-                  : <Text color="#ff6b6b">{' × '}</Text>}
-              </Box>
-            )
-          }
-          const toolsWidth = asking === row.path ? EXPLORER_ASK_WIDTH : EXPLORER_TOOLS_WIDTH
+          const toolsWidth = EXPLORER_TOOLS_WIDTH
           const label = cutCells(`${indent}  ${row.name}`, Math.max(4, width - toolsWidth))
           const name = isViewable(row.name)
             ? (
@@ -2511,14 +2516,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const tool = (kind: string, label: string, color: string, backgroundColor?: string) => Client
             ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={backgroundColor ? { label, color, bold: true, backgroundColor } : { label, color, bold: true }} />
             : <Text key={kind} color={color}>{label}</Text>
-          const tools = asking === row.path
-            ? [
-              <Text key="ask" bold color="#ff6b6b">{' ¿Borrar? '}</Text>,
-              tool('trash-yes', ' Sí ', 'black', '#ff6b6b'),
-              <Text key="gap"> </Text>,
-              tool('trash-no', ' No ', 'black', '#868e96')
-              ]
-            : EXPLORER_TOOLS.map(([kind, emoji, glyph, color]) => tool(kind, ` ${isGlyphs ? glyph : emoji}`, flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color))
+          const tools = EXPLORER_TOOLS.map(([kind, emoji, glyph, color]) => tool(kind, ` ${isGlyphs ? glyph : emoji}`, flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color))
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
               <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
@@ -3925,13 +3923,8 @@ export const register: Register = on => {
       if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
-      else if (kind === 'trash') await update($, explorerTrash, () => path)
-      else if (kind === 'rename') {
-        await update($, explorerTrash, () => '')
-        await update($, explorerRename, () => path)
-      } else if (kind === 'rename-no') await update($, explorerRename, () => '')
-      else if (kind === 'trash-yes') await trashFile($, path)
-      else if (kind === 'trash-no') await update($, explorerTrash, () => '')
+      else if (kind === 'trash') void askTrash($, path)
+      else if (kind === 'rename') void askRename($, path)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
         await collapseExplorer($)
