@@ -11,8 +11,11 @@
 #   each, with their columns and first rows, read by db_view.py;
 #   a Windows shortcut (.lnk) or an Internet shortcut (.url): where it leads, as selectable text;
 #   any other file that reads as text (yaml, toml, xml, csv, logs, dotfiles, LICENSE and other files with no
-#   extension, .bak and .tmp that hold text; JSONL a record per block): its text, read-only but selectable;
+#   extension, .bak and .tmp that hold text): its text, read-only but selectable;
 #   anything else (crx, .DS_Store, .sys, other binaries): what can be told about it, as selectable text.
+# A minified file (one-line JSON, even with no extension; JSON Lines; minified JavaScript, CSS, HTML, XML,
+# SVG) also gets its text laid out by pretty.py while the popup stands, the file itself untouched: once it
+# comes, a switch beside the title shows it, Formateado, or the text as it is, Original.
 # The bottom line repeats Copiar and the close mark, for a popup taller than the eye's reach. Every scroll
 # bar is dark. The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a
 # second, so the mod wakes to end it; with no one reading, the write fails and it closes. When Copiar takes
@@ -185,46 +188,6 @@ function Read-Text([byte[]]$bytes) {
   for ($i = 0; $i -lt $probe; $i++) { $b = $bytes[$i]; if ($b -lt 9 -or ($b -gt 13 -and $b -lt 32 -and $b -ne 27)) { $controls++ } }
   if ($controls * 100 -gt $probe) { return $null }
   [System.Text.Encoding]::Default.GetString($bytes, $start, $count - $start)
-}
-
-# Minified JSON laid out with indents. Only whitespace between tokens changes; anything that is not plain
-# JSON (comments, a broken file) is left exactly as it is.
-# -Always lays out short JSON too, as a JSONL record.
-function Format-Json([string]$text, [switch]$Always) {
-  $trimmed = $text.Trim()
-  if ($trimmed.Length -eq 0 -or $trimmed.Length -gt 1MB -or $trimmed[0] -notin @('{', '[')) { return $text }
-  $longest = ($trimmed -split "`n" | Measure-Object -Property Length -Maximum).Maximum
-  if ($longest -lt 300 -and -not $Always) { return $text }
-  $tokens = [regex]::Matches($trimmed, '"(?:[^"\\]|\\.)*"|[{}\[\],:]|[^\s{}\[\],:"]+')
-  $out = New-Object System.Text.StringBuilder
-  $depth = 0
-  $newLine = { [void]$out.Append("`r`n").Append('  ' * $depth) }
-  for ($k = 0; $k -lt $tokens.Count; $k++) {
-    $token = $tokens[$k].Value
-    switch ($token) {
-      { $_ -eq '{' -or $_ -eq '[' } {
-        [void]$out.Append($token)
-        $next = if ($k + 1 -lt $tokens.Count) { $tokens[$k + 1].Value } else { '' }
-        if (($token -eq '{' -and $next -eq '}') -or ($token -eq '[' -and $next -eq ']')) { [void]$out.Append($next); $k++ }
-        else { $depth++; & $newLine }
-        break
-      }
-      { $_ -eq '}' -or $_ -eq ']' } { $depth = [Math]::Max(0, $depth - 1); & $newLine; [void]$out.Append($token); break }
-      ',' { [void]$out.Append(','); & $newLine; break }
-      ':' { [void]$out.Append(': '); break }
-      default {
-        if ($token[0] -ne '"' -and $token -notmatch '^(true|false|null|-?\d[\d.eE+-]*)$') { return $text }
-        [void]$out.Append($token)
-      }
-    }
-  }
-  $out.ToString()
-}
-
-# JSON Lines: each line that is JSON laid out, the rest kept as it is, a blank line between records.
-function Format-JsonLines([string]$text) {
-  $records = foreach ($one in ($text -split "`r?`n")) { if ($one.Trim()) { Format-Json $one -Always } }
-  @($records) -join "`r`n`r`n"
 }
 
 # A file's bytes, shared with a program still writing it (a log, a database), which ReadAllBytes refuses.
@@ -763,7 +726,7 @@ $image = $null
 $pdfPages = $null
 $pdfText = $null
 $player = $null
-$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null }
+$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false }
 $disposables = @()
 $inner = $room
 
@@ -812,6 +775,50 @@ function Complete-PdfText($job) {
   $views['Texto'].Text = $job.Text -replace "(?<!`r)`n", "`r`n"
   $views['Texto'].SelectionStart = 0
   $views['Texto'].ScrollToCaret()
+}
+
+# ---- Minified files laid out ----------------------------------------------------------------------------
+# pretty.py lays out a minified file while the popup stands; the file on disk is never touched. Once it
+# answers with a layout that differs from the text, the source view gets a sibling before it, Formateado,
+# shown unless the viewer already chose a view, and the source view's label becomes Original. A file past
+# 5 MB keeps its text as it is.
+$prettyJob = $null
+$prettySource = $null     # the view holding the text as it is
+$prettyOriginal = $null
+$labelNames = @{}         # a view's label when it is not its name
+
+function Start-Pretty([string]$sourceView, [string]$original, [long]$size) {
+  if ($size -gt 5MB) { return }
+  $job = Start-PythonScript 'pretty.py' $path ''
+  if ($job.Done) { return }
+  $script:prettySource = $sourceView
+  $script:prettyOriginal = $original
+  $script:prettyJob = $job
+}
+
+# Once pretty.py has ended: exit 0 with a different text adds Formateado; 3 (nothing to lay out), 2 (a
+# package missing) or 1 (it failed) leave the popup as it is.
+function Complete-Pretty($job) {
+  $job.Done = $true
+  if ($job.Process.ExitCode -ne 0) { return }
+  $laid = $job.Out.Result
+  $plain = { param([string]$s) ($s -replace "`r`n", "`n").TrimEnd() }
+  if (-not $laid.Trim() -or (& $plain $laid) -eq (& $plain $prettyOriginal)) { return }
+  $box = New-SourceBox $laid $false
+  $box.Visible = $false
+  $inside.Controls.Add($box)
+  $views.Insert([Array]::IndexOf($viewNames, $prettySource), 'Formateado', $box)
+  $labelNames[$prettySource] = 'Original'
+  $script:viewNames = @($views.Keys)
+  foreach ($view in $viewNames) { Add-SwitchLabel $view }
+  # A Preview's Copiar, with nothing selected, takes the laid-out text too.
+  if ($null -ne $rawText) { $script:rawText = $laid }
+  $box.SelectionStart = 0
+  $box.ScrollToCaret()
+  Set-PopupSize $form.ClientSize.Width $form.ClientSize.Height
+  $shown = $state.View
+  if (-not $state.Picked -and $shown -eq $prettySource -and $env:SPEEDY_VIEW -ne 'Original') { $shown = 'Formateado' }
+  Show-View $shown
 }
 
 # ---- Databases -------------------------------------------------------------------------------------------
@@ -1310,12 +1317,14 @@ try {
         $views['Preview'] = New-PageView (Add-HtmlHead $text ([IO.Path]::GetDirectoryName($path)))
         $views['HTML'] = New-SourceBox $text $false
         $rawText = $text
+        Start-Pretty 'HTML' $text $bytes.Length
       }
       'svg' {
         try { $views['Preview'] = New-SvgView $text }
         catch { $views['Preview'] = New-PageView (New-MessagePage ('No se pudo dibujar este SVG: ' + (Html $_.Exception.Message))) }
         $views['SVG'] = New-SourceBox $text $false
         $rawText = $text
+        Start-Pretty 'SVG' $text $bytes.Length
       }
       'xlsx' {
         $sheets = Read-Xlsx $path
@@ -1356,11 +1365,10 @@ try {
         $inner = Get-FitSize $info
       }
       'text' {
-        if ($extension -eq '.json') { $text = Format-Json $text }
-        if ($extension -eq '.jsonl' -or $extension -eq '.ndjson') { $text = Format-JsonLines $text }
         # Prose wraps: plain text, logs, and a LICENSE or README with no extension.
         $prose = (@('.txt', '.log') -contains $extension) -or ($extension -eq '' -and $fileName -match '^(LICENSE|LICENCE|COPYING|README|AUTHORS|NOTICE|CHANGELOG)$')
         $views['Text'] = New-SourceBox $text $prose
+        Start-Pretty 'Text' $text $bytes.Length
       }
     }
     if ($kind -eq 'binary') { $views['Text'] = New-SourceBox (Get-BinaryInfo $bytes '') $false }
@@ -1419,10 +1427,19 @@ $copyBelow = $null
 if ($kind -notin @('audio', 'video')) { $copy = New-TopLabel 'Copiar'; $copyBelow = New-TopLabel 'Copiar' }
 $copyLabels = @($copy, $copyBelow | Where-Object { $_ })
 
+# The switch: a label a view, made the first time and renamed after (the source's, once laid out, as
+# Original); one made while the popup stands goes on it at once. A click on one is the viewer's choice.
 $switch = @{}
-if ($viewNames.Count -gt 1) {
-  foreach ($view in $viewNames) { $label = New-TopLabel $view; $label.Tag = $view; $switch[$view] = $label }
+function Add-SwitchLabel([string]$view) {
+  $text = if ($labelNames.ContainsKey($view)) { $labelNames[$view] } else { $view }
+  if ($switch.ContainsKey($view)) { $switch[$view].Text = " $text "; return }
+  $label = New-TopLabel $text
+  $label.Tag = $view
+  $label.Add_Click({ $state.Picked = $true; Show-View $this.Tag })
+  $switch[$view] = $label
+  if ($form) { $form.Controls.Add($label); $label.BringToFront() }
 }
+if ($viewNames.Count -gt 1) { foreach ($view in $viewNames) { Add-SwitchLabel $view } }
 
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -1491,7 +1508,6 @@ function Show-View([string]$view) {
   }
   if ($form.Visible) { [void]$views[$view].Focus() }
 }
-foreach ($one in $switch.Values) { $one.Add_Click({ Show-View $this.Tag }) }
 
 function Copy-View {
   $view = $views[$state.View]
@@ -1560,6 +1576,7 @@ $form.Add_FormClosing({
   if ($state.Office) { try { Remove-Item -LiteralPath $state.Office.Folder -Recurse -Force } catch { } }
   # A database still being read is not waited for.
   if ($dbJob -and -not $dbJob.Done) { try { $dbJob.Process.Kill() } catch { } }
+  if ($prettyJob -and -not $prettyJob.Done) { try { $prettyJob.Process.Kill() } catch { } }
 })
 
 $timer = New-Object System.Windows.Forms.Timer
@@ -1577,6 +1594,7 @@ $timer.Add_Tick({
     }
   }
   if ($pdfText -and -not $pdfText.Done -and $pdfText.Process.HasExited) { try { Complete-PdfText $pdfText } catch { $pdfText.Done = $true } }
+  if ($prettyJob -and -not $prettyJob.Done -and $prettyJob.Process.HasExited) { try { Complete-Pretty $prettyJob } catch { $prettyJob.Done = $true } }
   if ($dbJob -and -not $dbJob.Done -and $dbJob.Process.HasExited) {
     try { Complete-DbView $dbJob } catch { $dbJob.Done = $true; $views['Page'].DocumentText = New-MessagePage ('No se pudo mostrar la base de datos: ' + (Html $_.Exception.Message)) }
   }
