@@ -2142,8 +2142,8 @@ const EXPLORER_DIR_COLOR = '#74c0fc'
 const EXPLORER_VIEWABLE_COLOR = '#ffd43b'
 const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, here: '', caseless: false, top: 0 }
 const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
-/** The rows above the tree: the disks, and a rule under them. They stay while the tree scrolls. */
-const EXPLORER_HEADER_ROWS = 2
+/** The rows above the tree: the disks, the field a path is pasted in, and a rule. They stay while the tree scrolls. */
+const EXPLORER_HEADER_ROWS = 3
 
 /** A path with `/` alone, as the explorer keeps every path. */
 const slashed = (path: string) => path.replace(/\\/g, '/')
@@ -2189,18 +2189,19 @@ export function listingOf (entries: readonly FsEntry[], most = EXPLORER_MOST): E
 }
 
 /** A row of the tree: an entry, or a note under a folder (not read yet, unreadable, empty, entries left). */
-export type TreeRow = { path: string; name: string; depth: number; kind: ExplorerEntry['kind'] | 'note'; isOpen: boolean; isHere: boolean }
+export type TreeRow = { path: string; name: string; depth: number; kind: ExplorerEntry['kind'] | 'note'; isOpen: boolean; isHere: boolean; isFound?: boolean }
 
 /** The tree of the disk shown, flat: the disk, then what each open folder holds under it. */
 export function treeRows (state: Explorer): TreeRow[] {
   if (!state.drive) return []
   const here = pathKey(state.here, state.caseless)
+  const found = state.found ?? ''
   const rows: TreeRow[] = []
   const note = (path: string, name: string, depth: number) => rows.push({ path: `${path}#${name}`, name, depth, kind: 'note', isOpen: false, isHere: false })
   const walk = (path: string, name: string, kind: ExplorerEntry['kind'], depth: number) => {
     const key = pathKey(path, state.caseless)
     const isOpen = kind === 'dir' && state.open.includes(key)
-    rows.push({ path, name, depth, kind, isOpen, isHere: kind === 'dir' && key === here })
+    rows.push({ path, name, depth, kind, isOpen, isHere: kind === 'dir' && key === here, isFound: key === found })
     if (!isOpen) return
     const listed = state.listed[key]
     if (listed === undefined) return note(path, 'leyendo…', depth + 1)
@@ -2219,12 +2220,13 @@ const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADE
 
 /**
  * The first tree row the explorer shows: `top` kept within the tree, so its last row stays at the bottom;
- * -1, just opened, puts the session's folder in the middle.
+ * -1 puts in the middle the path pasted in the field and found, or else the session's folder.
  */
 export function windowTop (rows: readonly TreeRow[], top: number, room: number) {
   const last = Math.max(0, rows.length - room)
   if (top >= 0) return Math.min(last, top)
-  const here = rows.findIndex(row => row.isHere)
+  const found = rows.findIndex(row => row.isFound)
+  const here = found >= 0 ? found : rows.findIndex(row => row.isHere)
   return Math.min(last, Math.max(0, here - Math.floor(room / 2)))
 }
 
@@ -2442,8 +2444,65 @@ async function collapseExplorer ($: EngineInterface) {
   await update($, explorer, now => {
     const drive = driveOf(now.here, now.drives, now.caseless) || now.drive
     const chain = drive ? chainOf(now.here, drive).map(path => pathKey(path, now.caseless)) : []
-    return { ...now, drive, open: chain, top: -1 }
+    return { ...now, drive, open: chain, top: -1, found: undefined }
   })
+}
+
+/**
+ * A path as pasted in the explorer's field, `D:\Excel\rand.xlsx` or `"C:/a b/c"`: its quotes, its spaces and
+ * a mention's `@` off, `/` for `\`, a disk's root ending in `/` and any other folder without one.
+ */
+export function pastedPath (text: string) {
+  const path = slashed(text.trim().replace(/^@/, '').replace(/^["']+|["']+$/g, '').trim())
+  if (/^[A-Za-z]:\/?$/.test(path)) return `${path.slice(0, 2)}/`
+  return path.length > 1 ? path.replace(/\/+$/, '') : path
+}
+
+/**
+ * A path pasted in the field: the tree opens down to it, on its disk, and puts it in the middle, marked; for
+ * a file its folder opens and the file is the row marked. A path not absolute is taken from the session's folder.
+ */
+async function goToPath ($: EngineInterface, text: string) {
+  const state = await read($, explorer)
+  const pasted = pastedPath(text)
+  if (!pasted) return
+  const isAbsolute = /^[A-Za-z]:\//.test(pasted) || pasted.startsWith('/')
+  const path = isAbsolute ? pasted : joinPath(state.here, pasted)
+  const stat = await $.fs.stat(path).catch(() => undefined)
+  if (!stat) {
+    $.ui.toast(`speedy-code: no existe ${pasted}.`)
+    return
+  }
+  const key = pathKey(path, state.caseless)
+  const drive = state.drives
+    .filter(one => isUnder(key, pathKey(one, state.caseless)))
+    .sort((a, b) => b.length - a.length)[0]
+  if (!drive) {
+    $.ui.toast(`speedy-code: ${pasted} no está en ninguno de los discos del explorador.`)
+    return
+  }
+  const isFolder = stat.kind === 'dir' || key === pathKey(drive, state.caseless)
+  const folder = isFolder ? path : path.slice(0, path.lastIndexOf('/')) || drive
+  const chain = chainOf(folder, drive)
+  // Each folder down to it read afresh: what was pasted may be new.
+  const chainRead = await Promise.all(chain.map(async one => [pathKey(one, state.caseless), await readFolder($, one)] as const))
+  const listed: Explorer['listed'] = Object.fromEntries(chainRead)
+  // A file past the entries a big folder shows is shown all the same: it is the one asked for.
+  const folderKey = pathKey(folder, state.caseless)
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const holding = listed[folderKey]
+  if (!isFolder && holding && holding !== 'denied' && !holding.entries.some(entry => pathKey(entry.name, state.caseless) === pathKey(name, state.caseless))) {
+    listed[folderKey] = { entries: [...holding.entries, { name, kind: 'file' }], left: Math.max(0, holding.left - 1) }
+  }
+  const opened = chainRead.map(([one]) => one)
+  await update($, explorer, now => ({
+    ...now,
+    drive,
+    open: [...now.open.filter(one => !opened.includes(one)), ...opened],
+    listed: { ...now.listed, ...listed },
+    found: key,
+    top: -1
+  }))
 }
 
 /** A disk pressed: its tree is shown, its root open; each disk keeps what was open in it. The session's disk
@@ -2467,6 +2526,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const { Box, Button, Text } = elements
   // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
   const Client = 'Client' in elements ? elements.Client : undefined
+  const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
   // Beside the disks: collapse the whole tree, back to the session's folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
@@ -2493,6 +2553,14 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           <Text dimColor>{' ↗ abrir en el sistema '}</Text>
         </Button>
       </Box>
+      {/* A path pasted here, Enter, and the tree opens down to it: a folder, or a file in its folder. */}
+      {Input
+        ? (
+          <Box width={width}>
+            <Input key="explorer-goto" placeholder="pegá una ruta y Enter: D:\carpeta\archivo" submitLabel="ir" onSubmit={value => { void goToPath($, value) }} />
+          </Box>
+          )
+        : null}
       <Text dimColor>{'─'.repeat(width)}</Text>
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
@@ -2513,7 +2581,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               // While the pointer is anywhere on the row, its tools included, the name keeps the yellow fill
               // it takes under the pointer: the row is marked as the one the tools act on.
               <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>
-                <Text color={EXPLORER_VIEWABLE_COLOR} hover={{ backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' }} wrap="truncate-end">{label}</Text>
+                {row.isFound
+                  ? <Text color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} bold wrap="truncate-end">{label}</Text>
+                  : <Text color={EXPLORER_VIEWABLE_COLOR} hover={{ backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' }} wrap="truncate-end">{label}</Text>}
               </Button>
               )
             : <Text dimColor wrap="truncate-end">{label}</Text>
@@ -2536,7 +2606,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         }
         return (
           <Button key={`explorer:${row.path}`} plain onPress={() => { void toggleTreeFolder($, row.path) }}>
-            <Text bold={row.isHere} color={row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>
+            {row.isFound
+              ? <Text bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>
+              : <Text bold={row.isHere} color={row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>}
           </Button>
         )
       })}

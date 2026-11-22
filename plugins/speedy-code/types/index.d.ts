@@ -52,8 +52,9 @@ export type ExplorerListing = { entries: ExplorerEntry[]; left: number }
 
 /** The explorer pane: the disks, the one shown, the folders open and what each one read holds (both by
  * path key; `denied` for a folder that could not be read), the session's folder, whether paths ignore case,
- * and the first tree row shown (-1: the session's folder in the middle). */
-export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number }
+ * the first tree row shown (-1: the path found, else the session's folder, in the middle), and the key of the
+ * path pasted in the explorer's field and found, marked in the tree. */
+export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string }
 
 declare module 'claude-code' {
   interface PluginState {

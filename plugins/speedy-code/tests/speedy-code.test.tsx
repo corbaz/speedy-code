@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, pastedPath, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2067,9 +2067,18 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   on('prompt.read', () => ({ value: { text: prompt.text, cursor: prompt.text.length } }))
   on('prompt.fill', (_, e) => { prompt.fills.push(e.text); prompt.text += e.text; return { isFilled: true } })
   on('session.cwd', () => ({ value: 'C:\\Users\\test\\proyectos' }))
+  // Paths as Windows takes them: whatever their case.
+  const known = (path: string) => {
+    const key = path.replace(/\\/g, '/').toLowerCase()
+    if (/^[cd]:\/$/.test(key) || Object.keys(TREE).some(folder => folder.toLowerCase() === key)) return 'dir'
+    const at = key.lastIndexOf('/')
+    const folder = Object.entries(TREE).find(([name]) => name.toLowerCase() === (key.slice(0, at) || key))?.[1]
+    return folder?.some(entry => entry.name.toLowerCase() === key.slice(at + 1)) ? 'file' : undefined
+  }
   on('fs.stat', (_, e) => {
-    if (!/^[CD]:[\\/]$/.test(e.path)) throw new Error('ENOENT')
-    return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    const kind = known(e.path)
+    if (!kind) throw new Error('ENOENT')
+    return { value: { kind, size: 0, mtimeMs: 0, isLink: false } }
   })
   const TREE: Record<string, Array<{ name: string, kind: 'file' | 'dir' | 'other', isLink?: boolean }>> = {
     'C:/': [{ name: 'Windows', kind: 'dir' }, { name: 'setup.exe', kind: 'file' }, { name: 'Users', kind: 'dir' }, { name: 'Documents and Settings', kind: 'other', isLink: true }],
@@ -2077,10 +2086,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     'C:/Users/test': [{ name: 'proyectos', kind: 'dir' }],
     'C:/Users/test/proyectos': [{ name: 'facturas', kind: 'dir' }, { name: 'notas.txt', kind: 'file' }],
     'C:/Windows': [{ name: 'System32', kind: 'dir' }],
-    'D:/': [{ name: 'fotos', kind: 'dir' }]
+    'D:/': [{ name: 'fotos', kind: 'dir' }],
+    'D:/fotos': [{ name: 'viaje.jpg', kind: 'file' }]
   }
   on('fs.list', (_, e) => {
-    const entries = TREE[(e.path ?? '').replace(/\\/g, '/')]
+    const wanted = (e.path ?? '').replace(/\\/g, '/').toLowerCase()
+    const entries = Object.entries(TREE).find(([name]) => name.toLowerCase() === wanted)?.[1]
     if (!entries) throw new Error('EPERM')
     return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
   })
@@ -2091,9 +2102,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
   expect(panes).toEqual(['speedy-code-explorer'])
-  // A short body shows the rows around the session's folder, under the disks, which stay.
-  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 6 } }, surface: 'terminal' })
+  // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
+  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
   expect((await short.findAll({ type: 'Text' })).map(text => text.text)).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
@@ -2190,6 +2202,22 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')
   await pane.unmount()
+  // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
+  // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
+  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 6 } }, surface: 'terminal' })
+  await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
+  const marked = async () => (await near.findAll({ type: 'Text' })).filter(text => text.props?.backgroundColor === '#ffd43b').map(text => text.text?.trimEnd())
+  expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
+  expect(await marked()).toEqual(['      viaje.jpg'])
+  // A folder is marked the same way, and the tree shows it in the middle of a short body.
+  await near.input({ key: 'explorer-goto', text: 'C:\\Users\\test\\', kind: 'submit' })
+  expect(await marked()).toEqual(['    ▾ test'])
+  expect((await near.findAll({ type: 'Text' })).map(text => text.text?.trimEnd()).slice(4)).toEqual(['    ▸ Public', '    ▾ test', '      ▾ proyectos ●'])
+  // A path that is not there says so, and the tree stays.
+  await near.input({ key: 'explorer-goto', text: 'C:\\nada\\falta.txt', kind: 'submit' })
+  expect(TOASTS.at(-1)).toBe('speedy-code: no existe C:/nada/falta.txt.')
+  expect(await marked()).toEqual(['    ▾ test'])
+  await near.unmount()
   // ⊟ beside the disks collapses the tree back to the session's folder.
   const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   await tree.press({ key: 'explorer:C:/Windows' })
@@ -2199,12 +2227,24 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(shown).toContain('      ▾ proyectos ●')
   expect(shown).toContain('  ▸ Windows')
   expect(shown).not.toContain('    ▸ System32')
+  // Collapsed, nothing is marked: the path found goes.
+  expect((await tree.findAll({ type: 'Text' })).some(text => text.props?.backgroundColor === '#ffd43b')).toBe(false)
   await tree.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
   expect(closed).toEqual(['speedy-code-explorer'])
   await footer.unmount()
+})
+
+test('pastedPath: a path as pasted in the explorer’s field, quotes, spaces and a mention’s @ off, with / for \\', () => {
+  expect(pastedPath(' "D:\\Excel\\rand.xlsx" ')).toBe('D:/Excel/rand.xlsx')
+  expect(pastedPath('@C:\\Users\\test\\')).toBe('C:/Users/test')
+  expect(pastedPath('d:')).toBe('d:/')
+  expect(pastedPath('D:\\')).toBe('D:/')
+  expect(pastedPath("'/Users/ana/notas.md'")).toBe('/Users/ana/notas.md')
+  expect(pastedPath('/')).toBe('/')
+  expect(pastedPath('   ')).toBe('')
 })
 
 test('windowTop: the first tree row in the window, kept so the last row stays at the bottom; just opened, the session’s folder in the middle', () => {
@@ -2215,6 +2255,8 @@ test('windowTop: the first tree row in the window, kept so the last row stays at
   expect(windowTop(rows.slice(0, 4), 2, 6)).toBe(0)
   expect(windowTop(rows.map(row => ({ ...row, isHere: false })), -1, 6)).toBe(0)
   expect(windowTop(rows.map((row, i) => ({ ...row, isHere: i === 19 })), -1, 6)).toBe(14)
+  // A path found by the field is put in the middle before the session's folder.
+  expect(windowTop(rows.map((row, i) => ({ ...row, isFound: i === 4 })), -1, 6)).toBe(1)
 })
 
 test('isViewable: the explorer opens text and code, pages, PDF, pictures, spreadsheets, documents, sound and video in the viewer; nothing else', () => {
