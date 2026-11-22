@@ -2067,6 +2067,15 @@ const EXPLORER_COLUMNS = 44
 const EXPLORER_SHARE = 0.38
 /** The terminal's width, as the footer last drew in it; 0 before it did. */
 let terminalColumns = 0
+/** The columns the explorer takes while docked beside the transcript, its border with them; 0 when it is not. */
+let explorerDock = 0
+
+/** Keeps the explorer's docked width, and draws the footer again when it changed. */
+function followDock ($: EngineInterface, width: number) {
+  if (width === explorerDock) return
+  explorerDock = width
+  $.ui.invalidate('ui.render')
+}
 /** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
 const EXPLORER_TOOLS_WIDTH = 10
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
@@ -2831,18 +2840,43 @@ async function moreMenu ($: EngineInterface, e: Drawn, width = 90) {
     </Box>
   )
   const networks = hidden.find(group => group.name === 'socials')?.panel ?? []
-  const gridded = hidden.filter(group => group.name !== 'socials' && group.name !== 'compact')
-  const controls = gridded.flatMap(group => group.panel)
-  const controlCell = Math.max(0, ...gridded.flatMap(group => group.labels)) + 2
   const networkCell = Math.max(0, ...(hidden.find(group => group.name === 'socials')?.labels ?? [])) + 1
+  // The controls in columns by what they are for, each under its heading, one control to a row: the
+  // controls of one group stay together (dictar beside its micrófono), whatever the width.
+  const columnsOf = MORE_COLUMNS
+    .map(([title, names]) => {
+      const groups = names.map(name => hidden.find(group => group.name === name)).filter(group => group !== undefined)
+      return { title, items: groups.flatMap(group => group.panel), width: Math.max(cells(title), ...groups.flatMap(group => group.labels)) + 2 }
+    })
+    .filter(column => column.items.length > 0)
+  const controls = columnsOf.length > 0
+    ? (
+      <Box key="controls" flexDirection="row" flexWrap="wrap" columnGap={3} marginTop={1}>
+        {columnsOf.map(column => (
+          <Box key={`column:${column.title}`} flexDirection="column" width={column.width} flexShrink={0} marginBottom={1}>
+            {heading(column.title)}
+            {column.items.map((item, index) => <Box key={`${column.title}:${index}`} paddingLeft={1}>{item}</Box>)}
+          </Box>
+        ))}
+      </Box>
+      )
+    : null
   return (
     <Box flexDirection="column">
       {top}
       {networks.length > 0 ? grid('networks', 'REDES', networks, networkCell) : null}
-      {controls.length > 0 ? grid('controls', 'CONTROLES', controls, controlCell) : null}
+      {controls}
     </Box>
   )
 }
+
+/** The ⋯ panel's columns of controls: a heading and the footer groups it gathers, in their order. */
+const MORE_COLUMNS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['VOZ', ['voice', 'narrator']],
+  ['DICTADO', ['mic', 'polish']],
+  ['PROMPT', ['copy', 'paste', 'image', 'clear', 'send']],
+  ['SESIÓN', ['model', 'mode', 'reload', 'settings']]
+]
 
 /** The color of an effort level: its traffic-light color in EFFORTS, gray for one it does not list. */
 export function effortColor (level: string): string {
@@ -3736,7 +3770,10 @@ export const register: Register = on => {
     const { Box, Client, Text } = glyphed($.ui.resolve(e))
     // The room the controls have: the terminal's width less the mode labels, the ` · ` and a margin.
     const modes = e.props.modes.join(' & ')
-    const room = (e.viewport?.columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
+    // A pane docked beside the transcript narrows the width the footer is told, but the footer runs under
+    // it the whole width: the dock's columns are given back, so its controls stay out of ⋯.
+    const columns = e.viewport?.columns === undefined ? undefined : e.viewport.columns + explorerDock
+    const room = (columns ?? Number.MAX_SAFE_INTEGER) - (modes ? cells(modes) + 3 : 0) - 4
     // The folder and the branch keep their room: the controls ranked lowest go to ⋯ first. Only when even
     // those always drawn would give way are they left out.
     const branchSign = isGlyphs ? `\uf126${glyphGap}` : '⎇ '
@@ -3751,8 +3788,8 @@ export const register: Register = on => {
     // The cells the controls take as drawn, and the place after them while it still fits.
     const taken = groups.filter(group => shown.has(group.name)).reduce((sum, group) => sum + (compact.has(group.name) && 'compactWidth' in group ? group.compactWidth : group.width), hiddenGroups.length > 0 ? MORE_WIDTH : 0)
     const isPlaced = placeWidth > 0 && taken + placeWidth <= room
-    terminalColumns = e.viewport?.columns ?? terminalColumns
-    const blank = footerBlank(e.viewport?.columns, taken + (isPlaced ? placeWidth : 0) + (modes ? cells(modes) + 3 : 0))
+    terminalColumns = columns ?? terminalColumns
+    const blank = footerBlank(columns, taken + (isPlaced ? placeWidth : 0) + (modes ? cells(modes) + 3 : 0))
     return (
       <Box flexDirection="row" flexWrap="nowrap">
         {beneath}
@@ -3994,7 +4031,17 @@ export const register: Register = on => {
   // The menus, in their panes.
   on('ui.render', { component: 'Pane', requestId: MIC_PANE }, ($, e) => micMenu($, e))
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => voiceMenu($, e))
-  on('ui.render', { component: 'Pane', requestId: EXPLORER_PANE }, ($, e) => explorerPane($, e, e.props.bodyColumns, e.props.scroll.bodyRows))
+  on('ui.render', { component: 'Pane', requestId: EXPLORER_PANE }, ($, e) => {
+    // Docked, it takes its body and the border beside the transcript from the footer's width.
+    followDock($, e.props.placement === 'dock' ? e.props.bodyColumns + 1 : 0)
+    return explorerPane($, e, e.props.bodyColumns, e.props.scroll.bodyRows)
+  })
+  // Closed, by the footer's folder, its × or Esc: the footer has the whole width again.
+  on('ui.close', async ($, e, next) => {
+    const result = await next(e)
+    if (e.id === EXPLORER_PANE) followDock($, 0)
+    return result
+  })
   on('ui.scroll', { requestId: EXPLORER_PANE }, async ($, e) => {
     await scrollExplorer($, e.by, e.bodyRows)
     return {}

@@ -1490,8 +1490,9 @@ test('a narrow footer keeps the tools, the model, the voice and ✕, and ⋯ ope
   expect((await band.find({ type: 'Text', text: /86%/ }))?.text).toBe('▰▰▰▱  86%')
   // /compact beside the context.
   expect((await band.find({ type: 'Text', in: 'speedy:compact' }))?.text).toBe(' 🗜️ ')
-  // The hidden controls carry their names in the panel.
+  // The hidden controls carry their names in the panel, in columns by what they are for.
   expect((await band.find({ type: 'Text', in: 'speedy:reload' }))?.text).toBe(' 🔄 recargar ')
+  for (const heading of ['VOZ', 'DICTADO', 'SESIÓN']) expect((await band.find({ type: 'Text', text: new RegExp(`^${heading}$`) }))?.text).toBe(heading)
   await band.unmount()
   await narrow.post({ isClicked: true }, { in: 'speedy:more' })
   await narrow.unmount()
@@ -2243,4 +2244,33 @@ test('fromBase64Utf8 and fileMention: what the viewer copied, read back; a file 
   expect(fromBase64Utf8('no es base64!')).toBe('')
   expect(fileMention('C:\\Users\\test\\notas.txt')).toBe('@C:\\Users\\test\\notas.txt')
   expect(fileMention('C:\\Mis Cosas\\notas.txt')).toBe('@"C:\\Mis Cosas\\notas.txt"')
+})
+
+test('the explorer docked beside the transcript gives its columns back to the footer, and takes them again when it closes', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.panes', () => ({ value: [{ id: 'speedy-code-explorer', title: 'Explorador', isShown: true, isFocused: false, isPlaced: true }] }))
+  on('session.cwd', () => ({ value: 'C:/Users/test/proyectos' }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, socials: { github: 'octo' } })
+  await w.clock.advance(100)
+  await ui.unmount()
+  const has = async (view: { find: typeof ui.find }, key: string) => view.find({ type: 'Text', in: key }).then(found => found !== undefined, () => false)
+  // 110 columns of transcript: the footer alone would send controls to ⋯.
+  const alone = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
+  expect(await has(alone, 'speedy:more')).toBe(true)
+  await alone.unmount()
+  // The explorer docked, 80 columns wide: the footer runs the whole 191 columns, all its controls in sight.
+  const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 80, placement: 'dock' }, surface: 'terminal' })
+  const docked = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
+  expect(await has(docked, 'speedy:more')).toBe(false)
+  expect(await has(docked, 'speedy:socials')).toBe(true)
+  await docked.unmount()
+  // Closed by the footer's folder: the width is the transcript's again.
+  await pane.unmount()
+  const closing = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
+  await closing.post({ isClicked: true }, { in: 'speedy:place' })
+  await closing.unmount()
+  const after = await $.ui.mount({ ...FOOTER, viewport: { columns: 110, rows: 30 } })
+  expect(await has(after, 'speedy:more')).toBe(true)
+  await after.unmount()
 })
