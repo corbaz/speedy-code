@@ -2415,6 +2415,23 @@ function Show-View([string]$view) {
 # What takes the keys and the wheel in a view: the PDF's canvas, else the view itself.
 function Get-FocusTarget([string]$view) { if ($view -eq 'PDF' -and $pdf) { $pdf.Canvas } else { $views[$view] } }
 
+$selectionScript = @'
+(function () {
+  var s = window.getSelection ? window.getSelection() : null;
+  if (!s || s.rangeCount === 0 || s.isCollapsed) return '';
+  var d = document.createElement('div');
+  for (var i = 0; i < s.rangeCount; i++) d.appendChild(s.getRangeAt(i).cloneContents());
+  var h = d.innerHTML;
+  h = h.replace(/<br[^>]*>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|tr|pre|blockquote|table|ul|ol|dt|dd|section|article)>/gi, '\n')
+    .replace(/<\/t[dh]>/gi, '\t')
+    .replace(/<[^>]+>/g, '');
+  var t = document.createElement('textarea');
+  t.innerHTML = h;
+  return t.value.replace(/\t\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+})()
+'@
+
 function Copy-View {
   $view = $views[$state.View]
   $text = $null
@@ -2424,7 +2441,10 @@ function Copy-View {
     }
     if ($view -is [System.Windows.Forms.WebBrowser]) {
       $selected = $null
-      try { $selected = [string]$view.Document.InvokeScript('eval', [object[]]@('window.getSelection ? String(window.getSelection()) : ""')) } catch { }
+      # The selection as text with its line breaks: IE's own text of a selection runs paragraphs and list
+      # items together, so its HTML is read instead, a line after each block, a tab after each cell.
+      try { $selected = [string]$view.Document.InvokeScript('eval', [object[]]@($selectionScript)) } catch { }
+      if (-not $selected) { try { $selected = [string]$view.Document.InvokeScript('eval', [object[]]@('window.getSelection ? String(window.getSelection()) : ""')) } catch { } }
       $shownTable = $null
       if (-not $selected -and $dbTables) {
         $at = 0
