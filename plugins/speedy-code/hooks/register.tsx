@@ -2079,8 +2079,8 @@ async function openFolder ($: EngineInterface) {
 const EXPLORER_PANE = 'speedy-code-explorer'
 /** The cells the explorer asks for while docked beside a fullscreen transcript. */
 const EXPLORER_COLUMNS = 44
-/** The share of the terminal the explorer asks for: a little more than a third. */
-const EXPLORER_SHARE = 0.38
+/** The share of the terminal the explorer asks for: under a third. */
+const EXPLORER_SHARE = 0.3
 /** The terminal's width, as the footer last drew in it; 0 before it did. */
 let terminalColumns = 0
 /** The columns the explorer takes while docked beside the transcript, its border with them; 0 when it is not. */
@@ -2099,7 +2099,7 @@ const EXPLORER_TOOLS_WIDTH = 13
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['copy', '📋', '\uf0c5', '#74c0fc'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
-  ['rename', '✏', '\uf044', '#ffd43b'],
+  ['rename', '✏', '\uf044', '#b197fc'],
   ['trash', '🗑', '\uf1f8', '#ff8787']
 ]
 
@@ -2503,7 +2503,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           // The name is cut to its room, so a long one keeps to its row and the tools stay in sight.
           // Asking ¿Borrar? Sí No takes more room than the three tools.
           const toolsWidth = EXPLORER_TOOLS_WIDTH
-          const label = cutCells(`${indent}  ${row.name}`, Math.max(4, width - toolsWidth))
+          // Cut to its room, then filled with spaces up to the tools: the fill under the pointer runs to
+          // them, so it is plain which tools are the file's.
+          const nameRoom = Math.max(4, width - toolsWidth)
+          const cut = cutCells(`${indent}  ${row.name}`, nameRoom)
+          const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
           const name = isViewable(row.name)
             ? (
               <Button key={`explorer-file:${row.path}`} plain onPress={() => { void runViewer($, 'view_file.ps1', row.path) }}>

@@ -2097,7 +2097,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
-  const texts = async () => (await pane.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text)
+  // A file's name is filled with spaces up to its tools: the rows are read without that fill.
+  const texts = async () => (await pane.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text?.replace(/ {2,}$/, ''))
   expect(await texts()).toEqual([
     ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44),
     '▾ C:\\',
@@ -2194,7 +2195,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await tree.press({ key: 'explorer:C:/Windows' })
   await tree.press({ key: 'explorer-drive:D:/' })
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
-  const shown = (await tree.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text)
+  const shown = (await tree.findAll({ type: 'Text' })).filter(text => !String(text.in ?? '').startsWith('speedy:explorer-')).map(text => text.text?.replace(/ {2,}$/, ''))
   expect(shown).toContain('      ▾ proyectos ●')
   expect(shown).toContain('  ▸ Windows')
   expect(shown).not.toContain('    ▸ System32')
@@ -2257,7 +2258,7 @@ test('cutCells and explorerColumns: a name keeps to its row, cut with …; the e
   expect(cells(cutCells('漢字漢字漢字漢字', 7))).toBeLessThanOrEqual(7)
   expect(explorerColumns(0)).toBe(44)
   expect(explorerColumns(100)).toBe(44)
-  expect(explorerColumns(230)).toBe(87)
+  expect(explorerColumns(230)).toBe(69)
 })
 
 test('fromBase64Utf8 and fileMention: what the viewer copied, read back; a file as a prompt mentions it', () => {

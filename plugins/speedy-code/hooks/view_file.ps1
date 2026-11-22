@@ -820,7 +820,10 @@ function Complete-Pretty($job) {
   if ($null -ne $rawText) { $script:rawText = $laid }
   $box.SelectionStart = 0
   $box.ScrollToCaret()
-  Set-PopupSize $form.ClientSize.Width $form.ClientSize.Height
+  # The layout is longer than the text it came from: a text popup grows to it, up to the room.
+  $grown = Get-TextFit
+  if ($grown) { Set-PopupSize ([Math]::Max($form.ClientSize.Width, $grown.Width + $extraWidth)) ([Math]::Max($form.ClientSize.Height, $grown.Height + $extraHeight)) }
+  else { Set-PopupSize $form.ClientSize.Width $form.ClientSize.Height }
   $shown = $state.View
   if (-not $state.Picked -and $shown -eq $prettySource -and $env:SPEEDY_VIEW -ne 'Original') { $shown = 'Formateado' }
   Show-View $shown
@@ -1551,6 +1554,26 @@ try {
 }
 $viewNames = @($views.Keys)
 
+# A popup of text alone is as tall and as wide as its text asks, up to the room: a short file opens small.
+function Get-TextFit {
+  $boxes = @($views.Values | Where-Object { $_ -is [System.Windows.Forms.RichTextBox] })
+  if ($boxes.Count -eq 0 -or $boxes.Count -ne $views.Count) { return $null }
+  $lines = 1
+  $longest = 1
+  foreach ($box in $boxes) {
+    $all = $box.Lines
+    $lines = [Math]::Max($lines, $all.Count)
+    foreach ($one in $all) { if ($one.Length -gt $longest) { $longest = $one.Length } }
+  }
+  $cell = [System.Windows.Forms.TextRenderer]::MeasureText('M', $boxes[0].Font)
+  $bar = [System.Windows.Forms.SystemInformation]::HorizontalScrollBarHeight
+  $width = [int][Math]::Min($room.Width, [Math]::Max(480, $longest * ($cell.Width - 4) + 48))
+  $height = [int][Math]::Min($room.Height, [Math]::Max(140, $lines * ($boxes[0].Font.Height + 1) + $bar + 24))
+  New-Object System.Drawing.Size($width, $height)
+}
+$fit = Get-TextFit
+if ($fit) { $inner = $fit }
+
 # ---- The frame -------------------------------------------------------------------------------------------
 $title = New-Object System.Windows.Forms.Label
 $title.Text = " $fileName "
@@ -1646,7 +1669,11 @@ function Set-TopLine {
   }
   $close.Location = New-Object System.Drawing.Point(($width - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
   if ($copy) { $copy.Location = New-Object System.Drawing.Point(($close.Location.X - $copy.PreferredWidth - 6), ($lineMiddle - [int]($copy.PreferredHeight / 2))) }
-  # The bottom line: the same Copiar and close mark, at the same places on it.
+  # The bottom line: the same Copiar and close mark, at the same places on it, only on a large popup
+  # (two thirds of the screen's height or more); a small or middling one keeps them on top alone.
+  $isLarge = $form.ClientSize.Height -ge ($area.Height * 0.65)
+  $closeBelow.Visible = $isLarge
+  if ($copyBelow) { $copyBelow.Visible = $isLarge }
   $bottomMiddle = $form.ClientSize.Height - $lineMiddle
   $closeBelow.Location = New-Object System.Drawing.Point($close.Location.X, ($bottomMiddle - [int]($closeBelow.PreferredHeight / 2)))
   if ($copyBelow) { $copyBelow.Location = New-Object System.Drawing.Point(($closeBelow.Location.X - $copyBelow.PreferredWidth - 6), ($bottomMiddle - [int]($copyBelow.PreferredHeight / 2))) }
