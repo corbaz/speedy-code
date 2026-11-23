@@ -47,6 +47,16 @@ closes it, as its ✕ does.
 - The text is cut in up to five parts: the first plays as soon as it is made while the rest are made.
 - Reading an answer again reuses its audio for an hour: it starts at once.
 - A new prompt stops the narration.
+- A short text whose language cannot be told (a phrase of few words) is read as it is too, never sent to be translated.
+- Every narration is kept in the history from the moment it starts, whole even when it is stopped halfway;
+  the same text read again is kept once.
+- 📎 → **leer selección** reads the newer of the text selected with the mouse and the clipboard's, as they
+  are when it is pressed, so a text copied by any means while the menu is open is read. What it reads is in
+  the history at once, and that row is the one playing (⏸ while it sounds, ⏵ paused); the selection's own row
+  stays ready for the next text. Clearing the history blanks it too, and passes over the text the clipboard
+  and the selection held then.
+- On Windows the popup a kept narration plays in and the footer follow each other: ⏸ on the footer or on the
+  row pauses the popup, and a pause pressed in the popup shows on both.
 
 **The voice menu:** eleven language tabs (Español, Inglés, Francés, Italiano, Portugués, Ruso, Chino,
 Árabe, Hindi, Bengalí, Urdu), a switch between women's and men's voices, the voices in as many
