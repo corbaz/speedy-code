@@ -974,6 +974,8 @@ async function setEnabled ($: EngineInterface, value: boolean) {
 
 /** The clipboard's text while it is still being read for the 📎 menu: its first row waits for it. */
 let pendingRead: Promise<void> | undefined
+/** Whether what 📎 reads was selected with the mouse; else it is the clipboard's, read again at each press. */
+let isPendingSelected = false
 
 /**
  * What 📎 reads: the text selected with the mouse, taken at once, before the menu opens and the
@@ -982,6 +984,7 @@ let pendingRead: Promise<void> | undefined
 async function takeSelection ($: EngineInterface) {
   const selection = await $.ui.selection().catch(() => undefined)
   pendingSelection = selection?.text.trim() ?? ''
+  isPendingSelected = pendingSelection !== ''
   pendingRead = pendingSelection ? undefined : clipboardText($).then(text => { pendingSelection = freshClipboard(text) })
 }
 
@@ -1122,15 +1125,17 @@ async function playInViewer ($: EngineInterface, path: string) {
 /** The first row of the 📎 menu: reads the selection taken when 📎 was pressed, else says there is none. */
 async function readPending ($: EngineInterface) {
   await pendingRead?.catch(() => {})
-  if (!pendingSelection) {
-    $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
-    return
-  }
   // Its row pauses and goes on while it is read, as a kept narration's does.
   const now = await read($, speech)
-  if ((await read($, clipNow)) === SELECTION_CLIP && now !== 'idle') {
+  if (pendingSelection && (await read($, clipNow)) === SELECTION_CLIP && now !== 'idle') {
     if (now === 'playing') await control($, 'pause')
     else if (now === 'paused') await control($, 'play')
+    return
+  }
+  // The clipboard as it is now, not as it was when the menu opened: a text copied since is the one read.
+  if (!isPendingSelected) pendingSelection = freshClipboard(await clipboardText($))
+  if (!pendingSelection) {
+    $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
   }
   lastAnswer = pendingSelection

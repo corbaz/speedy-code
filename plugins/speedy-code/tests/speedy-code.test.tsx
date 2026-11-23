@@ -15,6 +15,8 @@ const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails
 const CODE_MODE = { on: false, ran: [] as string[] }
 /** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
 const FILES = { copied: [] as string[], trashed: [] as string[], renamed: [] as string[] }
+/** The clipboard's text when a test changes it midway; undefined: the one its world was given. */
+const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
 const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
@@ -181,7 +183,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.includes('clipboard info'))) return { value: { exitCode: 0, stdout: clipboard === 'image' ? 'pasted\n' : 'none\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.some(arg => arg.includes('key code 36'))) return { value: { exitCode: 0, stdout: 'sent\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv.includes('edge_tts')) return { value: { exitCode: 0, stdout: VOICES.map(v => `${v.value}  ${v.gender}  General  Friendly`).join('\n'), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    if (e.argv.some(arg => arg.includes('Get-Clipboard -Raw'))) return { value: { exitCode: 0, stdout: clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv.some(arg => arg.includes('Get-Clipboard -Raw'))) return { value: { exitCode: 0, stdout: CLIPBOARD.now ?? clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     // A social button: PowerShell opens the link in the browser.
     // The folder after ✕: open_folder.ps1 opens it in Explorer and brings its window to the front.
     if (e.argv.some(arg => arg.endsWith('open_folder.ps1'))) { opened.push(`folder ${e.init?.env?.SPEEDY_FOLDER ?? ''}`); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } }
@@ -596,6 +598,27 @@ test('the clipboard’s text there when the history was cleared is not read agai
   expect(w.spoken.filter(env => env.NARRATOR_TEXT)).toEqual([])
   expect(TOASTS.at(-1)).toBe('speedy-code: seleccioná o copiá un texto primero.')
   await again.unmount()
+  await ui.unmount()
+})
+
+test('a text copied while the menu is open is read at once: the first row reads the clipboard as it is when pressed', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: undefined }))
+  // The clipboard, which changes while the menu is open.
+  CLIPBOARD.now = ''
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(TOASTS.at(-1)).toBe('speedy-code: seleccioná o copiá un texto primero.')
+  CLIPBOARD.now = 'Texto que copié de otro lado, en el portapapeles.'
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  await w.clock.settle()
+  expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Texto que copié de otro lado, en el portapapeles.'])
+  CLIPBOARD.now = undefined
+  await band.unmount()
   await ui.unmount()
 })
 
