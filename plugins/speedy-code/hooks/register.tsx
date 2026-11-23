@@ -2857,8 +2857,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         )
       })}
       </Box>
-      {/* The scroll bar: its track dim, its thumb in the folders' color, a row each. */}
-      {thumb.size > 0
+      {/* The scroll bar: its track dim, its thumb in the folders' color, a row each. Where the surface draws a
+          Client it is one, scrollbar.tsx: held down, its thumb follows the pointer and the tree with it. */}
+      {thumb.size > 0 && Client
+        ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={1} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR }} />
+        : thumb.size > 0
         ? (
           <Box flexDirection="column" width={1}>
             {Array.from({ length: room }, (_, index) => {
@@ -4273,7 +4276,13 @@ export const register: Register = on => {
   // A footer control was clicked.
   on('ui.message', async ($, e, next) => {
     const result = await next(e)
-    const data = e.data as { isClicked?: unknown } | null
+    const data = e.data as { isClicked?: unknown, scrollTo?: unknown } | null
+    // The explorer's scroll bar, held and moved: the tree's first row it asks for.
+    if (e.element === 'speedy:explorer-bar') {
+      const to = data?.scrollTo
+      if (typeof to === 'number' && Number.isFinite(to)) await update($, explorer, now => ({ ...now, top: Math.max(0, Math.round(to)) }))
+      return result
+    }
     if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result
     if (e.element === 'speedy:voice') {
       const active = (await read($, picks)).active ?? DEFAULT_LANG

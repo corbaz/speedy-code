@@ -2320,9 +2320,12 @@ async function explorerRows (ui: { findAll: (query: { type?: string }) => Promis
   })
 }
 
-/** The explorer's scroll bar, top to bottom: `█` its thumb, `│` its track; empty when the tree fits. */
-async function explorerBar (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string }>> }) {
-  return (await ui.findAll({ type: 'Text' })).map(element => element.text ?? '').filter(text => /^[│█]$/.test(text)).join('')
+/** The explorer's scroll bar, top to bottom, as scrollbar.tsx draws it from its props: `█` its thumb, `│` its track; empty when the tree fits. */
+async function explorerBar (ui: { find: (query: { key?: string }) => Promise<{ props?: Record<string, any> } | undefined> }) {
+  const bar = (await ui.find({ key: 'speedy:explorer-bar' }))?.props?.props as { total: number, top: number, room: number } | undefined
+  if (!bar) return ''
+  const thumb = scrollThumb(bar.total, bar.top, bar.room)
+  return Array.from({ length: bar.room }, (_, index) => index >= thumb.start && index < thumb.start + thumb.size ? '█' : '│').join('')
 }
 
 test('the footer’s folder opens the explorer beside the chat: the disks above, the tree open down to the session’s folder; a folder opens and closes, a disk shows its own, and the folder clicked again closes it', { timeoutMs: 30000 }, async ($, on) => {
@@ -2382,6 +2385,23 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
   expect(await explorerBar(short)).toBe('│██│')
+  // Held by its thumb and moved, the bar takes the tree with it: down to its last rows, and past the bar's
+  // top back to its first; let go, a move does nothing.
+  const shortRows = async () => (await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, '')).slice(4)
+  await short.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'speedy:explorer-bar' })
+  await short.pointer({ type: 'move', x: 0, y: 3, button: 'left', in: 'speedy:explorer-bar' })
+  expect(await explorerBar(short)).toBe('││██')
+  expect(await shortRows()).toEqual(['        ▸ facturas', '          notas.txt', '  ▸ Windows', '    setup.exe'])
+  await short.pointer({ type: 'move', x: 0, y: -5, button: 'left', in: 'speedy:explorer-bar' })
+  expect(await explorerBar(short)).toBe('██││')
+  expect((await shortRows())[0]).toBe('▾ C:\\')
+  await short.pointer({ type: 'up', x: 0, y: -5, button: 'left', in: 'speedy:explorer-bar' })
+  await short.pointer({ type: 'move', x: 0, y: 3, in: 'speedy:explorer-bar' })
+  expect(await explorerBar(short)).toBe('██││')
+  // A press on the track brings the thumb's middle there.
+  await short.pointer({ type: 'down', x: 0, y: 3, button: 'left', in: 'speedy:explorer-bar' })
+  expect(await explorerBar(short)).toBe('││██')
+  await short.pointer({ type: 'up', x: 0, y: 3, button: 'left', in: 'speedy:explorer-bar' })
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
