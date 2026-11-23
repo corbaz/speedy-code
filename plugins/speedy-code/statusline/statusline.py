@@ -136,16 +136,25 @@ def sign_in(home):
         with open(os.path.join(home, ".claude", ".credentials.json"), encoding="utf-8") as source:
             raw = source.read()
     except OSError:
-        if sys.platform == "darwin":
-            try:
-                asked = subprocess.run(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
-                                       capture_output=True, text=True, check=False, timeout=5)
-                raw = asked.stdout if asked.returncode == 0 else ""
-            except (OSError, subprocess.SubprocessError):
-                raw = ""
+        pass
+    token = token_in(raw)
+    # macOS keeps the sign-in in the keychain. The file can be there all the same, with other sign-ins only
+    # (an MCP server's), so the keychain is asked whenever the file gave none.
+    if not token and sys.platform == "darwin":
+        try:
+            asked = subprocess.run(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                                   capture_output=True, text=True, check=False, timeout=5)
+            token = token_in(asked.stdout if asked.returncode == 0 else "")
+        except (OSError, subprocess.SubprocessError):
+            token = None
+    return token
+
+
+def token_in(raw):
+    """The sign-in's token in what Claude Code keeps, as JSON; None when there is none or it has run out."""
     try:
         kept = (json.loads(raw) or {}).get("claudeAiOauth") or {}
-    except ValueError:
+    except (ValueError, AttributeError):
         return None
     token = kept.get("accessToken")
     if not token or number(kept.get("expiresAt")) / 1000 < clock.time():
