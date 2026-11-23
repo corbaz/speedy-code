@@ -669,6 +669,20 @@ test('a text sent to the clipboard by any means is read, even with an older sele
   await ui.unmount()
 })
 
+test('a short text whose language cannot be told is read as it is, never sent to be translated', { timeoutMs: 30000 }, async ($, on) => {
+  // Too few common words to tell its language: a model asked to translate it answers about it instead.
+  on('ui.selection', () => ({ value: { text: 'Al terminar el audio vuelve a play.' } }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.settle()
+  expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Al terminar el audio vuelve a play.'])
+  await band.unmount()
+  await ui.unmount()
+})
+
 test('switched off, the clip stays lit and reads the selection: off only keeps the answers from being read on their own', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { isEnabled: false })
