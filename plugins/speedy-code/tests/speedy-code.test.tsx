@@ -215,7 +215,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       return { value: { exitCode: 0, stdout: 'copied\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.endsWith('dialog.ps1'))) {
-      DIALOG.asked.push(e.init?.env?.SPEEDY_MODE ?? '')
+      DIALOG.asked.push([e.init?.env?.SPEEDY_MODE ?? '', e.init?.env?.SPEEDY_KIND === 'dir' ? 'dir' : ''].filter(Boolean).join(' '))
       return { value: { exitCode: 0, stdout: `${DIALOG.answer}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.includes('Rename-Item'))) {
@@ -2110,8 +2110,9 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
  */
 async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
   return (await ui.findAll({})).flatMap(element => {
-    if (element.type === 'Text') return [{ text: element.text ?? '', look: element.props ?? {} }]
-    if (element.type === 'Client' && String(element.key).startsWith('speedy:explorer-view:')) {
+    // The blank gaps between a row's tools are left out, as the tools are.
+    if (element.type === 'Text') return (element.text ?? '').trim() ? [{ text: element.text ?? '', look: element.props ?? {} }] : []
+    if (element.type === 'Client' && /^speedy:explorer-(view|folder):/.test(String(element.key))) {
       const props = element.props?.props ?? {}
       return [{ text: String(props.label ?? ''), look: props }]
     }
@@ -2140,7 +2141,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     // A disk's own entry is under `C:/`, with its slash.
     const parent = /^[a-z]:$/.test(key.slice(0, at)) ? key.slice(0, at + 1) : key.slice(0, at)
     const folder = Object.entries(TREE).find(([name]) => name.toLowerCase() === parent)?.[1]
-    return folder?.some(entry => entry.name.toLowerCase() === key.slice(at + 1)) ? 'file' : undefined
+    const entry = folder?.find(one => one.name.toLowerCase() === key.slice(at + 1))
+    return entry ? (entry.kind === 'dir' ? 'dir' : 'file') : undefined
   }
   on('fs.stat', (_, e) => {
     const kind = known(e.path)
@@ -2171,7 +2173,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
   const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
-  expect((await short.findAll({ type: 'Text' })).map(text => text.text)).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
@@ -2192,12 +2194,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     '    setup.exe'
   ])
   // A folder closed opens, read then; pressed again, it closes.
-  await pane.press({ key: 'explorer:C:/Windows' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    setup.exe'])
-  await pane.press({ key: 'explorer:C:/Windows' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   expect((await texts()).slice(-2)).toEqual(['  ▸ Windows', '    setup.exe'])
   // One that cannot be read says so.
-  await pane.press({ key: 'explorer:C:/Users/test/proyectos/facturas' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/test/proyectos/facturas' })
   expect(await texts()).toContain('          (sin acceso)')
   // Another disk shows its own tree, and the first keeps what was open.
   await pane.press({ key: 'explorer-drive:D:/' })
@@ -2236,7 +2238,16 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await look('speedy:explorer-view:C:/Users/test/proyectos/notas.txt'))?.hover?.scope).not.toBe(nameLook?.hover?.scope)
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
   // They are Clients, as the footer's controls: a Button would fill them under the pointer.
-  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text).toBe(` ${{ copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool]}`)
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text?.trimEnd()).toBe({ copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool])
+  // Each icon is pressed on its own two cells; the cells between them are a plain gap, so a press a little
+  // off an icon does nothing instead of the next one's work.
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ key: `speedy:explorer-${tool}:C:/setup.exe` }))?.props?.width).toBe(2)
+  // A folder has the same four tools, its name a Client in the folders' blue, which fills under the pointer
+  // and stays while the pointer is on its tools; a disk's root has none.
+  const folderLook = await look('speedy:explorer-folder:C:/Windows')
+  expect(folderLook?.hover).toMatchObject({ backgroundColor: '#74c0fc', color: '#1a1a1a' })
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await look(`speedy:explorer-${tool}:C:/Windows`))?.hover?.scope).toBe(folderLook?.hover?.scope)
+  expect(await pane.find({ key: 'speedy:explorer-trash:C:/' })).toBeUndefined()
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
@@ -2279,6 +2290,17 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')
+  // A folder's ✏ asks one name, with no extension; its 🗑 asks too, and the folder goes with what it holds.
+  DIALOG.asked = []
+  DIALOG.answer = 'rename ZmFjdHVyYXMuMjAyNQ=='
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/facturas' })
+  expect(DIALOG.asked).toEqual(['rename dir'])
+  expect(FILES.renamed.at(-1)).toBe('C:\\Users\\test\\proyectos\\facturas -> facturas.2025')
+  DIALOG.answer = 'delete'
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/facturas' })
+  DIALOG.answer = 'cancel'
+  expect(DIALOG.asked.at(-1)).toBe('delete dir')
+  expect(FILES.trashed.at(-1)).toBe('C:\\Users\\test\\proyectos\\facturas')
   await pane.unmount()
   // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
@@ -2290,13 +2312,13 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A folder is marked the same way, and the tree shows it in the middle of a short body.
   await near.input({ key: 'explorer-goto', text: 'C:\\Users\\test\\', kind: 'submit' })
   expect(await marked()).toEqual(['    ▾ test'])
-  expect((await near.findAll({ type: 'Text' })).map(text => text.text?.trimEnd()).slice(4)).toEqual(['    ▸ Public', '    ▾ test', '      ▾ proyectos ●'])
+  expect((await explorerRows(near)).map(row => row.text.trimEnd()).slice(4)).toEqual(['    ▸ Public', '    ▾ test', '      ▾ proyectos ●'])
   // A path that is not there says so, and the tree stays.
   await near.input({ key: 'explorer-goto', text: 'C:\\nada\\falta.txt', kind: 'submit' })
   expect(TOASTS.at(-1)).toBe('speedy-code: no existe C:/nada/falta.txt.')
   expect(await marked()).toEqual(['    ▾ test'])
   // Any press in the explorer takes the mark off: the yellow fill is the pointer's again, and follows it.
-  await near.press({ key: 'explorer:C:/Users/Public' })
+  await near.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/Public' })
   expect(await marked()).toEqual([])
   // A link is marked too, as a macOS app in /Applications often is one.
   await near.input({ key: 'explorer-goto', text: 'C:\\Documents and Settings', kind: 'submit' })
@@ -2310,7 +2332,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // ⊟ beside the disks collapses every disk: the session's is left open down to its folder, the others all
   // closed. The disk shown stays shown, the session's or not.
   const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
-  await tree.press({ key: 'explorer:C:/Windows' })
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   await tree.press({ key: 'explorer-drive:D:/' })
   expect((await explorerRows(tree)).map(row => row.text.trimEnd())).toContain('  ▾ fotos')
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })

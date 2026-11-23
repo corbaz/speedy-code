@@ -2107,7 +2107,7 @@ function followDock ($: EngineInterface, width: number) {
   $.ui.invalidate('ui.render')
 }
 /** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
-const EXPLORER_TOOLS_WIDTH = 13
+const EXPLORER_TOOLS_WIDTH = 15
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
  * Fonts) and its color. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
@@ -2307,7 +2307,7 @@ async function trashFile ($: EngineInterface, path: string) {
   const native = await nativePath($, path)
   const isWindows = (await osNow($)) === 'windows'
   const argv = isWindows
-    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin'); 'deleted'"]
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $env:SPEEDY_FILE -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') }; 'deleted'"]
     : MAC.trash(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
@@ -2341,11 +2341,13 @@ export function badFileName (name: string) {
  */
 async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: string) {
   const native = await nativePath($, path)
+  // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
+  const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
     : MAC.dialog(mode, path.split('/').pop() ?? path)
-  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native, SPEEDY_MODE: mode } }).catch(() => undefined)
+  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind } }).catch(() => undefined)
   return (result?.stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? 'cancel'
 }
 
@@ -2440,6 +2442,12 @@ async function toggleExplorer ($: EngineInterface) {
 /** What the explorer's field says while empty: a path as the system writes one. */
 export function gotoHint (isWindows: boolean) {
   return `pegá una ruta y Enter: ${isWindows ? 'D:\\carpeta\\archivo' : '/Users/carpeta/archivo'}`
+}
+
+/** A tool's icon on exactly two cells: an emoji, or a Nerd Fonts glyph with the cell it spills over. */
+export function toolLabel (icon: string, isGlyph: boolean) {
+  const text = isGlyph ? `${icon}\u00a0` : icon
+  return text + ' '.repeat(Math.max(0, 2 - cells(text)))
 }
 
 /** A file row's hover group: its name and tools light together. A path may be long; a group name is 64 at most. */
@@ -2605,45 +2613,56 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
-        if (row.kind === 'file') {
-          // A file: its name, which opens the viewer, and at its right 📋 copies the file, 🔗 its path,
-          // ✏ renames it and 🗑 sends it to the trash, each of the last two after a dialog.
-          // The name is cut to its room, so a long one keeps to its row and the tools stay in sight.
-          // Asking ¿Borrar? Sí No takes more room than the three tools.
+        // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it and 🗑 sends
+        // it to the trash, each of the last two after a dialog. A file's name is yellow and opens the viewer; a
+        // folder's is blue and opens or closes it. A disk's root has no tools.
+        const isFolder = row.kind === 'dir'
+        if (row.kind === 'file' || (isFolder && row.depth > 0)) {
           const toolsWidth = EXPLORER_TOOLS_WIDTH
-          // Cut to its room, then filled with spaces up to the tools: the fill under the pointer runs to
-          // them, so it is plain which tools are the file's.
+          // The name is cut to its room, then filled with spaces up to the tools: the fill under the pointer
+          // runs to them, so it is plain which tools are the row's, and a long name keeps to its row.
           const nameRoom = Math.max(4, width - toolsWidth)
-          const cut = cutCells(`${indent}  ${row.name}`, nameRoom)
+          const text = isFolder ? `${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}` : `${indent}  ${row.name}`
+          const cut = cutCells(text, nameRoom)
           const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
           // The row's hover group: its name and its tools. While the pointer is anywhere on them the name
-          // takes the yellow fill, the tools none: the row is marked as the one the tools act on.
+          // takes the fill, yellow for a file and blue for a folder; the tools take none.
           const scope = hoverScope(row.path)
+          const tint = isFolder ? (row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR) : EXPLORER_VIEWABLE_COLOR
+          const fill = isFolder ? EXPLORER_DIR_COLOR : EXPLORER_VIEWABLE_COLOR
           // The name is a Client, as the tools are: a Button under the pointer inverts its cells, a grey bar
-          // over the yellow. A press reaches the ui.message hook by its key and opens the viewer.
+          // over the color. A press reaches the ui.message hook by its key.
           const name = Client
             ? (
               <Client
-                key={`speedy:explorer-view:${row.path}`}
+                key={`speedy:explorer-${isFolder ? 'folder' : 'view'}:${row.path}`}
                 module="./control.tsx"
                 width={cells(label)}
                 props={row.isFound
                   ? { label, color: '#1a1a1a', bold: true, backgroundColor: EXPLORER_VIEWABLE_COLOR }
-                  : { label, color: EXPLORER_VIEWABLE_COLOR, hover: { scope, backgroundColor: EXPLORER_VIEWABLE_COLOR, color: '#1a1a1a' } }}
+                  : { label, color: tint, bold: isFolder && row.isHere, hover: { scope, backgroundColor: fill, color: '#1a1a1a' } }}
               />
               )
             : (
-              <Button key={`explorer-file:${row.path}`} plain onPress={() => { void forgetFound($); void runViewer($, 'view_file.ps1', row.path) }}>
-                <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{label}</Text>
+              <Button
+                key={`${isFolder ? 'explorer' : 'explorer-file'}:${row.path}`}
+                plain
+                onPress={() => { if (isFolder) void toggleTreeFolder($, row.path); else { void forgetFound($); void runViewer($, 'view_file.ps1', row.path) } }}
+              >
+                <Text color={tint} wrap="truncate-end">{label}</Text>
               </Button>
               )
-          // Each tool is a Client, as the footer's are: a Button fills its cell under the pointer, and the
-          // fill framed the icons. A press reaches the ui.message hook by the Client's key. A tool is in its
-          // row's hover group, and keeps its own color in it.
+          // Each tool is a Client of its own two cells, as the footer's are: a Button fills its cell under the
+          // pointer. Between them a plain gap takes no press, so a press a little off one does nothing instead
+          // of its neighbour's work. A tool is in its row's hover group, and keeps its own color in it.
           const tool = (kind: string, label: string, color: string) => Client
             ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
             : <Text key={kind} color={color}>{label}</Text>
-          const tools = EXPLORER_TOOLS.map(([kind, emoji, glyph, color]) => tool(kind, ` ${isGlyphs ? glyph : emoji}`, flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color))
+          const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
+          const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
+            gap(`gap:${kind}`, index === 0 ? 1 : 2),
+            tool(kind, toolLabel(isGlyphs ? glyph : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color)
+          ])
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
               <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
@@ -2653,11 +2672,12 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         }
         if (row.kind !== 'dir') {
           const mark = row.kind === 'link' ? '↪ ' : '  '
-          // A link or a file the viewer does not show, found by the field, is marked as any row found.
+          // A link, found by the field, is marked as any row found.
           return row.isFound
             ? <Text key={`explorer-entry:${row.path}`} bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
             : <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
         }
+        // A disk's root: it opens and closes, and has no tools.
         return (
           <Button key={`explorer:${row.path}`} plain onPress={() => { void toggleTreeFolder($, row.path) }}>
             {row.isFound
@@ -4078,6 +4098,7 @@ export const register: Register = on => {
       const path = rest.slice(rest.indexOf(':') + 1)
       await forgetFound($)
       if (kind === 'view') void runViewer($, 'view_file.ps1', path)
+      if (kind === 'folder') await toggleTreeFolder($, path)
       if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)

@@ -5,6 +5,7 @@
 #     The new name is checked here (not empty, none of \ / : * ? " < > |, not another file of the folder)
 #     and the dialog stays open, saying why, until it is right or cancelled.
 #     Prints `rename <base64 of the UTF-8 new name>`, or `cancel`.
+#   SPEEDY_KIND=dir: a folder; one field for its name, and Borrar says it goes with what it holds.
 #   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si, borrar / Cancelar. Prints `delete` or `cancel`.
 # Enter accepts a rename (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
@@ -18,6 +19,8 @@ function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 $path = $env:SPEEDY_FILE
 $mode = if ($env:SPEEDY_MODE -eq 'delete') { 'delete' } else { 'rename' }
 $fileName = [IO.Path]::GetFileName($path)
+# A folder (SPEEDY_KIND=dir) is renamed whole, with no extension, and goes to the trash with what it holds.
+$isFolder = $env:SPEEDY_KIND -eq 'dir'
 $folder = [IO.Path]::GetDirectoryName($path)
 
 $black = [System.Drawing.Color]::Black
@@ -171,28 +174,34 @@ function Finish([string]$answer) {
 $inner = $width - 2 * ($contour + $line + $margin)
 $innerHeight = $height - 2 * ($contour + $line + $band)
 if ($mode -eq 'rename') {
-  # A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them.
-  $dot = $fileName.LastIndexOf('.')
+  # A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them. A folder's
+  # name is all name: one field, as wide as the two.
+  $dot = if ($isFolder) { -1 } else { $fileName.LastIndexOf('.') }
   $base = if ($dot -gt 0) { $fileName.Substring(0, $dot) } else { $fileName }
   $extension = if ($dot -gt 0) { $fileName.Substring($dot + 1) } else { '' }
   [void](New-Text 'Nombre' $gap $gap $dim $font)
-  [void](New-Text (T 'Extensi\u00f3n') 330 $gap $dim $font)
-  $nameBox = New-Box $base $gap 52 290
-  [void](New-Text '.' 318 54 $ink $bold)
-  $extensionBox = New-Box $extension 330 52 ($inner - 330 - $gap)
+  if ($isFolder) {
+    $nameBox = New-Box $base $gap 52 ($inner - 2 * $gap)
+    $extensionBox = $null
+  } else {
+    [void](New-Text (T 'Extensi\u00f3n') 330 $gap $dim $font)
+    $nameBox = New-Box $base $gap 52 290
+    [void](New-Text '.' 318 54 $ink $bold)
+    $extensionBox = New-Box $extension 330 52 ($inner - 330 - $gap)
+  }
   $problem = New-Text '' $gap 92 $red $font
   $accept = New-Action 'Aceptar' $blue $black 0
   $cancel = New-Action 'Cancelar' $field $ink 1
 
   function Try-Accept {
     $name = $nameBox.Text.Trim()
-    $ext = $extensionBox.Text.Trim().TrimStart('.')
+    $ext = if ($extensionBox) { $extensionBox.Text.Trim().TrimStart('.') } else { '' }
     $wanted = if ($ext) { "$name.$ext" } else { $name }
     $why = ''
     if (-not $name) { $why = T 'El nombre est\u00e1 vac\u00edo.' }
     elseif ($wanted -eq '.' -or $wanted -eq '..') { $why = T 'Ese nombre no es v\u00e1lido.' }
     elseif ($wanted.IndexOfAny([char[]]'\/:*?"<>|') -ge 0) { $why = T 'No puede tener \\ / : * ? " < > |' }
-    elseif ($wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $folder $wanted))) { $why = "Ya hay un archivo $wanted en esa carpeta." }
+    elseif ($wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $folder $wanted))) { $why = "Ya hay $(if ($isFolder) { 'una carpeta o un archivo' } else { 'un archivo' }) $wanted en esa carpeta." }
     if ($why) { $problem.Text = $why; return }
     if ($wanted -eq $fileName) { Finish 'cancel'; return }
     Finish ('rename ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($wanted)))
@@ -205,7 +214,8 @@ if ($mode -eq 'rename') {
   [void](New-Text (T '\u00bfMandar a la papelera?') $gap $gap $ink $bold)
   $shown = if ($fileName.Length -gt 46) { $fileName.Substring(0, 45) + [char]0x2026 } else { $fileName }
   [void](New-Text $shown $gap 52 $blue $bold)
-  [void](New-Text (T 'Se puede recuperar desde la Papelera de reciclaje.') $gap 80 $dim $font)
+  $note = if ($isFolder) { T 'Con todo lo que tiene. Se puede recuperar desde la Papelera.' } else { T 'Se puede recuperar desde la Papelera de reciclaje.' }
+  [void](New-Text $note $gap 80 $dim $font)
   $accept = New-Action (T 'S\u00ed, borrar') $red $black 0
   $cancel = New-Action 'Cancelar' $field $ink 1
   $accept.Add_Click({ Finish 'delete' })
