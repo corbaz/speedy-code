@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -21,6 +21,8 @@ const CLIPBOARD = { now: undefined as string | undefined }
 const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 const VIEWER = { says: '', stays: false, next: [] as string[] }
+/** What find_files.py says, a line each, and what each search was asked. */
+const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>> }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -285,6 +287,12 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
         await clock.sleep(100)
         yield { stream: 'stdout' as const, text: `${VIEWER.next.shift() ?? '.'}\r\n` }
       }
+      return { value: { code: 0, signal: null } }
+    }
+    // The explorer's filter: find_files.py says the files found, a line at a time.
+    if (e.argv.some(arg => arg.endsWith('find_files.py'))) {
+      FINDER.asked.push({ ...e.env })
+      for (const line of FINDER.lines) yield { stream: 'stdout' as const, text: `${line}\n` }
       return { value: { code: 0, signal: null } }
     }
     if (e.argv.some(arg => arg.endsWith('listen.py'))) {
@@ -2380,7 +2388,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
-  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
+  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 8 } }, surface: 'terminal' })
   expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
@@ -2531,7 +2539,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.unmount()
   // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
-  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 6 } }, surface: 'terminal' })
+  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
   await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
   const marked = async () => (await explorerRows(near)).filter(row => row.look.backgroundColor === '#ffd43b').map(row => row.text.trimEnd())
   expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
@@ -2575,12 +2583,74 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(shown).not.toContain('    ▸ System32')
   // Collapsed, nothing is marked: the path found goes.
   expect((await explorerRows(tree)).some(row => row.look.backgroundColor === '#ffd43b')).toBe(false)
+  // The filter: a pattern, Enter, and the disk shown is searched, the session's folder first; the tree holds
+  // only the files found, under their folders, all open, and the rule says how many.
+  FINDER.lines = [
+    JSON.stringify({ paths: ['C:/Users/test/proyectos/informe.pdf'], seen: 40 }),
+    JSON.stringify({ paths: ['C:/Users/Public/Guía.PDF', 'C:/apuntes.pdf'], seen: 90, done: true, cut: false })
+  ]
+  const filtered = async () => (await explorerRows(tree)).map(row => row.text.replace(/ {2,}$/, '')).slice(3)
+  expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × limpiar ', color: '#868e96' })
+  await tree.input({ key: 'explorer-filter:0', text: ' *.pdf ', kind: 'submit' })
+  await w.clock.advance(100)
+  expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'C:\\', SPEEDY_FIRST: 'C:\\Users\\test\\proyectos', SPEEDY_PATTERN: '*.pdf', SPEEDY_MOST: '1000' })
+  expect(await filtered()).toEqual([
+    '─ *.pdf: 3 archivos ────────────────────────',
+    '▾ C:\\',
+    '  ▾ Users',
+    '    ▾ Public',
+    '        Guía.PDF',
+    '    ▾ test',
+    '      ▾ proyectos ●',
+    '          informe.pdf',
+    '    apuntes.pdf'
+  ])
+  expect((await tree.find({ key: 'explorer-filter:0' }))?.props).toMatchObject({ value: '*.pdf' })
+  expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ color: '#ff6b6b' })
+  // A folder of a filter's tree closes with a press, and opens with another.
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/test' })
+  expect(await filtered()).toContain('    ▸ test')
+  expect(await filtered()).not.toContain('          informe.pdf')
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/test' })
+  expect(await filtered()).toContain('          informe.pdf')
+  // Another disk is searched with the same filter; one with no file that matches says so.
+  FINDER.lines = [JSON.stringify({ paths: [], seen: 7, done: true, cut: false })]
+  await tree.press({ key: 'explorer-drive:D:/' })
+  await w.clock.advance(100)
+  expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'D:\\', SPEEDY_PATTERN: '*.pdf' })
+  expect(await filtered()).toEqual(['─ *.pdf: 0 archivos ────────────────────────', '▾ D:\\', '  (ningún archivo coincide)'])
+  // × clears the filter: the field empties and the whole tree is back.
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-unfilter:' })
+  expect((await tree.find({ key: 'explorer-filter:1' }))?.props).toMatchObject({ value: '' })
+  expect(await filtered()).toEqual(['─'.repeat(44), '▾ D:\\', '  ▸ fotos'])
+  await tree.press({ key: 'explorer-drive:C:/' })
   await tree.unmount()
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
   expect(closed).toEqual(['speedy-code-explorer'])
   await footer.unmount()
+})
+
+test('filterRows, filterNote, filterLine, filterPattern and filterMoved: a filter’s tree holds the files found under their folders; a file renamed or trashed follows', () => {
+  const state = { drives: ['/'], drive: '/', open: [], listed: {}, here: '/Users/ana', caseless: false, top: 0 }
+  const filter = { pattern: 'a*.docx', paths: ['/Users/ana/b/acta 10.docx', '/Users/ana/b/acta 2.docx', '/Users/ana/Acta.docx'], seen: 1200, isBusy: true, isCut: false, closed: [] as string[] }
+  const texts = (rows: ReturnType<typeof filterRows>) => rows.map(row => `${'  '.repeat(row.depth)}${row.kind === 'dir' ? (row.isOpen ? '▾ ' : '▸ ') : ''}${row.name}${row.isHere ? ' ●' : ''}`)
+  expect(texts(filterRows(state, filter))).toEqual(['▾ /', '  ▾ Users', '    ▾ ana ●', '      ▾ b', '        acta 2.docx', '        acta 10.docx', '      Acta.docx'])
+  expect(texts(treeRows({ ...state, filter: { ...filter, closed: ['/Users/ana/b'] } }))).toEqual(['▾ /', '  ▾ Users', '    ▾ ana ●', '      ▸ b', '      Acta.docx'])
+  expect(texts(filterRows(state, { ...filter, paths: [] }))).toEqual(['▾ /', '  buscando…'])
+  expect(texts(filterRows(state, { ...filter, paths: [], isBusy: false }))).toEqual(['▾ /', '  (ningún archivo coincide)'])
+  expect(texts(filterRows(state, { ...filter, paths: ['/a.docx'], isCut: true }))).toEqual(['▾ /', '  a.docx', '  … hay más: son los primeros 1'])
+  expect(filterNote(filter)).toBe(' a*.docx: 3 archivos, buscando… (1.200 vistos) ')
+  expect(filterNote({ ...filter, paths: ['/a.docx'], isBusy: false })).toBe(' a*.docx: 1 archivo ')
+  expect(filterLine('{"paths": ["C:/a.pdf", 3], "seen": 12, "done": true, "cut": true}')).toEqual({ paths: ['C:/a.pdf'], seen: 12, isDone: true, isCut: true })
+  expect(filterLine('{"paths": [], "seen": 5}')).toEqual({ paths: [], seen: 5, isDone: false, isCut: false })
+  expect(filterLine('Traceback')).toBeUndefined()
+  expect(filterPattern('  "*.pdf" ')).toBe('*.pdf')
+  expect(filterPattern('   ')).toBe('')
+  expect(filterMoved({ ...state, filter }, '/Users/ana/b', '/Users/ana/c').filter?.paths).toEqual(['/Users/ana/c/acta 10.docx', '/Users/ana/c/acta 2.docx', '/Users/ana/Acta.docx'])
+  expect(filterMoved({ ...state, filter }, '/Users/ana/Acta.docx').filter?.paths).toEqual(['/Users/ana/b/acta 10.docx', '/Users/ana/b/acta 2.docx'])
+  expect(filterMoved(state, '/Users/ana/Acta.docx')).toBe(state)
 })
 
 test('gotoHint: the explorer’s field shows a path as the system writes one', () => {

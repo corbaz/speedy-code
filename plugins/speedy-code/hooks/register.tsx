@@ -4,7 +4,7 @@ import type { EngineInterface, FsEntry, Register } from 'claude-code'
 /** What a render hook hands `$.ui.resolve`: a pane's or the band's. */
 type Drawn = Parameters<EngineInterface['ui']['resolve']>[0]
 
-import type { BarLevels, BarPart, Explorer, ExplorerEntry, ExplorerListing, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, PermissionMode, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
+import type { BarLevels, BarPart, Explorer, ExplorerEntry, ExplorerFilter, ExplorerListing, Heard, HistoryClip, LevelKey, Listening, Menu, PastedImage, PermissionMode, Picks, SessionRow, SetupCheck, Socials, Speech, Voice } from '../types'
 
 const PANE = 'speedy-code'
 const MIC_PANE = 'speedy-code-mic'
@@ -2298,10 +2298,15 @@ const EXPLORER_MOST = 500
 const EXPLORER_DIR_COLOR = '#74c0fc'
 /** A file the viewer opens: yellow, so it reads as one that does something when pressed. */
 const EXPLORER_VIEWABLE_COLOR = '#ffd43b'
+/** The filter's ×: red while a filter is on, grey while there is none to clear. */
+const UNFILTER_COLOR = '#ff6b6b'
+const UNFILTER_IDLE_COLOR = '#868e96'
 const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, here: '', caseless: false, top: 0 }
 const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
-/** The rows above the tree: the disks, the field a path is pasted in, and a rule. They stay while the tree scrolls. */
-const EXPLORER_HEADER_ROWS = 3
+/** The rows above the tree: the disks, the field a path is pasted in, the filter's, and a rule. They stay while the tree scrolls. */
+const EXPLORER_HEADER_ROWS = 4
+/** The most files a filter shows: more would bury the tree, and the pattern can be made narrower. */
+const FILTER_MOST = 1000
 
 /** A path with `/` alone, as the explorer keeps every path. */
 const slashed = (path: string) => path.replace(/\\/g, '/')
@@ -2349,9 +2354,72 @@ export function listingOf (entries: readonly FsEntry[], most = EXPLORER_MOST): E
 /** A row of the tree: an entry, or a note under a folder (not read yet, unreadable, empty, entries left). */
 export type TreeRow = { path: string; name: string; depth: number; kind: ExplorerEntry['kind'] | 'note'; isOpen: boolean; isHere: boolean; isFound?: boolean }
 
-/** The tree of the disk shown, flat: the disk, then what each open folder holds under it. */
+/**
+ * The tree of a filter, flat: the disk, then only the folders that hold a file found, down to each one, all
+ * open but those closed by hand. Folders first, then files, each by name, as the whole tree lists them.
+ */
+export function filterRows (state: Explorer, filter: ExplorerFilter): TreeRow[] {
+  type Folder = { path: string; folders: Map<string, Folder>; files: string[] }
+  const root: Folder = { path: state.drive, folders: new Map(), files: [] }
+  const disk = pathKey(state.drive, state.caseless)
+  for (const path of filter.paths) {
+    if (!isUnder(pathKey(path, state.caseless), disk)) continue
+    const names = path.slice(state.drive.length).split('/').filter(Boolean)
+    const file = names.pop()
+    if (!file) continue
+    let folder = root
+    for (const name of names) {
+      const key = pathKey(name, state.caseless)
+      let next = folder.folders.get(key)
+      if (!next) folder.folders.set(key, next = { path: joinPath(folder.path, name), folders: new Map(), files: [] })
+      folder = next
+    }
+    folder.files.push(file)
+  }
+  const here = pathKey(state.here, state.caseless)
+  const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+  const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+  const rows: TreeRow[] = []
+  const walk = (folder: Folder, name: string, depth: number) => {
+    const key = pathKey(folder.path, state.caseless)
+    const isOpen = !filter.closed.includes(key)
+    rows.push({ path: folder.path, name, depth, kind: 'dir', isOpen, isHere: key === here })
+    if (!isOpen) return
+    for (const next of [...folder.folders.values()].sort((a, b) => byName(nameOf(a.path), nameOf(b.path)))) walk(next, nameOf(next.path), depth + 1)
+    for (const file of [...folder.files].sort(byName)) rows.push({ path: joinPath(folder.path, file), name: file, depth: depth + 1, kind: 'file', isOpen: false, isHere: false })
+  }
+  const label = /^[A-Za-z]:\/$/.test(state.drive) ? `${driveLabel(state.drive)}\\` : state.drive
+  walk(root, label, 0)
+  const note = (name: string) => rows.push({ path: `${state.drive}#${name}`, name, depth: 1, kind: 'note', isOpen: false, isHere: false })
+  if (rows.length === 1) note(filter.isBusy ? 'buscando…' : '(ningún archivo coincide)')
+  else if (filter.isCut) note(`… hay más: son los primeros ${filter.paths.length}`)
+  return rows
+}
+
+/** What the rule under the filter says of it: the pattern, the files found, and the entries seen while it searches. */
+export function filterNote (filter: ExplorerFilter) {
+  const count = filter.paths.length
+  const found = `${count} ${count === 1 ? 'archivo' : 'archivos'}`
+  return filter.isBusy ? ` ${filter.pattern}: ${found}, buscando… (${filter.seen.toLocaleString('es-AR')} vistos) ` : ` ${filter.pattern}: ${found} `
+}
+
+/** A pattern as typed in the filter's field: its spaces and quotes off. Empty: no filter. */
+export function filterPattern (text: string) {
+  return text.trim().replace(/^["']+|["']+$/g, '').trim()
+}
+
+/** The explorer after a file or a folder was renamed (`to`) or sent to the trash: a filter's files follow it. */
+export function filterMoved (state: Explorer, from: string, to?: string): Explorer {
+  if (!state.filter) return state
+  const key = pathKey(from, state.caseless)
+  const paths = state.filter.paths.flatMap(path => !isUnder(pathKey(path, state.caseless), key) ? [path] : to ? [`${to}${path.slice(from.length)}`] : [])
+  return { ...state, filter: { ...state.filter, paths } }
+}
+
+/** The tree of the disk shown, flat: the disk, then what each open folder holds under it; with a filter on, its tree. */
 export function treeRows (state: Explorer): TreeRow[] {
   if (!state.drive) return []
+  if (state.filter) return filterRows(state, state.filter)
   const here = pathKey(state.here, state.caseless)
   const found = state.found ?? ''
   const rows: TreeRow[] = []
@@ -2477,7 +2545,7 @@ async function trashFile ($: EngineInterface, path: string) {
   const state = await read($, explorer)
   const key = pathKey(folder, state.caseless)
   const listed = await readFolder($, folder)
-  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+  await update($, explorer, now => filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path))
 }
 
 
@@ -2559,7 +2627,7 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
   const state = await read($, explorer)
   const key = pathKey(parent, state.caseless)
   const listed = await readFolder($, parent)
-  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+  await update($, explorer, now => filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path, target))
 }
 
 /** A folder read for the tree; `denied` when it cannot be read. */
@@ -2590,6 +2658,7 @@ async function readDrives ($: EngineInterface, os: Os) {
 async function toggleExplorer ($: EngineInterface) {
   const panes = await $.ui.panes().catch(() => [])
   if (panes.some(pane => pane.id === EXPLORER_PANE)) {
+    filtering?.abort()
     await $.ui.close({ id: EXPLORER_PANE }).catch(() => undefined)
     return
   }
@@ -2602,6 +2671,75 @@ async function toggleExplorer ($: EngineInterface) {
   const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
   await update($, explorer, () => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1 }))
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
+}
+
+/** What the filter's field says while empty. */
+export const FILTER_HINT = 'filtro: *.pdf, a*.docx'
+
+/** The search a filter runs, while it does: aborted, it ends at its next line. */
+let filtering: AbortController | undefined
+
+/**
+ * The filter's field, Enter: the disk shown is searched for the files whose names match (find_files.py, the
+ * session's folder first), and the tree is drawn with those alone as they are found. An empty field clears it.
+ */
+async function filterExplorer ($: EngineInterface, text: string) {
+  const pattern = filterPattern(text)
+  if (!pattern) return clearFilter($)
+  filtering?.abort()
+  const controller = new AbortController()
+  filtering = controller
+  const { drive, here } = await read($, explorer)
+  if (!drive) return
+  await update($, explorer, now => ({ ...now, top: 0, found: undefined, filter: { pattern, paths: [], seen: 0, isBusy: true, isCut: false, closed: [] } }))
+  // What a line of the search adds, unless another filter took its place meanwhile.
+  const add = (paths: string[], seen: number, isBusy: boolean, isCut: boolean) => update($, explorer, now => now.filter && filtering === controller
+    ? { ...now, filter: { ...now.filter, paths: paths.length > 0 ? [...now.filter.paths, ...paths] : now.filter.paths, seen: Math.max(seen, now.filter.seen), isBusy, isCut } }
+    : now)
+  try {
+    const search = $.process.spawn({
+      argv: [await python($), `${$.plugin.root}/hooks/find_files.py`],
+      env: { SPEEDY_ROOT: await nativePath($, drive), SPEEDY_FIRST: await nativePath($, here), SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) }
+    })
+    let pending = ''
+    for await (const { stream, text: piece } of search) {
+      if (controller.signal.aborted) break
+      if (stream !== 'stdout') continue
+      pending += piece
+      const lines = pending.split(/\r?\n/)
+      pending = lines.pop() ?? ''
+      for (const line of lines) {
+        const said = filterLine(line)
+        if (said) await add(said.paths, said.seen, !said.isDone, said.isCut)
+      }
+    }
+  } catch (error) {
+    $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+  } finally {
+    if (filtering === controller) {
+      await update($, explorer, now => now.filter?.isBusy ? { ...now, filter: { ...now.filter, isBusy: false } } : now)
+      filtering = undefined
+    }
+  }
+}
+
+/** A line find_files.py said: the files found since the one before, the entries seen, whether it ended and whether cut short. */
+export function filterLine (line: string) {
+  try {
+    const said = JSON.parse(line) as { paths?: unknown; seen?: unknown; done?: unknown; cut?: unknown } | null
+    if (!said || typeof said !== 'object') return undefined
+    const paths = Array.isArray(said.paths) ? said.paths.filter((one): one is string => typeof one === 'string') : []
+    return { paths, seen: typeof said.seen === 'number' ? said.seen : 0, isDone: said.done === true, isCut: said.cut === true }
+  } catch {
+    return undefined
+  }
+}
+
+/** The filter's ×: the search ends, the field empties and the whole tree is back as it was. */
+async function clearFilter ($: EngineInterface) {
+  filtering?.abort()
+  filtering = undefined
+  await update($, explorer, now => ({ ...now, filter: undefined, cleared: (now.cleared ?? 0) + 1, top: -1 }))
 }
 
 /** What the explorer's field says while empty: a path as the system writes one. */
@@ -2635,6 +2773,13 @@ async function toggleTreeFolder ($: EngineInterface, path: string) {
   await forgetFound($)
   const state = await read($, explorer)
   const key = pathKey(path, state.caseless)
+  // In a filter's tree every folder is open: a press closes it, and another opens it again.
+  if (state.filter) {
+    await update($, explorer, now => now.filter
+      ? { ...now, filter: { ...now.filter, closed: now.filter.closed.includes(key) ? now.filter.closed.filter(one => one !== key) : [...now.filter.closed, key] } }
+      : now)
+    return
+  }
   if (state.open.includes(key)) {
     await update($, explorer, now => ({ ...now, open: now.open.filter(one => one !== key) }))
     return
@@ -2707,8 +2852,12 @@ async function goToPath ($: EngineInterface, text: string) {
     listed[folderKey] = { entries: [...holding.entries, { name, kind: 'file' }], left: Math.max(0, holding.left - 1) }
   }
   const opened = chainRead.map(([one]) => one)
+  // A path gone to is shown in the whole tree: a filter is cleared.
+  filtering?.abort()
   await update($, explorer, now => ({
     ...now,
+    filter: undefined,
+    cleared: now.filter ? (now.cleared ?? 0) + 1 : now.cleared,
     drive,
     open: [...now.open.filter(one => !opened.includes(one)), ...opened],
     listed: { ...now.listed, ...listed },
@@ -2725,6 +2874,8 @@ async function pickDrive ($: EngineInterface, drive: string) {
   const key = pathKey(drive, state.caseless)
   const top = driveOf(state.here, state.drives, state.caseless) === drive ? -1 : 0
   await update($, explorer, now => ({ ...now, drive, top, open: now.open.includes(key) ? now.open : [...now.open, key] }))
+  // A filter follows the disk: it is searched as the one before was.
+  if (state.filter && drive !== state.drive) void filterExplorer($, state.filter.pattern)
   if (state.listed[key] !== undefined) return
   const listed = await readFolder($, drive)
   await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
@@ -2743,6 +2894,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
+  const unfilterLabel = ' × limpiar '
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
@@ -2777,7 +2929,22 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           </Box>
           )
         : null}
-      <Text dimColor>{'─'.repeat(width)}</Text>
+      {/* The filter: a pattern, Enter, and the tree holds only the disk's files that match; × brings the whole tree back. */}
+      {Input
+        ? (
+          <Box flexDirection="row" width={width}>
+            <Box width={Math.max(4, width - cells(unfilterLabel))}>
+              <Input key={`explorer-filter:${state.cleared ?? 0}`} placeholder={FILTER_HINT} value={state.filter?.pattern ?? ''} submitLabel="filtrar" onSubmit={value => { void filterExplorer($, value) }} />
+            </Box>
+            {Client
+              ? <Client key="speedy:explorer-unfilter:" module="./control.tsx" width={cells(unfilterLabel)} props={{ label: unfilterLabel, color: state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR, bold: Boolean(state.filter) }} />
+              : <Button key="explorer-unfilter" plain onPress={() => { void clearFilter($) }}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
+          </Box>
+          )
+        : null}
+      {state.filter
+        ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
+        : <Text dimColor>{'─'.repeat(width)}</Text>}
       <Box flexDirection="row" width={width}>
       <Box flexDirection="column" width={treeWidth}>
       {rows.slice(top, top + room).map(row => {
@@ -4309,6 +4476,7 @@ export const register: Register = on => {
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
       else if (kind === 'trash') void askTrash($, path)
       else if (kind === 'rename') void askRename($, path)
+      else if (kind === 'unfilter') await clearFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
         await collapseExplorer($)

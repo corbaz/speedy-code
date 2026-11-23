@@ -54,7 +54,13 @@ export type ExplorerListing = { entries: ExplorerEntry[]; left: number }
  * path key; `denied` for a folder that could not be read), the session's folder, whether paths ignore case,
  * the first tree row shown (-1: the path found, else the session's folder, in the middle), and the key of the
  * path pasted in the explorer's field and found, marked in the tree. */
-export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string }
+export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string; filter?: ExplorerFilter; cleared?: number }
+
+/** The explorer's filter, while one is on: the pattern typed (`*.pdf`), the files of the disk shown found
+ * so far, the entries looked at, whether the search still runs, whether it stopped at the most files it
+ * shows, and the keys of the folders closed by hand in the tree it draws. `cleared` on the explorer counts
+ * the times the filter was cleared: each one empties the field. */
+export type ExplorerFilter = { pattern: string; paths: string[]; seen: number; isBusy: boolean; isCut: boolean; closed: string[] }
 
 declare module 'claude-code' {
   interface PluginState {
