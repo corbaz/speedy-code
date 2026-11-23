@@ -43,8 +43,10 @@
 
   /* A PDF's pages, one under the other, white on the dark paper. */
   .pdf { overflow: auto; outline: none; background: #25282e; }
-  .pdf .sheet { background: #fff; margin: 10px auto; box-shadow: 0 0 0 1px #000; }
-  .pdf .sheet img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
+  .pdf .sheet { background: #fff; margin: 10px auto; box-shadow: 0 0 0 1px #000; overflow: hidden; }
+  .pdf .sheet > img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
+  /* A page drawn as HTML (a slide), at its own size and scaled to the zoom. */
+  .pdf .sheet > .drawn { transform-origin: 0 0; user-select: text; -webkit-user-select: text; }
 
   /* The bar above a view: a PDF's pages and zoom, a page's zoom. Flat buttons, centered. */
   #toolbar { flex: none; height: 34px; background: var(--bar); border-bottom: 1px solid var(--edge); display: flex; align-items: center; justify-content: center; gap: 2px; }
@@ -114,7 +116,8 @@
   }
   const icon = (name, box = 14) => `<svg viewBox="0 0 ${box} ${box}">${ICONS[name]}</svg>`
 
-  let api, doc, shown = '', picked = false, pdfText = null, tables = null, media = null
+  // `paged`: the name of the view of pages (a PDF's, a document's, a presentation's slides), when there is one.
+  let api, doc, shown = '', paged = '', picked = false, pdfText = null, tables = null, media = null
   // Each view's element, its bar's parts and its zoom, by the view's name.
   const parts = {}
   const labels = {}
@@ -187,7 +190,8 @@
     box.tabIndex = 0
     const widest = Math.max(...view.pages.map(page => page[0]))
     const tallest = Math.max(...view.pages.map(page => page[1]))
-    const part = parts[view.name] = { box, focus: box, pdf: { zoom: view.zoom, mode: 'width', sheets: [], widest, tallest, timer: 0 } }
+    const part = parts[view.name] = { box, focus: box, pdf: { zoom: view.zoom, mode: 'width', sheets: [], widest, tallest, timer: 0, drawn: view.drawn || null } }
+    paged = view.name
     const watch = new IntersectionObserver(entries => {
       for (const entry of entries) {
         entry.target.dataset.near = entry.isIntersecting ? '1' : ''
@@ -197,7 +201,7 @@
     view.pages.forEach((size, index) => {
       const sheet = element('div', 'sheet')
       sheet.dataset.index = index
-      sheet.append(element('img'))
+      sheet.append(view.drawn ? element('div', 'drawn') : element('img'))
       part.pdf.sheets.push(sheet)
       box.append(sheet)
       watch.observe(sheet)
@@ -209,6 +213,11 @@
   }
 
   function drawPdfSheet (pdf, sheet) {
+    // A page drawn as HTML is put in once, and scaled by layoutPdf; a picture is asked for at the zoom's size.
+    if (pdf.drawn) {
+      if (!sheet.dataset.drawn) { sheet.dataset.drawn = '1'; sheet.firstChild.innerHTML = pdf.drawn[sheet.dataset.index] }
+      return
+    }
     const width = Math.round(pdf.pages[sheet.dataset.index][0] * pdf.zoom * Math.min(2, window.devicePixelRatio || 1))
     if (sheet.dataset.drawn === String(width)) return
     sheet.dataset.drawn = width
@@ -219,12 +228,13 @@
     pdf.sheets.forEach((sheet, index) => {
       sheet.style.width = `${Math.round(pdf.pages[index][0] * pdf.zoom)}px`
       sheet.style.height = `${Math.round(pdf.pages[index][1] * pdf.zoom)}px`
+      if (pdf.drawn) sheet.firstChild.style.transform = `scale(${pdf.zoom})`
     })
     clearTimeout(pdf.timer)
     pdf.timer = setTimeout(() => pdf.sheets.forEach(sheet => { if (sheet.dataset.near) drawPdfSheet(pdf, sheet) }), 180)
   }
 
-  const pdfPart = () => parts.PDF
+  const pdfPart = () => parts[paged]
   // The page in the middle of what is seen.
   function pdfCurrent () {
     const { box, pdf } = pdfPart()
@@ -254,12 +264,12 @@
     updatePdfBar()
   }
   function updatePdfBar () {
-    const bar = parts.PDF.bar
+    const bar = pdfPart().bar
     if (!bar) return
     if (document.activeElement !== bar.page) bar.page.value = pdfCurrent()
-    if (document.activeElement !== bar.zoom) bar.zoom.value = `${Math.round(parts.PDF.pdf.zoom * 100)}%`
-    bar.width.classList.toggle('active', parts.PDF.pdf.mode === 'width')
-    bar.whole.classList.toggle('active', parts.PDF.pdf.mode === 'page')
+    if (document.activeElement !== bar.zoom) bar.zoom.value = `${Math.round(pdfPart().pdf.zoom * 100)}%`
+    bar.width.classList.toggle('active', pdfPart().pdf.mode === 'width')
+    bar.whole.classList.toggle('active', pdfPart().pdf.mode === 'page')
   }
 
   // ---- Sound and video ------------------------------------------------------------------------------------
@@ -521,7 +531,7 @@
     $('toolbar').classList.toggle('hidden', !parts[name].bar)
     setSwitch()
     setTopLine()
-    if (name === 'PDF') updatePdfBar()
+    if (name === paged) updatePdfBar()
     const focus = parts[name].focus
     if (focus) focus.focus({ preventScroll: true })
   }
@@ -672,6 +682,7 @@
   async function start () {
     api = window.pywebview.api
     doc = await api.asked()
+    pdfText = doc.pdfText
     $('title').textContent = doc.name
     $('copy').classList.toggle('hidden', !doc.copy)
     for (const view of doc.views) addView(view)
@@ -680,7 +691,7 @@
     document.addEventListener('keydown', onKey)
     document.addEventListener('mousedown', event => { if (!$('zoom-menu').contains(event.target)) hideZoomMenu() })
     document.addEventListener('contextmenu', event => event.preventDefault())
-    addEventListener('resize', () => { setTopLine(); if (shown === 'PDF' && parts.PDF.pdf.mode !== 'fixed') setPdfZoom(pdfFit(parts.PDF.pdf.mode), parts.PDF.pdf.mode) })
+    addEventListener('resize', () => { setTopLine(); if (paged && shown === paged && pdfPart().pdf.mode !== 'fixed') setPdfZoom(pdfFit(pdfPart().pdf.mode), pdfPart().pdf.mode) })
     showView(doc.open)
     api.shown()
   }

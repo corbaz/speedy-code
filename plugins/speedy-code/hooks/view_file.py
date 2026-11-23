@@ -4,7 +4,8 @@ The popup stands in the middle of the screen the pointer is on, framed as the ot
 the middle of the top line, the move mark and the close mark at its right, with Copiar beside them when
 there is something to copy. What it holds depends on the file, as on Windows: an image; a PDF's pages, with a
 bar to go to a page and to zoom, and its text; Markdown, HTML and SVG drawn as a page, with a switch to their
-source; a spreadsheet's sheets; a Word document; audio and video, with a dark bar to pause, seek and set the
+source; a spreadsheet's sheets; a Word document's pages and a presentation's slides, under the bar a PDF has;
+audio and video, with a dark bar to pause, seek and set the
 volume; a SQLite database's tables; a zip's listing; any other file that reads as text; and for anything else
 what can be told about it. A minified file also gets its text laid out by pretty.py, as Formateado.
 
@@ -32,9 +33,11 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import zipfile
 
 import popup
 import view_readers as readers
+import view_slides as slides
 
 # The frame's widths, as view_file.ps1 has them. The bottom line carries Copiar and the close mark as the top
 # one does, so it gets the same band.
@@ -42,6 +45,8 @@ CONTOUR, LINE, MARGIN, BAND = 24, 2, 12, 16
 EXTRA_WIDTH = 2 * (CONTOUR + LINE + MARGIN)
 EXTRA_HEIGHT = 2 * (CONTOUR + LINE) + 2 * BAND
 TOOLBAR_HEIGHT = 34
+# What it exits with for a file it has no reader for: the mod then shows it with Quick Look, as when pywebview is missing.
+NO_READER = 4
 MEDIA_BAR = 40
 PDF_GAP = 10
 # A text view's letter and line, in points: Menlo at the size Consolas 11 has on Windows.
@@ -64,6 +69,10 @@ def text_fit(views, room):
     return int(min(room[0], max(480, longest * LETTER + 48))), int(min(room[1], max(140, lines * TEXT_LINE + 40)))
 
 
+class NoPopup(Exception):
+    """A file this popup has no reader for, which Quick Look draws (an old .ppt, an .xls)."""
+
+
 class Popup:
     """What the popup shows of one file, and the page's side of it: what view_file.html asks and says."""
 
@@ -74,6 +83,7 @@ class Popup:
         self._token = secrets.token_urlsafe(16)
         self._pages = {}
         self._pdf = None
+        self._members = set()
         self._pdf_lock = threading.Lock()
         self._jobs = []
         self._scratch = None
@@ -114,15 +124,19 @@ class Popup:
                 doc['views'].append({'name': 'Image', 'type': 'image'})
                 inner = (round(width * scale), round(height * scale))
             elif kind == 'pdf':
-                pages = self._open_pdf()
-                # The pages fit the view's width at first, up to 1100 points wide.
-                page_width = int(min(room[0] - 12 - 2 * PDF_GAP, 1100))
-                widest = max(page[0] for page in pages)
-                doc['views'].append({'name': 'PDF', 'type': 'pdf', 'pages': pages, 'zoom': page_width / widest, 'gap': PDF_GAP})
                 # Texto: the PDF's text, selectable and copied by Copiar, read by pdf_text.py while the pages are drawn.
-                doc['views'].append(text_view('Texto', 'Leyendo el texto del PDF...', True))
+                inner = self._paged(doc, 'PDF', self._open_pdf(path), 'Leyendo el texto del PDF...')
                 self._jobs.append(self._read_pdf_text)
-                inner = (page_width + 12 + 2 * PDF_GAP, room[1])
+            elif kind == 'pptx':
+                # A presentation's slides, a page each, under the bar a PDF has: its pages and its zoom.
+                deck = slides.read_pptx(path)
+                self._members = deck['members']
+                pages = [[deck['width'], deck['height']] for _ in deck['slides']] or [[deck['width'], deck['height']]]
+                inner = self._paged(doc, 'Diapositivas', pages, deck['text'], deck['slides'] or ['<div style="background:#fff;width:100%;height:100%"></div>'])
+                doc['pdfText'] = deck['text']
+            elif kind in ('ppt', 'xls'):
+                # No reader of its own here: Quick Look draws it, as the mod falls back to when the popup ends so.
+                raise NoPopup(kind)
             elif kind in ('audio', 'video'):
                 doc['copy'] = False
                 extension = os.path.splitext(name)[1].lstrip('.').upper()
@@ -160,21 +174,26 @@ class Popup:
                     self._pages['page'] = readers.sheets_page(sheets)
                     doc['views'].append({'name': 'Page', 'type': 'page', 'page': 'page'})
                     doc['raw'] = readers.sheets_text(sheets)
-                elif kind == 'xls':
-                    self._pages['page'] = readers.message_page(
-                        'No se puede previsualizar .xls sin Excel instalado.<br><br>' + readers.escape(name) + ' &middot; ' + readers.escape(readers.format_size(len(data))))
-                    doc['views'].append({'name': 'Page', 'type': 'page', 'page': 'page'})
-                elif kind == 'docx':
-                    body, doc['raw'] = readers.read_docx(path)
-                    self._pages['page'] = readers.docx_page(body)
-                    doc['views'].append({'name': 'Page', 'type': 'page', 'page': 'page', 'zoom': True})
-                elif kind == 'doc':
+                elif kind in ('docx', 'doc'):
                     try:
-                        body, doc['raw'] = readers.read_docx(self._doc_as_docx())
-                        self._pages['page'] = readers.docx_page(body)
-                        doc['views'].append({'name': 'Page', 'type': 'page', 'page': 'page', 'zoom': True})
+                        source = path if kind == 'docx' else self._doc_as_docx()
                     except Exception:
+                        source = None
+                    if source is None:
                         doc['views'].append(text_view('Text', 'Texto aproximado: no se pudo convertir este .doc, se muestran los textos legibles del archivo.\n\n' + readers.loose_text(data), True))
+                    else:
+                        try:
+                            # The document laid out on its paper, page by page, shown as a PDF's pages are, with
+                            # the same bar: its pages and its zoom.
+                            body, raw = readers.read_docx(source, True)
+                            inner = self._paged(doc, 'Documento', self._open_pdf(self._document_pdf(body, readers.docx_paper(source))), raw)
+                            doc['pdfText'] = raw
+                        except Exception:
+                            # Where the pages cannot be made, the document as one page, with the zoom's bar.
+                            body, doc['raw'] = readers.read_docx(source)
+                            self._pages['page'] = readers.docx_page(body)
+                            doc['views'] = [{'name': 'Page', 'type': 'page', 'page': 'page', 'zoom': True}]
+                            inner = None
                 elif kind == 'url':
                     doc['views'].append(text_view('Text', readers.url_info(path, text), False))
                 elif kind == 'text':
@@ -182,6 +201,8 @@ class Popup:
                     self._pretty('Text', text, len(data))
                 if kind == 'binary':
                     doc['views'].append(text_view('Text', readers.binary_info(path, data), False))
+        except NoPopup:
+            raise
         except Exception as error:
             # Whatever goes wrong, the popup still comes up and says so.
             self._jobs.clear()
@@ -211,11 +232,71 @@ class Popup:
             raise ValueError('no se pudo leer la imagen')
         return picture.pixelsWide(), picture.pixelsHigh()
 
-    def _open_pdf(self):
-        """The PDF by macOS's own reader: each page's size in points, as it is shown (turned, when it is)."""
+    def _paged(self, doc, name, pages, text, drawn=None):
+        """A view of pages one under the other, as a PDF's, and its text beside it as Texto. `drawn` holds each
+        page as HTML (a slide); without it the pages are pictures the server draws. It gives the popup's size."""
+        room = self._room
+        # The pages fit the view's width at first, up to 1100 points wide.
+        page_width = int(min(room[0] - 12 - 2 * PDF_GAP, 1100))
+        view = {'name': name, 'type': 'pdf', 'pages': pages, 'zoom': page_width / max(page[0] for page in pages), 'gap': PDF_GAP}
+        if drawn is not None:
+            view['drawn'] = drawn
+        doc['views'] += [view, text_view('Texto', text, True)]
+        return page_width + 12 + 2 * PDF_GAP, room[1]
+
+    def _document_pdf(self, body, paper):
+        """A document's body (HTML) laid out on its paper by macOS's text system, a page a column of text, as a
+        PDF in a folder of this popup's own. It gives the PDF's path."""
+        import AppKit
         import Foundation
         import Quartz
-        document = Quartz.PDFDocument.alloc().initWithURL_(Foundation.NSURL.fileURLWithPath_(self._path))
+        width, height, left, right, top, bottom = paper
+        style = ("body { font: 11pt Calibri, Carlito, 'Helvetica Neue', Arial, sans-serif; color: #000; } p { margin: 0 0 8pt; }"
+                 ' h1 { font-size: 20pt; margin: 14pt 0 6pt; } h2 { font-size: 16pt; margin: 12pt 0 6pt; } h3 { font-size: 13pt; margin: 10pt 0 4pt; }'
+                 ' h4, h5, h6 { font-size: 11pt; margin: 8pt 0 4pt; } table { border-collapse: collapse; width: 100%; } td { border: 1px solid #888; padding: 3pt 6pt; vertical-align: top; }'
+                 ' .alt { color: #868e96; }')
+        page = f'<html><head><meta charset="utf-8"><style>{style}</style></head><body>{body}</body></html>'.encode('utf-8')
+        text, _ = AppKit.NSAttributedString.alloc().initWithHTML_documentAttributes_(Foundation.NSData.dataWithBytes_length_(page, len(page)), None)
+        if text is None or text.length() == 0:
+            raise ValueError('el documento no tiene texto')
+        if self._scratch is None:
+            self._scratch = tempfile.mkdtemp(prefix='speedy-code-doc-')
+        target = os.path.join(self._scratch, 'pages.pdf')
+        storage = AppKit.NSTextStorage.alloc().initWithAttributedString_(text)
+        layout = AppKit.NSLayoutManager.alloc().init()
+        storage.addLayoutManager_(layout)
+        box = Quartz.CGRectMake(0, 0, width, height)
+        context = Quartz.CGPDFContextCreateWithURL(Foundation.NSURL.fileURLWithPath_(target), box, None)
+        pages = 0
+        while pages < 2000:
+            container = AppKit.NSTextContainer.alloc().initWithSize_(Foundation.NSMakeSize(width - left - right, height - top - bottom))
+            layout.addTextContainer_(container)
+            glyphs = layout.glyphRangeForTextContainer_(container)
+            if glyphs.length == 0 and pages > 0:
+                break
+            Quartz.CGPDFContextBeginPage(context, None)
+            Quartz.CGContextSetRGBFillColor(context, 1, 1, 1, 1)
+            Quartz.CGContextFillRect(context, box)
+            Quartz.CGContextTranslateCTM(context, 0, height)
+            Quartz.CGContextScaleCTM(context, 1, -1)
+            AppKit.NSGraphicsContext.saveGraphicsState()
+            AppKit.NSGraphicsContext.setCurrentContext_(AppKit.NSGraphicsContext.graphicsContextWithCGContext_flipped_(context, True))
+            at = Foundation.NSMakePoint(left, top)
+            layout.drawBackgroundForGlyphRange_atPoint_(glyphs, at)
+            layout.drawGlyphsForGlyphRange_atPoint_(glyphs, at)
+            AppKit.NSGraphicsContext.restoreGraphicsState()
+            Quartz.CGPDFContextEndPage(context)
+            pages += 1
+            if glyphs.location + glyphs.length >= layout.numberOfGlyphs():
+                break
+        Quartz.CGPDFContextClose(context)
+        return target
+
+    def _open_pdf(self, path):
+        """A PDF by macOS's own reader: each page's size in points, as it is shown (turned, when it is)."""
+        import Foundation
+        import Quartz
+        document = Quartz.PDFDocument.alloc().initWithURL_(Foundation.NSURL.fileURLWithPath_(path))
         if document is None:
             raise ValueError('no se pudo abrir el PDF')
         if document.isLocked():
@@ -465,6 +546,14 @@ class Popup:
                 request._send(403, 'text/plain', b'')
                 return
             self._send_file(request, wanted)
+        elif route == 'zip':
+            # A picture of a presentation, by its path inside the file: only the pictures its slides may ask for.
+            member = '/'.join(urllib.parse.unquote(step) for step in steps[3:])
+            if member not in self._members:
+                request._send(404, 'text/plain', b'')
+                return
+            with zipfile.ZipFile(self._path) as archive:
+                request._send(200, mimetypes.guess_type(member)[0] or 'application/octet-stream', archive.read(member))
         elif route == 'pdf' and len(steps) > 3 and self._pdf is not None:
             width = int(urllib.parse.parse_qs(parts.query).get('w', ['800'])[0])
             request._send(200, 'image/png', self._pdf_png(int(steps[3]), width))
@@ -524,7 +613,10 @@ def main():
         return 1
     screen, area_width, area_height = popup.pointer_screen(webview)
     room = (int(area_width * 0.8 - EXTRA_WIDTH), int(area_height * 0.8 - EXTRA_HEIGHT))
-    shown = Popup(path, room)
+    try:
+        shown = Popup(path, room)
+    except NoPopup:
+        return NO_READER
     shown._doc['area'] = [int(area_width), int(area_height)]
     popup.open_window(webview, os.path.basename(path), None, shown, shown._doc['width'], shown._doc['height'], screen, url=shown._serve())
     return 0

@@ -4,6 +4,7 @@ The same readings view_file.ps1 does on Windows, with the same words and the sam
 a page, a spreadsheet's sheets, a Word document, a zip's listing, a database's tables, and what can be told
 of a file that is not text. Nothing here opens a window: view_file.py does, with what these give it.
 """
+import base64
 import datetime
 import html
 import os
@@ -21,6 +22,7 @@ KINDS = {
     '.sqlite': 'sqlite', '.sqlite3': 'sqlite', '.db': 'sqlite', '.db3': 'sqlite', '.lnk': 'binary', '.url': 'url',
     '.sys': 'binary', '.dll': 'binary', '.exe': 'binary',
     '.zip': 'zip', '.jar': 'zip', '.apk': 'zip', '.nupkg': 'zip', '.vsix': 'zip', '.whl': 'zip', '.epub': 'zip',
+    '.pptx': 'pptx', '.pptm': 'pptx', '.ppsx': 'pptx', '.potx': 'pptx', '.ppt': 'ppt', '.pps': 'ppt', '.pot': 'ppt',
 }
 KINDS.update({one: 'image' for one in IMAGE_TYPES})
 KINDS.update({one: 'audio' for one in AUDIO_TYPES})
@@ -668,6 +670,7 @@ def zip_fit(listing, room_width, room_height):
 # ---- Word documents -------------------------------------------------------------------------------------
 
 W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+R_EMBED = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed'
 
 
 def word_toggle(properties, name):
@@ -679,7 +682,7 @@ def word_paragraph(paragraph, styles):
     properties = paragraph.find(W + 'pPr')
     style_node = properties.find(W + 'pStyle') if properties is not None else None
     style_id = style_node.get(W + 'val') if style_node is not None else ''
-    style = styles.get(style_id, (style_id or '').lower())
+    style = styles.get(style_id) or (style_id or '').lower()
     tag = 'p'
     heading = re.match(r'^heading\s*([1-6])$', style)
     if heading:
@@ -707,7 +710,7 @@ def word_paragraph(paragraph, styles):
             elif name == 'noBreakHyphen':
                 text.append('-')
             elif name in ('drawing', 'pict'):
-                text.append('<span class="alt">[imagen]</span>')
+                text.append(word_picture(child, styles))
         if not text:
             continue
         piece = ''.join(text)
@@ -717,6 +720,20 @@ def word_paragraph(paragraph, styles):
                 piece = f'<{wrap}>{piece}</{wrap}>'
         out.append(piece)
     return tag, ''.join(out) or '&nbsp;'
+
+
+def word_picture(drawing, styles):
+    """A picture in a document: itself, at the size the document gives it, where its bytes were read (the
+    pages); else its place, named."""
+    blip = next((one for one in drawing.iter() if local(one.tag) == 'blip'), None)
+    source = styles.get(('picture', blip.get(R_EMBED))) if blip is not None else None
+    if not source:
+        return '<span class="alt">[imagen]</span>'
+    extent = next((one for one in drawing.iter() if local(one.tag) == 'extent'), None)
+    size = ''
+    if extent is not None and extent.get('cx') and extent.get('cy'):
+        size = f' width="{round(int(extent.get("cx")) / 9525)}" height="{round(int(extent.get("cy")) / 9525)}"'
+    return f'<img alt=""{size} src="{source}">'
 
 
 def word_blocks(parent, styles):
@@ -781,13 +798,40 @@ def word_text(parent):
     return ''.join(out)
 
 
-def read_docx(path):
-    """A Word document as (the page's body, its text for Copiar)."""
+def docx_paper(path):
+    """A Word document's paper, in points: (width, height, left, right, top, bottom); Letter with an inch of
+    margin when it does not say."""
+    paper = [612.0, 792.0, 72.0, 72.0, 72.0, 72.0]
+    try:
+        with zipfile.ZipFile(path) as archive:
+            document = zip_xml(archive, 'word/document.xml')
+        section = next((one for one in document.iter(W + 'sectPr')), None) if document is not None else None
+        size = section.find(W + 'pgSz') if section is not None else None
+        margin = section.find(W + 'pgMar') if section is not None else None
+        if size is not None:
+            paper[0], paper[1] = int(size.get(W + 'w')) / 20, int(size.get(W + 'h')) / 20
+        if margin is not None:
+            paper[2:] = [int(margin.get(W + name)) / 20 for name in ('left', 'right', 'top', 'bottom')]
+    except (TypeError, ValueError, KeyError, OSError, zipfile.BadZipFile):
+        pass
+    return tuple(paper)
+
+
+def read_docx(path, pictures=False):
+    """A Word document as (the page's body, its text for Copiar). With `pictures`, its pictures are in the
+    body as they are; without, each is named in its place."""
     with zipfile.ZipFile(path) as archive:
         document = zip_xml(archive, 'word/document.xml')
         if document is None:
             raise ValueError('word/document.xml no existe')
         styles = {}
+        relations = zip_xml(archive, 'word/_rels/document.xml.rels') if pictures else None
+        for one in (relations if relations is not None else []):
+            target = (one.get('Target') or '').lstrip('/')
+            member = target if target.startswith('word/') else 'word/' + target
+            kind = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif'}.get(os.path.splitext(member)[1].lower())
+            if kind and member in archive.namelist() and archive.getinfo(member).file_size <= 8 * 1024 * 1024:
+                styles[('picture', one.get('Id'))] = f'data:{kind};base64,' + base64.b64encode(archive.read(member)).decode('ascii')
         sheet = zip_xml(archive, 'word/styles.xml')
         if sheet is not None:
             for style in sheet:
