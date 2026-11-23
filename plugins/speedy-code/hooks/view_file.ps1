@@ -426,19 +426,29 @@ function Read-Xlsx([string]$file) {
 # runs on its own while the popup stands; the timer looks for its end. The password keeps a protected file
 # from waiting on a prompt nobody sees: Office fails at once instead.
 $officeScript = @'
-var a = WScript.Arguments, app = null, code = 0;
+var a = WScript.Arguments, app = null, code = 0, keep = false;
 try {
   if (a.Item(0) == "excel") {
     app = new ActiveXObject("Excel.Application"); app.DisplayAlerts = false;
     var book = app.Workbooks.Open(a.Item(1), 0, true, 5, "speedy-no-password");
     book.SaveAs(a.Item(2), 51); book.Close(false);
+  } else if (a.Item(0) == "word-pdf") {
+    app = new ActiveXObject("Word.Application"); app.DisplayAlerts = 0;
+    var paged = app.Documents.Open(a.Item(1), false, true, false, "speedy-no-password");
+    paged.SaveAs2(a.Item(2), 17); paged.Close(0);
+  } else if (a.Item(0) == "slides-pdf") {
+    // PowerPoint is one for everybody: one the person has open is used as it is, and left open.
+    app = new ActiveXObject("PowerPoint.Application");
+    keep = app.Presentations.Count > 0 || app.Visible != 0;
+    var deck = app.Presentations.Open(a.Item(1), -1, 0, 0);
+    deck.SaveAs(a.Item(2), 32); deck.Close();
   } else {
     app = new ActiveXObject("Word.Application"); app.DisplayAlerts = 0;
     var doc = app.Documents.Open(a.Item(1), false, true, false, "speedy-no-password");
     doc.SaveAs2(a.Item(2), 16); doc.Close(0);
   }
 } catch (e) { WScript.StdErr.Write(e.message); code = 1; }
-try { if (app) { if (a.Item(0) == "excel") { app.Quit(); } else { app.Quit(0); } } } catch (e) { }
+try { if (app && !keep) { if (a.Item(0) == "excel" || a.Item(0) == "slides-pdf") { app.Quit(); } else { app.Quit(0); } } } catch (e) { }
 WScript.Quit(code);
 '@
 
@@ -462,6 +472,94 @@ function Start-OfficeCopy([string]$application, [string]$copyExtension, [scriptb
     Output = $process.StandardOutput.ReadToEndAsync(); Problem = $process.StandardError.ReadToEndAsync()
     Started = [DateTime]::Now
   }
+}
+
+# Runs a program with no window and waits for it, 90 seconds at most; whether it ended well.
+function Invoke-Hidden([string]$program, [string]$arguments) {
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $program
+  $info.Arguments = $arguments
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  $info.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+  $process = [System.Diagnostics.Process]::Start($info)
+  $out = $process.StandardOutput.ReadToEndAsync(); $problem = $process.StandardError.ReadToEndAsync()
+  if (-not $process.WaitForExit(90000)) { try { $process.Kill() } catch { }; return $false }
+  $process.ExitCode -eq 0
+}
+
+# Edge, or Chrome: the browser that prints a page to a PDF with no window.
+function Find-Browser {
+  $candidates = @()
+  foreach ($name in @('msedge.exe', 'chrome.exe')) {
+    foreach ($hive in @('HKLM:', 'HKCU:')) {
+      try { $candidates += (Get-ItemProperty -LiteralPath "$hive\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$name" -ErrorAction Stop).'(default)' } catch { }
+    }
+  }
+  $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'), (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
+  foreach ($one in $candidates) { if ($one -and (Test-Path -LiteralPath $one)) { return $one } }
+  $null
+}
+
+# A Word document or a presentation as a PDF of its pages, in a folder of its own under %TEMP%, which the
+# popup then draws as it draws a PDF. Word or PowerPoint writes it where it is installed, as it would print
+# it; without them, office_pages.py lays a .docx or a .pptx out with the popup's own readers and Edge prints
+# that. It gives the PDF's path, or nothing when neither could: the file is then shown as it was before.
+function Get-OfficePages([string]$file, [string]$fileKind) {
+  $isSlides = $fileKind -in @('pptx', 'ppt')
+  # A popup ended from outside leaves its folder behind: those a day old go now.
+  try {
+    Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'speedy-view-*' -ErrorAction SilentlyContinue |
+      Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+      ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  $folder = Join-Path ([IO.Path]::GetTempPath()) ('speedy-view-' + [guid]::NewGuid().ToString('N'))
+  [void](New-Item -ItemType Directory -Path $folder)
+  $state.Pages = $folder
+  $target = Join-Path $folder 'pages.pdf'
+  $written = { (Test-Path -LiteralPath $target) -and (Get-Item -LiteralPath $target).Length -gt 0 }
+  if ([Type]::GetTypeFromProgID($(if ($isSlides) { 'PowerPoint.Application' } else { 'Word.Application' }))) {
+    $script = Join-Path $folder 'copy.js'
+    [IO.File]::WriteAllText($script, $officeScript, [System.Text.Encoding]::ASCII)
+    $mode = if ($isSlides) { 'slides-pdf' } else { 'word-pdf' }
+    $done = Invoke-Hidden (Join-Path $env:SystemRoot 'System32\cscript.exe') ('//nologo //E:jscript "' + $script + '" ' + $mode + ' "' + $file + '" "' + $target + '"')
+    if ($done -and (& $written)) { return $target }
+  }
+  if ($fileKind -in @('docx', 'pptx')) {
+    $python = Find-Python
+    $browser = Find-Browser
+    if ($python -and $browser) {
+      $done = Invoke-Hidden $python ('"' + (Join-Path $PSScriptRoot 'office_pages.py') + '" "' + $file + '" "' + $target + '" "' + $browser + '"')
+      if ($done -and (& $written)) { return $target }
+    }
+  }
+  $null
+}
+
+# A small notice in the middle of the screen while the pages are got ready: the popup comes up after them.
+function Show-Wait([string]$text) {
+  $wait = New-Object System.Windows.Forms.Form
+  $wait.FormBorderStyle = 'None'
+  $wait.StartPosition = 'Manual'
+  $wait.TopMost = $true
+  $wait.ShowInTaskbar = $false
+  $wait.BackColor = $blue
+  $wait.Padding = New-Object System.Windows.Forms.Padding(2)
+  $wait.Size = New-Object System.Drawing.Size(360, 84)
+  $wait.Location = New-Object System.Drawing.Point(($area.Left + [int](($area.Width - 360) / 2)), ($area.Top + [int](($area.Height - 84) / 2)))
+  $label = New-Object System.Windows.Forms.Label
+  $label.Dock = 'Fill'
+  $label.BackColor = $black
+  $label.ForeColor = $ink
+  $label.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+  $label.TextAlign = 'MiddleCenter'
+  $label.Text = $text
+  $wait.Controls.Add($label)
+  $wait.Show()
+  $wait.Refresh()
+  $wait
 }
 
 # Once Office is through: the copy drawn, or why not; then its folder goes.
@@ -739,6 +837,7 @@ $videoTypes = @('.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg',
 $kinds = @{
   '.pdf' = 'pdf'; '.md' = 'markdown'; '.markdown' = 'markdown'; '.html' = 'html'; '.htm' = 'html'; '.xhtml' = 'html'; '.svg' = 'svg'
   '.xlsx' = 'xlsx'; '.xlsm' = 'xlsx'; '.xls' = 'xls'; '.docx' = 'docx'; '.docm' = 'docx'; '.doc' = 'doc'; '.crx' = 'binary'; '.ds_store' = 'binary'
+  '.pptx' = 'pptx'; '.pptm' = 'pptx'; '.ppsx' = 'pptx'; '.potx' = 'pptx'; '.ppt' = 'ppt'; '.pps' = 'ppt'; '.pot' = 'ppt'
   '.sqlite' = 'sqlite'; '.sqlite3' = 'sqlite'; '.db' = 'sqlite'; '.db3' = 'sqlite'; '.lnk' = 'shortcut'; '.url' = 'url'
   '.sys' = 'binary'; '.dll' = 'binary'; '.exe' = 'binary'
   '.zip' = 'zip'; '.jar' = 'zip'; '.apk' = 'zip'; '.nupkg' = 'zip'; '.vsix' = 'zip'; '.whl' = 'zip'; '.epub' = 'zip'
@@ -774,9 +873,10 @@ $rawText = $null        # what Copiar takes from a Preview with nothing selected
 $image = $null
 $pdfPages = $null
 $pdfText = $null
+$pagesFile = $null        # the PDF a Word document or a presentation was turned into, when it was
 $player = $null
 $svgExport = $null      # an SVG's markup and size for Copiar's PNG
-$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Picked = $false; Drawing = $false; Ticks = 0; Drag = $null; Moved = $false }
+$state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Pages = $null; Picked = $false; Drawing = $false; Ticks = 0; Drag = $null; Moved = $false }
 $disposables = @()
 $inner = $room
 $toolbars = [ordered]@{}  # a view's bar above it, by the view's name
@@ -1926,6 +2026,19 @@ try {
     if ($isSqlite) { $kind = 'sqlite' } elseif ($kind -eq 'sqlite') { $kind = 'text' }
     if ($kind -in @('text', 'binary') -and $extension -ne '.crx' -and (Test-ZipHead $head)) { $kind = 'zip' }
   }
+  # A Word document and a presentation are drawn as their pages, as a PDF is and under its bar. When the pages
+  # cannot be got, a document is drawn as one page and a presentation is described, as before.
+  if ($kind -in @('docx', 'doc', 'pptx', 'ppt')) {
+    $wait = Show-Wait (T 'Preparando las p\u00e1ginas...')
+    try { $pagesFile = Get-OfficePages $path $kind } catch { $pagesFile = $null }
+    try { $wait.Close(); $wait.Dispose() } catch { }
+    if ($pagesFile) {
+      $labelNames['PDF'] = if ($kind -in @('pptx', 'ppt')) { 'Diapositivas' } else { 'Documento' }
+      $kind = 'pdf'
+    } elseif ($kind -in @('pptx', 'ppt')) {
+      $kind = if (Test-ZipHead (Read-Bytes $path 16)) { 'zip' } else { 'text' }
+    }
+  }
   if ($kind -eq 'sqlite') {
     # db_view.py reads it while the popup stands; the timer draws its tables when it is through.
     $views['Page'] = New-PageView (New-MessagePage 'Leyendo la base de datos...')
@@ -1971,7 +2084,9 @@ try {
     $asAction = $asTask | Where-Object { $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' } | Select-Object -First 1
     function Wait-Operation($operation, [Type]$type) { $task = $asOperation.MakeGenericMethod($type).Invoke($null, @($operation)); $task.Wait(); $task.Result }
     function Wait-Action($action) { $asAction.Invoke($null, @($action)).Wait() }
-    $file = Wait-Operation ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+    # The file itself, or the pages a document or a presentation was turned into.
+    $pdfFile = if ($pagesFile) { $pagesFile } else { $path }
+    $file = Wait-Operation ([Windows.Storage.StorageFile]::GetFileFromPathAsync($pdfFile)) ([Windows.Storage.StorageFile])
     $document = Wait-Operation ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
     # The pages fit the view's width at first, up to 1100 pixels wide.
     $pageWidth = [int][Math]::Min($room.Width - 12 - 2 * $pdfGap, 1100)
@@ -1981,7 +2096,7 @@ try {
     # Texto: the PDF's text, selectable and copied by Copiar, read by pdf_text.py (pdfminer.six) while the
     # pages are drawn; the timer puts it in place when it is read.
     $views['Texto'] = New-SourceBox (T 'Leyendo el texto del PDF...') $true
-    $pdfText = Start-PdfText $path
+    $pdfText = Start-PdfText $pdfFile
     $inner = New-Object System.Drawing.Size(($pageWidth + 12 + 2 * $pdfGap), $room.Height)
   } elseif ($kind -in @('audio', 'video')) {
     Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase, WindowsFormsIntegration
@@ -2587,6 +2702,7 @@ $form.Add_FormClosing({
   if ($player) { try { $player.Stop(); $player.Close() } catch { } }
   # Office left at work finishes on its own and quits; its folder goes if it can.
   if ($state.Office) { try { Remove-Item -LiteralPath $state.Office.Folder -Recurse -Force } catch { } }
+  if ($state.Pages) { try { Remove-Item -LiteralPath $state.Pages -Recurse -Force } catch { } }
   # A database still being read is not waited for.
   if ($dbJob -and -not $dbJob.Done) { try { $dbJob.Process.Kill() } catch { } }
   if ($prettyJob -and -not $prettyJob.Done) { try { $prettyJob.Process.Kill() } catch { } }
