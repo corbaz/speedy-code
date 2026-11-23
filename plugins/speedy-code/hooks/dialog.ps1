@@ -31,8 +31,11 @@ $bold = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle
 
 $contour = 20
 $line = 2
-$width = 520
-$height = if ($mode -eq 'rename') { 250 } else { 200 }
+# Inside the line, a black band all round, as the viewer has: the title rides black on both sides of the line.
+$margin = 12
+$band = 16
+$width = 520 + 2 * $margin
+$height = $(if ($mode -eq 'rename') { 250 } else { 200 }) + 2 * $band
 
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -52,8 +55,14 @@ $frame.BackColor = $(if ($mode -eq 'delete') { $red } else { $blue })
 $frame.Padding = New-Object System.Windows.Forms.Padding($line)
 $inside = New-Object System.Windows.Forms.Panel
 $inside.Dock = 'Fill'
-$inside.BackColor = $paper
+$inside.BackColor = $black
+$inside.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $band)
 $frame.Controls.Add($inside)
+# What the dialog says and asks, on the paper inside the black band.
+$body = New-Object System.Windows.Forms.Panel
+$body.Dock = 'Fill'
+$body.BackColor = $paper
+$inside.Controls.Add($body)
 $form.Controls.Add($frame)
 
 # The title and the close mark ride the top line, on black, as the viewer's do.
@@ -86,7 +95,7 @@ function New-Text([string]$text, [int]$x, [int]$y, $color, $face) {
   $label.ForeColor = $color
   $label.BackColor = $paper
   $label.Location = New-Object System.Drawing.Point($x, $y)
-  $inside.Controls.Add($label)
+  $body.Controls.Add($label)
   $label
 }
 
@@ -99,7 +108,7 @@ function New-Box([string]$text, [int]$x, [int]$y, [int]$boxWidth) {
   $box.ForeColor = $ink
   $box.Location = New-Object System.Drawing.Point($x, $y)
   $box.Width = $boxWidth
-  $inside.Controls.Add($box)
+  $body.Controls.Add($box)
   $box
 }
 
@@ -113,7 +122,7 @@ function New-Action([string]$text, $fill, $color, [int]$x, [int]$y) {
   $button.Padding = New-Object System.Windows.Forms.Padding(4, 5, 4, 5)
   $button.Cursor = [System.Windows.Forms.Cursors]::Hand
   $button.Location = New-Object System.Drawing.Point($x, $y)
-  $inside.Controls.Add($button)
+  $body.Controls.Add($button)
   $button
 }
 
@@ -123,7 +132,7 @@ function Finish([string]$answer) {
   $form.Close()
 }
 
-$inner = $width - 2 * ($contour + $line)
+$inner = $width - 2 * ($contour + $line + $margin)
 if ($mode -eq 'rename') {
   # A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them.
   $dot = $fileName.LastIndexOf('.')
