@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- macOS: a file of the explorer opens in a popup drawn as the Windows one (`view_file.py`), in place of Quick Look: text and code with Copiar and Formateado, Markdown, HTML and SVG with their Preview, a PDF's pages and text, spreadsheets, Word documents, SQLite databases, zip listings, audio and video. A kept narration plays in it, as on Windows.
+- Explorer: a scroll bar at the tree's right when it is taller than its room.
+- Status line on macOS: the model's weekly share is read again when `~/.claude/.credentials.json` holds no sign-in of Claude's (the keychain is asked).
 - macOS: the rename and delete dialogs and the pasted image's popup are drawn as the Windows ones (`dialog.py`, `view.py`: an HTML page in a window by pywebview, which `install.sh` adds). Without pywebview they stay macOS's own dialog and Quick Look. Windows is unchanged.
 
 - Docs: in VS Code the window's zoom must be a whole level, or the footer's clicks land on the wrong cells.

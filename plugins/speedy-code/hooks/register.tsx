@@ -89,24 +89,22 @@ export const MAC = {
   ].join('\n')],
   cycleMode: ['osascript', '-e', 'tell application "System Events" to key code 48 using shift down', '-e', 'return "sent"'],
   sendEnter: ['osascript', '-e', 'tell application "System Events" to key code 36', '-e', 'return "sent"'],
-  /** Quick Look shows the image; a dot each tenth of a second, as view.ps1 says them, so the mod can end it. */
-  view: ['/bin/sh', '-c', [
-    'qlmanage -p "$SPEEDY_IMAGE" >/dev/null 2>&1 & viewer=$!',
+  /**
+   * A file in a popup framed as the Windows ones: view.py for a pasted image, view_file.py for a file of the
+   * explorer, as view.ps1 and view_file.ps1 are on Windows. SPEEDY_POPUP names the script, SPEEDY_PYTHON the
+   * mod's Python. Where the popup does not come up (pywebview is not installed, or it failed), Quick Look
+   * shows the file as before, with a dot each tenth of a second as the popups say them, so the mod can end it.
+   */
+  popup: ['/bin/sh', '-c', [
+    '"$SPEEDY_PYTHON" "$SPEEDY_POPUP" & viewer=$!',
     "trap 'kill $viewer 2>/dev/null' EXIT",
     "trap 'exit 0' HUP INT TERM PIPE",
+    'wait $viewer && exit 0',
+    'qlmanage -p "$SPEEDY_IMAGE" >/dev/null 2>&1 & viewer=$!',
     'while kill -0 $viewer 2>/dev/null; do echo .; sleep 0.1; done'
   ].join('\n')],
-  /**
-   * A pasted image in view.py's popup, framed as view.ps1 frames it on Windows; where pywebview is not
-   * installed, Quick Look as before. SPEEDY_POPUP names the script, SPEEDY_PYTHON the mod's Python.
-   */
-  viewImage: ['/bin/sh', '-c', [
-    `if "$SPEEDY_PYTHON" -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("webview") else 1)' 2>/dev/null; then exec "$SPEEDY_PYTHON" "$SPEEDY_POPUP"; fi`,
-    'qlmanage -p "$SPEEDY_IMAGE" >/dev/null 2>&1 & viewer=$!',
-    "trap 'kill $viewer 2>/dev/null' EXIT",
-    "trap 'exit 0' HUP INT TERM PIPE",
-    'while kill -0 $viewer 2>/dev/null; do echo .; sleep 0.1; done'
-  ].join('\n')]
+  /** Whether the mod's Python has pywebview, which the popups are drawn with: it exits 0 when it does. */
+  hasPopup: (python: string) => [python, '-c', 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("webview") else 1)']
 }
 
 /** The system, read once: it does not change while the mod runs. */
@@ -1177,12 +1175,21 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
   }
 }
 
+/** Whether macOS has the popups (pywebview in the mod's Python): asked once. */
+let macPopupKnown: boolean | undefined
+async function macHasPopup ($: EngineInterface) {
+  macPopupKnown ??= await $.process.run(MAC.hasPopup(await python($))).then(result => result.exitCode === 0, () => false)
+  return macPopupKnown
+}
+
 /**
- * A narration kept, played in the viewer's popup, where its bar seeks back and forth: on Windows, which has
- * the popup, and only while the file is there. It says whether it opened; elsewhere the player plays it.
+ * A narration kept, played in the viewer's popup, where its bar seeks back and forth: where there is the
+ * popup (Windows; macOS with pywebview), and only while the file is there. It says whether it opened;
+ * elsewhere the player plays it.
  */
 async function playInViewer ($: EngineInterface, path: string, source = '') {
-  if (!path || (await osNow($)) !== 'windows') return false
+  if (!path) return false
+  if ((await osNow($)) !== 'windows' && !(await macHasPopup($))) return false
   if (!(await $.fs.stat(path).then(found => found.kind === 'file', () => false))) return false
   await stop($)
   // It is driven as a narration is: the same speech state and a control file, so the footer's ⏸ and the
@@ -1542,15 +1549,15 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
   if (control) popupPlay = controller
   try {
     const isWindows = (await osNow($)) === 'windows'
-    // On macOS a pasted image has view.py's popup, as view.ps1's on Windows; a file of the explorer, Quick Look.
-    const macImage = !isWindows && script === 'view.ps1'
+    // On macOS view.py and view_file.py draw the popups view.ps1 and view_file.ps1 draw on Windows.
+    const macPopup = isWindows ? '' : `${$.plugin.root}/hooks/${script === 'view.ps1' ? 'view.py' : 'view_file.py'}`
     const viewer = $.process.spawn({
       argv: isWindows
         ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
-        : macImage ? MAC.viewImage : MAC.view,
+        : MAC.popup,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
       // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
-      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}), ...(macImage ? { SPEEDY_POPUP: `${$.plugin.root}/hooks/view.py` } : {}) }
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}), ...(macPopup ? { SPEEDY_POPUP: macPopup } : {}) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it. Copiar in the
     // file viewer says `copied <base64>` too: the text goes into the prompt, on a line of its own.

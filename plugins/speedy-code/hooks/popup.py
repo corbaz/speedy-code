@@ -85,21 +85,17 @@ def front():
 
 def square(window):
     """No frame of the system at all: macOS rounds the corners of a window with a title bar, even a hidden one,
-    and the popup's contour is square, as on Windows."""
+    and the popup's contour is square, as on Windows. Done before the window is first shown, on the thread
+    that makes it: changed after, the page could stay undrawn until something in it moved."""
     try:
         import AppKit
-        from PyObjCTools import AppHelper
         from webview.platforms.cocoa import BrowserView
-    except ImportError:
-        return
-
-    def apply():
         native = BrowserView.instances[window.uid].window
         frame = native.frame()
         native.setStyleMask_(AppKit.NSWindowStyleMaskBorderless)
         native.setFrame_display_(frame, True)
-
-    AppHelper.callAfter(apply)
+    except Exception:
+        pass
 
 
 def no_dock_icon():
@@ -113,13 +109,39 @@ def no_dock_icon():
         pass
 
 
-def open_window(webview, title, name, api, width, height, screen=None):
-    """The page `name` in a window of that size, in the middle of `screen`, above the others. Runs until it ends."""
+def resize(window, width, height):
+    """The popup at another size, in the middle of its screen's working area."""
+    try:
+        from PyObjCTools import AppHelper
+        from webview.platforms.cocoa import BrowserView
+    except ImportError:
+        return
+
+    def apply():
+        native = BrowserView.instances[window.uid].window
+        screen = native.screen()
+        area = screen.visibleFrame() if screen is not None else native.frame()
+        wide, tall = min(float(width), area.size.width), min(float(height), area.size.height)
+        frame = native.frame()
+        frame.origin.x = area.origin.x + (area.size.width - wide) / 2
+        frame.origin.y = area.origin.y + (area.size.height - tall) / 2
+        frame.size.width, frame.size.height = wide, tall
+        native.setFrame_display_(frame, True)
+
+    AppHelper.callAfter(apply)
+
+
+def open_window(webview, title, name, api, width, height, screen=None, url=None):
+    """The page `name` (or the page at `url`) in a window of that size, in the middle of `screen`, above the
+    others. An `api` that keeps a `_window` gets the window. Runs until it ends."""
     no_dock_icon()
+    source = {'url': url} if url else {'html': page(name)}
     window = webview.create_window(
-        title, html=page(name), js_api=api, width=int(width), height=int(height), screen=screen,
-        frameless=True, easy_drag=False, resizable=False, on_top=True, background_color='#000000')
+        title, js_api=api, width=int(width), height=int(height), screen=screen,
+        frameless=True, easy_drag=False, resizable=False, on_top=True, background_color='#000000', **source)
+    if hasattr(api, '_window'):
+        api._window = window
     # The application's loop, stopped, would wait for one more event: the popup ends at once instead.
     window.events.closed += api.close
-    window.events.shown += lambda: square(window)
+    window.events.before_show += lambda: square(window)
     webview.start()

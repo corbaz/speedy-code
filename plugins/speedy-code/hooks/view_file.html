@@ -1,0 +1,692 @@
+<!doctype html>
+<!-- One file in a popup on macOS, drawn as view_file.ps1 draws it on Windows: the frame, the file's name on the
+     top line, a switch after it when the file has more than one view, Copiar, the move mark and the close mark
+     at the right, and the same Copiar and marks on the bottom line of a tall popup. view_file.py opens it,
+     reads the file and answers what this page asks; popup.css is the frame. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+/*popup.css*/
+  :root { --contour: 24px; --bar: #0f1115; --edge: #343a40; --thumb: #495057; }
+  #close { right: calc(var(--contour) + 14px); }
+  #move { right: calc(var(--contour) + 42px); }
+  .below { top: auto; bottom: calc(var(--contour) + 1px); transform: translateY(50%); }
+  #close-below { right: calc(var(--contour) + 14px); color: var(--red); cursor: pointer; }
+  #move-below { right: calc(var(--contour) + 42px); color: var(--line); cursor: move; }
+  #close-below svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
+  #move-below svg { width: 15px; height: 15px; fill: currentColor; }
+  /* Copiar and the switch's labels: bold, blue on black; the view shown, and Copiado, black on blue. */
+  .label { font-size: 13.33px; padding: 0 .35em; color: var(--line); cursor: pointer; }
+  .label.on { background: var(--line); color: #000; }
+  .copy { right: calc(var(--contour) + 74px); }
+  #switch { display: flex; gap: 4px; background: none; }
+  #switch .label { background: #000; }
+  #switch .label.on { background: var(--line); }
+  .hidden { display: none !important; }
+
+  /* Inside the line: the band above and below, the margin at the sides. */
+  #inside { position: absolute; inset: 42px 38px; display: flex; flex-direction: column; background: #000; }
+  #views { position: relative; flex: 1; min-height: 0; }
+  .view { position: absolute; inset: 0; background: var(--paper); }
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--paper); }
+  ::-webkit-scrollbar-thumb { background: var(--thumb); border: 2px solid var(--paper); border-radius: 6px; }
+
+  .text { overflow: auto; outline: none; }
+  .text pre { margin: 0; padding: 4px 6px; min-width: max-content; font: 14.67px/19px Consolas, Menlo, monospace; color: var(--ink); user-select: text; -webkit-user-select: text; cursor: text; tab-size: 8; }
+  .text.wrap pre { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .text pre::selection { background: #0078d7; color: #fff; }
+  .page iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--paper); }
+  .image { background: #000; display: flex; align-items: center; justify-content: center; }
+  .image img { max-width: 100%; max-height: 100%; -webkit-user-drag: none; }
+
+  /* A PDF's pages, one under the other, white on the dark paper. */
+  .pdf { overflow: auto; outline: none; background: #25282e; }
+  .pdf .sheet { background: #fff; margin: 10px auto; box-shadow: 0 0 0 1px #000; }
+  .pdf .sheet img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
+
+  /* The bar above a view: a PDF's pages and zoom, a page's zoom. Flat buttons, centered. */
+  #toolbar { flex: none; height: 34px; background: var(--bar); border-bottom: 1px solid var(--edge); display: flex; align-items: center; justify-content: center; gap: 2px; }
+  .tool { width: 28px; height: 24px; display: flex; align-items: center; justify-content: center; color: var(--line); cursor: pointer; border-radius: 3px; }
+  .tool:hover { background: var(--field); }
+  .tool svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .tool.text { width: auto; padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
+  .tool.active { background: var(--line); color: #000; }
+  .box { height: 24px; background: var(--field); display: flex; align-items: center; }
+  .box input { width: 46px; height: 24px; border: 0; outline: none; background: none; color: var(--ink); font: 13px 'Segoe UI', -apple-system, sans-serif; text-align: center; user-select: text; -webkit-user-select: text; }
+  .box .open { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: var(--line); cursor: pointer; }
+  .box .open svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+  .of { color: var(--dim); font-size: 13px; padding: 0 6px 0 4px; }
+  .gap { width: 14px; }
+  #zoom-menu { position: absolute; z-index: 5; background: var(--field); border: 1px solid var(--edge); padding: 2px 0; font-size: 13px; }
+  #zoom-menu div { padding: 3px 14px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  #zoom-menu div:hover { background: var(--line); color: #000; }
+
+  /* Sound and video: the stage, and under it a dark bar to pause, seek and set the volume. */
+  .media { background: #000; display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; }
+  .stage video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .stage.audio { justify-content: flex-start; padding-left: 12px; gap: 12px; color: var(--dim); font-size: 13.33px; }
+  .stage.audio svg { width: 30px; height: 30px; fill: var(--line); }
+  .failed { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; white-space: pre-line; color: var(--red); background: #000; padding: 0 12px; }
+  .controls { flex: none; height: 40px; display: flex; align-items: center; background: #000; }
+  .controls .play { width: 34px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--line); cursor: pointer; }
+  .controls .play svg, .controls .volume svg { width: 16px; height: 16px; fill: currentColor; }
+  .controls .time { width: 132px; text-align: right; font: 13.33px Consolas, Menlo, monospace; color: var(--ink); padding-right: 4px; }
+  .controls .volume { width: 28px; display: flex; justify-content: center; color: var(--line); }
+  .slider { position: relative; height: 16px; cursor: pointer; }
+  .slider.seek { flex: 1; margin: 0 4px 0 6px; }
+  .slider.loud { width: 82px; margin-right: 2px; }
+  .slider .track, .slider .done { position: absolute; left: 6px; top: 6px; height: 4px; border-radius: 2px; }
+  .slider .track { right: 6px; background: var(--edge); }
+  .slider .done { background: var(--line); }
+  .slider .knob { position: absolute; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); }
+  .slider:hover .knob, .slider.dragging .knob { background: var(--line); }
+</style>
+</head>
+<body>
+  <div class="frame"></div>
+  <div id="title" class="on-line"></div>
+  <div id="switch" class="on-line"></div>
+  <div id="copy" class="on-line label copy hidden">Copiar</div>
+  <!--marks-->
+  <div id="copy-below" class="on-line below label copy hidden">Copiar</div>
+  <div id="move-below" class="on-line below mark pywebview-drag-region hidden"><svg viewBox="0 0 16 16"><path d="M8 0l2.6 3.2H8.9v3.9h3.9V5.4L16 8l-3.2 2.6V8.9H8.9v3.9h1.7L8 16l-2.6-3.2h1.7V8.9H3.2v1.7L0 8l3.2-2.6v1.7h3.9V3.2H5.4z"/></svg></div>
+  <div id="close-below" class="on-line below mark hidden"><svg viewBox="0 0 13 13"><path d="M1 1l11 11M12 1L1 12"/></svg></div>
+  <div id="inside">
+    <div id="toolbar" class="hidden"></div>
+    <div id="views"></div>
+  </div>
+  <div id="zoom-menu" class="hidden"></div>
+<script>
+  const $ = id => document.getElementById(id)
+  const base = location.pathname.replace(/\/page$/, '')
+  const ZOOM_PERCENTS = [50, 75, 100, 125, 150, 200, 300, 400]
+  // The steps − and + go through.
+  const ZOOM_STEPS = [10, 25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400]
+  const ICONS = {
+    first: '<path d="M3 2v10M11 2L5.5 7 11 12z"/>', previous: '<path d="M9.5 2L4.5 7l5 5"/>', next: '<path d="M4.5 2l5 5-5 5"/>', last: '<path d="M11 2v10M3 2l5.5 5L3 12z"/>',
+    out: '<path d="M2.5 7h9"/>', in: '<path d="M2.5 7h9M7 2.5v9"/>', down: '<path d="M1 3l3.5 3.5L8 3"/>',
+    play: '<path d="M4 2.5v11l9-5.5z"/>', pause: '<path d="M4 2.5h3v11H4zM9 2.5h3v11H9z"/>',
+    loud: '<path d="M2 6h2.5L8 3v10L4.5 10H2zM10 5.5a3.5 3.5 0 010 5M11.5 3.5a6 6 0 010 9" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M2 6h2.5L8 3v10L4.5 10H2z"/>',
+    note: '<path d="M10 3v13.5a4 4 0 11-2-3.46V6.5l12-3v10a4 4 0 11-2-3.46V5.6L10 7.6"/>'
+  }
+  const icon = (name, box = 14) => `<svg viewBox="0 0 ${box} ${box}">${ICONS[name]}</svg>`
+
+  let api, doc, shown = '', picked = false, pdfText = null, tables = null, media = null
+  // Each view's element, its bar's parts and its zoom, by the view's name.
+  const parts = {}
+  const labels = {}
+
+  const element = (tag, className, html) => {
+    const made = document.createElement(tag)
+    if (className) made.className = className
+    if (html !== undefined) made.innerHTML = html
+    return made
+  }
+  const viewOf = name => doc.views.find(view => view.name === name)
+
+  // ---- The views ------------------------------------------------------------------------------------------
+
+  function addText (view) {
+    const box = element('div', 'view text' + (view.wrap ? ' wrap' : ''))
+    box.tabIndex = 0
+    const pre = element('pre')
+    pre.textContent = view.text
+    box.append(pre)
+    parts[view.name] = { box, pre, focus: box }
+    return box
+  }
+
+  function addPage (view) {
+    const box = element('div', 'view page')
+    const frame = element('iframe')
+    box.append(frame)
+    const part = parts[view.name] = { box, frame, focus: frame, zoom: view.zoom ? { percent: 100 } : null, tab: 0 }
+    frame.addEventListener('load', () => {
+      let inner
+      try { inner = frame.contentDocument } catch { return }
+      if (!inner) return
+      // The file's own page gets the popup's dark scroll bars; the pages made here already have them.
+      if (view.file) {
+        const style = inner.createElement('style')
+        style.textContent = '::-webkit-scrollbar { width: 12px; height: 12px; } ::-webkit-scrollbar-thumb { background: #495057; border-radius: 6px; }'
+        inner.head && inner.head.append(style)
+      }
+      // A page's tabs: a sheet or a table each. The one shown is kept, for Copiar.
+      inner.querySelectorAll('[data-tab]').forEach(tab => tab.addEventListener('click', () => {
+        part.tab = Number(tab.dataset.tab)
+        for (let index = 0, sheet; (sheet = inner.getElementById('s' + index)); index++) {
+          sheet.style.display = index === part.tab ? '' : 'none'
+          inner.getElementById('t' + index).className = index === part.tab ? 'tab on' : 'tab'
+        }
+        frame.contentWindow.scrollTo(0, 0)
+      }))
+      inner.addEventListener('keydown', onKey)
+      inner.addEventListener('mousedown', hideZoomMenu)
+      if (part.zoom) setWebZoom(view.name, part.zoom.percent)
+    })
+    frame.src = view.file ? `${base}/dir/${encodeURIComponent(doc.name)}` : `${base}/doc/${view.page}`
+    return box
+  }
+
+  function addImage (view) {
+    const box = element('div', 'view image')
+    const picture = element('img')
+    picture.src = `${base}/file`
+    box.append(picture)
+    parts[view.name] = { box, focus: box }
+    return box
+  }
+
+  // A PDF's pages: each drawn when it comes near what is seen, at the zoom's size, and drawn again, sharper
+  // or lighter, a moment after the zoom changes.
+  function addPdf (view) {
+    const box = element('div', 'view pdf')
+    box.tabIndex = 0
+    const widest = Math.max(...view.pages.map(page => page[0]))
+    const tallest = Math.max(...view.pages.map(page => page[1]))
+    const part = parts[view.name] = { box, focus: box, pdf: { zoom: view.zoom, mode: 'width', sheets: [], widest, tallest, timer: 0 } }
+    const watch = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        entry.target.dataset.near = entry.isIntersecting ? '1' : ''
+        if (entry.isIntersecting) drawPdfSheet(part.pdf, entry.target)
+      }
+    }, { root: box, rootMargin: '800px 0px' })
+    view.pages.forEach((size, index) => {
+      const sheet = element('div', 'sheet')
+      sheet.dataset.index = index
+      sheet.append(element('img'))
+      part.pdf.sheets.push(sheet)
+      box.append(sheet)
+      watch.observe(sheet)
+    })
+    part.pdf.pages = view.pages
+    layoutPdf(part.pdf)
+    box.addEventListener('scroll', () => { if (shown === view.name) updatePdfBar() })
+    return box
+  }
+
+  function drawPdfSheet (pdf, sheet) {
+    const width = Math.round(pdf.pages[sheet.dataset.index][0] * pdf.zoom * Math.min(2, window.devicePixelRatio || 1))
+    if (sheet.dataset.drawn === String(width)) return
+    sheet.dataset.drawn = width
+    sheet.firstChild.src = `${base}/pdf/${sheet.dataset.index}?w=${width}`
+  }
+
+  function layoutPdf (pdf) {
+    pdf.sheets.forEach((sheet, index) => {
+      sheet.style.width = `${Math.round(pdf.pages[index][0] * pdf.zoom)}px`
+      sheet.style.height = `${Math.round(pdf.pages[index][1] * pdf.zoom)}px`
+    })
+    clearTimeout(pdf.timer)
+    pdf.timer = setTimeout(() => pdf.sheets.forEach(sheet => { if (sheet.dataset.near) drawPdfSheet(pdf, sheet) }), 180)
+  }
+
+  const pdfPart = () => parts.PDF
+  // The page in the middle of what is seen.
+  function pdfCurrent () {
+    const { box, pdf } = pdfPart()
+    const middle = box.scrollTop + box.clientHeight / 2
+    let current = 1
+    pdf.sheets.forEach((sheet, index) => { if (sheet.offsetTop <= middle) current = index + 1 })
+    return current
+  }
+  function goPdfPage (number) {
+    const { box, pdf } = pdfPart()
+    const index = Math.max(1, Math.min(pdf.sheets.length, Math.round(number) || 1)) - 1
+    box.scrollTop = pdf.sheets[index].offsetTop - 10
+    updatePdfBar()
+  }
+  function pdfFit (mode) {
+    const { box, pdf } = pdfPart()
+    const byWidth = (box.clientWidth - 12 - 20) / pdf.widest
+    return mode === 'page' ? Math.min(byWidth, (box.clientHeight - 20) / pdf.tallest) : byWidth
+  }
+  function setPdfZoom (zoom, mode = 'fixed') {
+    const { box, pdf } = pdfPart()
+    const current = pdfCurrent()
+    pdf.zoom = Math.max(0.1, Math.min(4, zoom))
+    pdf.mode = mode
+    layoutPdf(pdf)
+    box.scrollTop = pdf.sheets[current - 1].offsetTop - 10
+    updatePdfBar()
+  }
+  function updatePdfBar () {
+    const bar = parts.PDF.bar
+    if (!bar) return
+    if (document.activeElement !== bar.page) bar.page.value = pdfCurrent()
+    if (document.activeElement !== bar.zoom) bar.zoom.value = `${Math.round(parts.PDF.pdf.zoom * 100)}%`
+    bar.width.classList.toggle('active', parts.PDF.pdf.mode === 'width')
+    bar.whole.classList.toggle('active', parts.PDF.pdf.mode === 'page')
+  }
+
+  // ---- Sound and video ------------------------------------------------------------------------------------
+
+  const formatTime = seconds => {
+    const whole = Math.floor(Math.max(0, seconds || 0))
+    const hours = Math.floor(whole / 3600), minutes = Math.floor(whole % 3600 / 60), rest = String(whole % 60).padStart(2, '0')
+    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`
+  }
+
+  // A thin dark slider: the track, the part done in blue, and a round knob; pressed or dragged, it tells
+  // `change` where, from 0 to 1.
+  function slider (className, value, change) {
+    const box = element('div', `slider ${className}`, '<div class="track"></div><div class="done"></div><div class="knob"></div>')
+    const set = to => {
+      box.value = Math.max(0, Math.min(1, to))
+      box.children[1].style.width = `calc((100% - 12px) * ${box.value})`
+      box.children[2].style.left = `calc((100% - 12px) * ${box.value})`
+    }
+    const at = event => {
+      const rect = box.getBoundingClientRect()
+      set((event.clientX - rect.left - 6) / Math.max(1, rect.width - 12))
+      change(box.value)
+    }
+    box.addEventListener('mousedown', event => {
+      box.classList.add('dragging')
+      at(event)
+      const move = moved => at(moved)
+      const up = () => { box.classList.remove('dragging'); removeEventListener('mousemove', move); removeEventListener('mouseup', up) }
+      addEventListener('mousemove', move)
+      addEventListener('mouseup', up)
+    })
+    box.set = set
+    set(value)
+    return box
+  }
+
+  function addMedia (view) {
+    const box = element('div', 'view media')
+    const stage = element('div', 'stage' + (view.video ? '' : ' audio'))
+    const player = element(view.video ? 'video' : 'audio')
+    player.preload = 'auto'
+    player.volume = 0.8
+    if (view.video) stage.append(player)
+    else { stage.innerHTML = `<svg viewBox="0 0 24 24">${ICONS.note}</svg><span></span>`; stage.lastChild.textContent = view.about; stage.append(player) }
+    const failed = element('div', 'failed hidden')
+    stage.append(failed)
+    const controls = element('div', 'controls')
+    const play = element('div', 'play', icon('pause', 16))
+    const time = element('div', 'time', '0:00 / 0:00')
+    const seek = slider('seek', 0, value => { if (player.duration) player.currentTime = value * player.duration })
+    const loud = slider('loud', 0.8, value => { player.volume = value })
+    controls.append(play, seek, time, element('div', 'volume', icon('loud', 16)), loud)
+    box.append(stage, controls)
+    // It plays as it opens, as on Windows: `playing` is what the popup means, said to the mod when it changes.
+    media = { player, playing: true, video: view.video }
+    const mark = () => { play.innerHTML = icon(media.playing ? 'pause' : 'play', 16) }
+    media.set = on => {
+      if (media.playing === on) return
+      media.playing = on
+      if (on) player.play().catch(() => {}); else player.pause()
+      mark()
+      api.media(on ? 'playing' : 'paused')
+    }
+    play.addEventListener('click', () => media.set(!media.playing))
+    player.addEventListener('timeupdate', () => {
+      if (!seek.classList.contains('dragging') && player.duration) seek.set(player.currentTime / player.duration)
+      time.textContent = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`
+    })
+    player.addEventListener('loadedmetadata', () => {
+      time.textContent = `0:00 / ${formatTime(player.duration)}`
+      // A video takes its own size, within the room the screen gives.
+      if (view.video && player.videoWidth > 0 && player.videoHeight > 0) {
+        const scale = Math.min(1, doc.room[0] / player.videoWidth, (doc.room[1] - 40) / player.videoHeight)
+        resizeInner(Math.max(480, Math.round(player.videoWidth * scale)), Math.round(player.videoHeight * scale) + 40)
+      }
+    })
+    player.addEventListener('ended', () => {
+      player.pause()
+      player.currentTime = 0
+      media.playing = false
+      mark()
+      api.media('ended')
+    })
+    player.addEventListener('error', () => {
+      const why = player.error && player.error.message ? player.error.message : ''
+      failed.textContent = `No se puede reproducir este formato en macOS${view.video ? '\n\n' : '\n'}${why}`
+      failed.classList.remove('hidden')
+      media.playing = false
+      mark()
+    })
+    player.src = `${base}/file`
+    // macOS may hold a sound until the popup is pressed: it then stands paused, and the mod is told.
+    player.play().catch(() => { media.playing = false; mark(); api.media('paused') })
+    parts[view.name] = { box, focus: box }
+    box.tabIndex = 0
+    return box
+  }
+
+  // ---- The bar above a view -------------------------------------------------------------------------------
+
+  const tool = (name, tip, action) => {
+    const made = element('div', 'tool', icon(name))
+    made.title = tip
+    made.addEventListener('click', action)
+    return made
+  }
+  const readPercent = text => {
+    const found = /^\s*(\d+([.,]\d+)?)\s*%?\s*$/.exec(text)
+    return found ? Number(found[1].replace(',', '.')) : null
+  }
+  const nextZoom = (percent, direction) => direction > 0
+    ? ZOOM_STEPS.find(step => step > percent + 0.5)
+    : [...ZOOM_STEPS].reverse().find(step => step < percent - 0.5)
+
+  // The zoom's part of a bar: −, the size in a box with a list of sizes, +.
+  function zoomControls (bar, name, calls) {
+    const holder = element('div', 'box')
+    const input = element('input')
+    input.title = 'Zoom'
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return
+      const percent = readPercent(input.value)
+      if (percent) calls.value(percent)
+      input.blur()
+      event.stopPropagation()
+    })
+    const open = element('div', 'open', icon('down', 9))
+    open.addEventListener('click', event => { event.stopPropagation(); showZoomMenu(holder, calls) })
+    holder.append(input, open)
+    bar.append(tool('out', 'Alejar (⌘ −)', () => calls.step(-1)), holder, tool('in', 'Acercar (⌘ +)', () => calls.step(1)))
+    return input
+  }
+
+  function showZoomMenu (anchor, calls) {
+    const menu = $('zoom-menu')
+    menu.innerHTML = ''
+    for (const item of calls.items) {
+      const row = element('div')
+      row.textContent = typeof item === 'number' ? `${item}%` : item
+      row.addEventListener('click', () => { hideZoomMenu(); calls.pick(item) })
+      menu.append(row)
+    }
+    const rect = anchor.getBoundingClientRect()
+    menu.style.left = `${rect.left}px`
+    menu.style.top = `${rect.bottom + 2}px`
+    menu.classList.remove('hidden')
+  }
+  function hideZoomMenu () { $('zoom-menu').classList.add('hidden') }
+
+  function setWebZoom (name, percent) {
+    const part = parts[name]
+    part.zoom.percent = Math.max(10, Math.min(400, percent))
+    try { part.frame.contentDocument.documentElement.style.zoom = part.zoom.percent / 100 } catch { }
+    if (part.bar && document.activeElement !== part.bar.zoom) part.bar.zoom.value = `${Math.round(part.zoom.percent)}%`
+  }
+
+  function buildBar (view) {
+    const bar = element('div')
+    bar.style.display = 'contents'
+    const part = parts[view.name]
+    if (view.type === 'pdf') {
+      const page = element('input')
+      page.title = 'Página: escribí un número y Enter'
+      page.style.width = '40px'
+      page.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return
+        goPdfPage(Number(page.value))
+        page.blur()
+        event.stopPropagation()
+      })
+      const holder = element('div', 'box')
+      holder.append(page)
+      const of = element('span', 'of')
+      of.textContent = `/ ${view.pages.length}`
+      bar.append(
+        tool('first', 'Primera página (Inicio)', () => goPdfPage(1)), tool('previous', 'Página anterior (RePág)', () => goPdfPage(pdfCurrent() - 1)),
+        holder, of,
+        tool('next', 'Página siguiente (AvPág)', () => goPdfPage(pdfCurrent() + 1)), tool('last', 'Última página (Fin)', () => goPdfPage(view.pages.length)),
+        element('span', 'gap'))
+      const calls = {
+        items: [...ZOOM_PERCENTS, 'Ajustar al ancho', 'Página completa'],
+        value: percent => setPdfZoom(percent / 100),
+        step: direction => { const to = nextZoom(part.pdf.zoom * 100, direction); if (to) setPdfZoom(to / 100) },
+        pick: item => typeof item === 'number' ? setPdfZoom(item / 100) : setPdfZoom(pdfFit(item === 'Página completa' ? 'page' : 'width'), item === 'Página completa' ? 'page' : 'width')
+      }
+      const zoom = zoomControls(bar, view.name, calls)
+      const width = element('div', 'tool text')
+      width.textContent = 'Ajustar al ancho'
+      width.addEventListener('click', () => calls.pick('Ajustar al ancho'))
+      const whole = element('div', 'tool text')
+      whole.textContent = 'Página completa'
+      whole.addEventListener('click', () => calls.pick('Página completa'))
+      bar.append(element('span', 'gap'), width, whole)
+      part.bar = { page, zoom, width, whole, calls }
+    } else {
+      const calls = {
+        items: ZOOM_PERCENTS,
+        value: percent => setWebZoom(view.name, percent),
+        step: direction => { const to = nextZoom(part.zoom.percent, direction); if (to) setWebZoom(view.name, to) },
+        pick: item => setWebZoom(view.name, item)
+      }
+      part.bar = { zoom: zoomControls(bar, view.name, calls), calls }
+    }
+    part.bar.box = bar
+    return bar
+  }
+
+  // ---- The frame ------------------------------------------------------------------------------------------
+
+  function addView (view, before) {
+    const made = view.type === 'text' ? addText(view) : view.type === 'page' ? addPage(view) : view.type === 'image' ? addImage(view) : view.type === 'pdf' ? addPdf(view) : addMedia(view)
+    made.style.visibility = 'hidden'
+    if (before) $('views').insertBefore(made, parts[before].box); else $('views').append(made)
+    if (view.type === 'pdf' || view.zoom) $('toolbar').append(buildBar(view))
+  }
+
+  // The switch: a label a view, when the file has more than one; a click on one is the viewer's choice.
+  function setSwitch () {
+    const holder = $('switch')
+    holder.innerHTML = ''
+    if (doc.views.length < 2) return
+    for (const view of doc.views) {
+      const label = element('div', 'label' + (view.name === shown ? ' on' : ''))
+      label.textContent = view.label || view.name
+      label.addEventListener('click', () => { picked = true; showView(view.name) })
+      holder.append(label)
+    }
+  }
+
+  // The top line: the title in the middle, the switch after it; the bottom line's Copiar and marks only on a
+  // large popup (two thirds of the screen's height or more).
+  function setTopLine () {
+    const title = $('title').getBoundingClientRect()
+    $('switch').style.left = `${Math.round(title.right + 10)}px`
+    const isLarge = innerHeight >= doc.area[1] * 0.65
+    $('close-below').classList.toggle('hidden', !isLarge)
+    $('move-below').classList.toggle('hidden', !isLarge)
+    $('copy-below').classList.toggle('hidden', !isLarge || !doc.copy)
+    // A small popup still leaves the top line room: the title, and at each side as much as the right holds.
+    const sides = 26 + 26 + 2 + 24 + 40 + (doc.copy ? $('copy').offsetWidth + 6 : 0) + [...$('switch').children].reduce((sum, label) => sum + label.offsetWidth + 4, 0)
+    const needed = Math.ceil(2 * 24 + title.width + 2 * sides)
+    if (innerWidth < needed) api.resize(needed, innerHeight)
+  }
+
+  function resizeInner (width, height) {
+    const hasBar = !$('toolbar').classList.contains('hidden')
+    api.resize(width + 76, height + 84 + (hasBar ? 34 : 0))
+  }
+
+  function showView (name) {
+    shown = name
+    hideZoomMenu()
+    for (const view of doc.views) {
+      const part = parts[view.name]
+      part.box.style.visibility = view.name === name ? 'visible' : 'hidden'
+      if (part.bar) part.bar.box.style.display = view.name === name ? 'contents' : 'none'
+    }
+    $('toolbar').classList.toggle('hidden', !parts[name].bar)
+    setSwitch()
+    setTopLine()
+    if (name === 'PDF') updatePdfBar()
+    const focus = parts[name].focus
+    if (focus) focus.focus({ preventScroll: true })
+  }
+
+  // ---- Copiar ---------------------------------------------------------------------------------------------
+
+  // A page's selection as text with its line breaks: a line after each block, a tab after each cell.
+  function selectionIn (inner) {
+    const selection = inner.getSelection && inner.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return ''
+    const holder = inner.document.createElement('div')
+    for (let index = 0; index < selection.rangeCount; index++) holder.appendChild(selection.getRangeAt(index).cloneContents())
+    const marked = holder.innerHTML.replace(/<br[^>]*>/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6]|tr|pre|blockquote|table|ul|ol|dt|dd|section|article)>/gi, '\n')
+      .replace(/<\/t[dh]>/gi, '\t')
+      .replace(/<[^>]+>/g, '')
+    const area = inner.document.createElement('textarea')
+    area.innerHTML = marked
+    return area.value.replace(/\t\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '')
+  }
+
+  async function copyView () {
+    const view = viewOf(shown)
+    const part = parts[shown]
+    let text = ''
+    try {
+      if (view.type === 'page' && view.picture) {
+        if (await copySvgPicture()) showCopied()
+        return
+      }
+      if (view.type === 'page') {
+        let inner = null
+        try { inner = part.frame.contentWindow; void inner.document } catch { inner = null }
+        const selected = inner ? selectionIn(inner) || String(inner.getSelection() || '') : ''
+        const table = !selected && tables ? tables[part.tab] : ''
+        text = selected || table || doc.raw || (inner && inner.document.body ? inner.document.body.innerText : '')
+      } else if (view.type === 'text') {
+        const selection = getSelection()
+        text = selection && !selection.isCollapsed && part.pre.contains(selection.anchorNode) ? selection.toString() : part.pre.textContent
+      } else if (view.type === 'image') {
+        if (await api.copy_image()) showCopied()
+        return
+      } else if (view.type === 'pdf') {
+        // On the pages, Copiar takes the whole text, once it is read.
+        text = pdfText || ''
+      }
+      if (text && await api.copy_text(text)) showCopied()
+    } catch { }
+  }
+
+  // An SVG's Preview as a picture: drawn at its own size on the Preview's dark paper, as a PNG.
+  function copySvgPicture () {
+    return new Promise(resolve => {
+      const picture = new Image()
+      picture.onload = async () => {
+        const width = Math.max(64, Math.min(4096, picture.naturalWidth || 800)), height = Math.max(64, Math.min(4096, picture.naturalHeight || 600))
+        const canvas = element('canvas')
+        canvas.width = width
+        canvas.height = height
+        const pen = canvas.getContext('2d')
+        pen.fillStyle = '#16181d'
+        pen.fillRect(0, 0, width, height)
+        pen.drawImage(picture, 0, 0, width, height)
+        try { resolve(await api.copy_png(canvas.toDataURL('image/png'))) } catch { resolve(false) }
+      }
+      picture.onerror = () => resolve(false)
+      picture.src = `${base}/file`
+    })
+  }
+
+  let copyFlash = 0
+  function showCopied () {
+    for (const id of ['copy', 'copy-below']) { $(id).textContent = 'Copiado'; $(id).classList.add('on') }
+    clearTimeout(copyFlash)
+    copyFlash = setTimeout(() => { for (const id of ['copy', 'copy-below']) { $(id).textContent = 'Copiar'; $(id).classList.remove('on') } }, 1000)
+  }
+
+  // ---- What comes while the popup stands ------------------------------------------------------------------
+
+  window.news = function (said) {
+    if (said.pdfText !== undefined) {
+      pdfText = said.pdfText
+      parts.Texto.pre.textContent = said.pdfText
+    }
+    if (said.page) {
+      // A database, read: its tables in place of the page that said it was being read.
+      tables = said.tables
+      const part = parts.Page
+      part.tab = 0
+      part.frame.src = `${base}/doc/${said.page}?${Date.now()}`
+    }
+    if (said.pretty) {
+      // The layout gets a view before the source's, Formateado, shown unless the viewer already chose a
+      // view; the source's label becomes Original.
+      const source = viewOf(said.pretty.source)
+      const view = { name: 'Formateado', type: 'text', text: said.pretty.text, wrap: false }
+      doc.views.splice(doc.views.indexOf(source), 0, view)
+      source.label = 'Original'
+      addView(view, source.name)
+      if (doc.raw !== null) doc.raw = said.pretty.text
+      // The layout is longer than the text it came from: a text popup grows to it, up to the room.
+      if (doc.views.every(one => one.type === 'text')) {
+        const rows = said.pretty.text.split('\n')
+        const longest = rows.reduce((most, row) => Math.max(most, row.length), 1)
+        const width = Math.min(doc.room[0], Math.max(480, longest * 8.84 + 48)), height = Math.min(doc.room[1], Math.max(140, rows.length * 19 + 40))
+        if (width + 76 > innerWidth || height + 84 > innerHeight) api.resize(Math.max(innerWidth, Math.round(width) + 76), Math.max(innerHeight, Math.round(height) + 84))
+      }
+      showView(!picked && shown === source.name && doc.open !== 'Original' ? 'Formateado' : shown)
+    }
+    if (said.control && media) media.set(said.control === 'play')
+  }
+
+  // ---- The keys -------------------------------------------------------------------------------------------
+
+  function onKey (event) {
+    const command = event.metaKey || event.ctrlKey
+    if (event.key === 'Escape') {
+      if (!$('zoom-menu').classList.contains('hidden')) { hideZoomMenu(); return }
+      api.close()
+      return
+    }
+    if (event.target && event.target.tagName === 'INPUT') return
+    const view = viewOf(shown)
+    const part = parts[shown]
+    if (media && event.key === ' ') { media.set(!media.playing); event.preventDefault(); return }
+    if (command && event.key.toLowerCase() === 'c' && view.type === 'image') { copyView(); event.preventDefault(); return }
+    if (command && event.key.toLowerCase() === 'a' && view.type === 'text') {
+      const range = document.createRange()
+      range.selectNodeContents(part.pre)
+      getSelection().removeAllRanges()
+      getSelection().addRange(range)
+      event.preventDefault()
+      return
+    }
+    const calls = part.bar && part.bar.calls
+    if (command && calls && (event.key === '+' || event.key === '=')) { calls.step(1); event.preventDefault(); return }
+    if (command && calls && event.key === '-') { calls.step(-1); event.preventDefault(); return }
+    if (view.type === 'pdf') {
+      if (event.key === 'Home') { goPdfPage(1); event.preventDefault() }
+      else if (event.key === 'End') { goPdfPage(view.pages.length); event.preventDefault() }
+      else if (event.key === 'PageDown') { part.box.scrollTop += part.box.clientHeight - 40; event.preventDefault() }
+      else if (event.key === 'PageUp') { part.box.scrollTop -= part.box.clientHeight - 40; event.preventDefault() }
+    }
+  }
+
+  // ---- The start ------------------------------------------------------------------------------------------
+
+  async function start () {
+    api = window.pywebview.api
+    doc = await api.asked()
+    $('title').textContent = doc.name
+    $('copy').classList.toggle('hidden', !doc.copy)
+    for (const view of doc.views) addView(view)
+    for (const id of ['close', 'close-below']) $(id).addEventListener('click', () => api.close())
+    for (const id of ['copy', 'copy-below']) $(id).addEventListener('click', copyView)
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', event => { if (!$('zoom-menu').contains(event.target)) hideZoomMenu() })
+    document.addEventListener('contextmenu', event => event.preventDefault())
+    addEventListener('resize', () => { setTopLine(); if (shown === 'PDF' && parts.PDF.pdf.mode !== 'fixed') setPdfZoom(pdfFit(parts.PDF.pdf.mode), parts.PDF.pdf.mode) })
+    showView(doc.open)
+    api.shown()
+  }
+
+  if (window.pywebview && window.pywebview.api) start()
+  else window.addEventListener('pywebviewready', start)
+</script>
+</body>
+</html>

@@ -1825,10 +1825,11 @@ test('scrollThumb: the explorer’s scroll bar has a thumb only when the tree is
   expect(scrollThumb(5000, 4990, 10)).toEqual({ start: 9, size: 1 })
 })
 
-test('on macOS a pasted image opens in view.py’s popup, and in Quick Look where pywebview is missing', () => {
-  expect(MAC.viewImage.slice(0, 2)).toEqual(['/bin/sh', '-c'])
-  const script = MAC.viewImage[2] ?? ''
-  expect(script).toContain('exec "$SPEEDY_PYTHON" "$SPEEDY_POPUP"')
+test('on macOS a file opens in the popup SPEEDY_POPUP names, and in Quick Look where pywebview is missing', () => {
+  expect(MAC.popup.slice(0, 2)).toEqual(['/bin/sh', '-c'])
+  const script = MAC.popup[2] ?? ''
+  expect(script).toContain('"$SPEEDY_PYTHON" "$SPEEDY_POPUP" & viewer=$!')
+  expect(script).toContain('wait $viewer && exit 0')
   expect(script).toContain('qlmanage -p "$SPEEDY_IMAGE"')
   expect(script.indexOf('SPEEDY_POPUP')).toBeLessThan(script.indexOf('qlmanage'))
 })
