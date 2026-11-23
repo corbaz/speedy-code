@@ -982,7 +982,17 @@ let pendingRead: Promise<void> | undefined
 async function takeSelection ($: EngineInterface) {
   const selection = await $.ui.selection().catch(() => undefined)
   pendingSelection = selection?.text.trim() ?? ''
-  pendingRead = pendingSelection ? undefined : clipboardText($).then(text => { pendingSelection = text })
+  pendingRead = pendingSelection ? undefined : clipboardText($).then(text => { pendingSelection = freshClipboard(text) })
+}
+
+/** The clipboard's text as it was when the history was cleared: passed over until the clipboard holds another. */
+let clearedClipboard: string | undefined
+
+/** The clipboard's text for 📎 to read: none while it is still the one the history was cleared with. */
+function freshClipboard (text: string) {
+  if (clearedClipboard !== undefined && text === clearedClipboard) return ''
+  clearedClipboard = undefined
+  return text
 }
 
 /** The clipboard's text, as Windows holds it: the clip reads it, the paste button puts it in the prompt. */
@@ -1054,6 +1064,8 @@ async function clearClips ($: EngineInterface) {
   await pendingRead?.catch(() => {})
   pendingSelection = ''
   pendingRead = undefined
+  // What the clipboard holds now was there before the clearing: it is not read again, only a text copied after.
+  clearedClipboard = await clipboardText($)
   lastNarration.file = ''
   if (await read($, clipNow)) await stop($)
   $.ui.toast('speedy-code: historial borrado.')

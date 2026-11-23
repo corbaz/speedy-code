@@ -577,6 +577,28 @@ test('with nothing selected, the menu reads the clipboard', { timeoutMs: 30000 }
   await ui.unmount()
 })
 
+test('the clipboard’s text there when the history was cleared is not read again: the menu opened anew still has nothing to read', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: undefined }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, 'Texto viejo, que ya estaba en el portapapeles.')
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-clear' })
+  await w.clock.advance(200)
+  await band.unmount()
+  // Closed and opened again: the clipboard still holds the same text, and it is passed over.
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const again = await $.ui.mount(BAND)
+  await again.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(w.spoken.filter(env => env.NARRATOR_TEXT)).toEqual([])
+  expect(TOASTS.at(-1)).toBe('speedy-code: seleccioná o copiá un texto primero.')
+  await again.unmount()
+  await ui.unmount()
+})
+
 test('switched off, the clip stays, in gray, and reads nothing', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { isEnabled: false })
