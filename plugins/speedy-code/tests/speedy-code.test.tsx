@@ -347,7 +347,7 @@ test('a session nobody is at is not narrated', async ($, on) => {
   expect(w.spoken).toEqual([])
 })
 
-test('switched off, the play button stays, in gray', async ($, on) => {
+test('with nothing read yet, the play button is gray, the narrator on or off', async ($, on) => {
   holdState(on, { isEnabled: { value: false, version: 1 }, speech: { value: 'idle', version: 1 } })
   const ui = await $.ui.mount(FOOTER)
   expect((await ui.find({ type: 'Text', in: 'speedy:switch' }))?.text).toBe(' 🔇 ')
@@ -431,12 +431,12 @@ test('switched off while it speaks, it pauses; switched on, it goes on', { timeo
 const BUTTONS: ReadonlyArray<{ name: string; steps: ReadonlyArray<'play' | 'switch' | 'end'>; words: string[]; starts: number; last: string; speaker: string }> = [
   { name: 'reading: play pauses', steps: ['play'], words: ['pause'], starts: 1, last: ' ⏵ ', speaker: ' 🔊 ' },
   { name: 'reading: play twice pauses and goes on', steps: ['play', 'play'], words: ['pause', 'play'], starts: 1, last: ' ⏸︎ ', speaker: ' 🔊 ' },
-  { name: 'reading: the speaker pauses, play stays and does nothing', steps: ['switch', 'play'], words: ['pause'], starts: 1, last: ' ⏵ ', speaker: ' 🔇 ' },
+  { name: 'reading: the speaker pauses, and play goes on with it off', steps: ['switch', 'play'], words: ['pause', 'play'], starts: 1, last: ' ⏸︎ ', speaker: ' 🔇 ' },
   { name: 'reading: the speaker off and on goes on', steps: ['switch', 'switch'], words: ['pause', 'play'], starts: 1, last: ' ⏸︎ ', speaker: ' 🔊 ' },
   { name: 'paused: the speaker off and on stays paused', steps: ['play', 'switch', 'switch'], words: ['pause'], starts: 1, last: ' ⏵ ', speaker: ' 🔊 ' },
   { name: 'paused: the speaker off and on, then play goes on', steps: ['play', 'switch', 'switch', 'play'], words: ['pause', 'play'], starts: 1, last: ' ⏸︎ ', speaker: ' 🔊 ' },
   { name: 'read to its end: play reads it again', steps: ['end', 'play'], words: [], starts: 2, last: ' ⏸︎ ', speaker: ' 🔊 ' },
-  { name: 'read to its end: the speaker off, play stays and does nothing', steps: ['end', 'switch', 'play'], words: [], starts: 1, last: ' ⏵ ', speaker: ' 🔇 ' },
+  { name: 'read to its end: the speaker off, play reads it again all the same', steps: ['end', 'switch', 'play'], words: [], starts: 2, last: ' ⏸︎ ', speaker: ' 🔇 ' },
   { name: 'read to its end: the speaker off and on, play shows', steps: ['end', 'switch', 'switch'], words: [], starts: 1, last: ' ⏵ ', speaker: ' 🔊 ' },
   { name: 'read to its end: off, on, play reads it again', steps: ['end', 'switch', 'switch', 'play'], words: [], starts: 2, last: ' ⏸︎ ', speaker: ' 🔊 ' },
 ]
@@ -466,8 +466,8 @@ for (const row of BUTTONS) {
     expect(w.spoken.length).toBe(row.starts)
     const play = await ui.find({ type: 'Text', in: 'speedy:play' })
     expect(play?.text).toBe(row.last)
-    // Off, play stays where it was, in gray.
-    expect(play?.props.color === '#495057').toBe(row.speaker === ' 🔇 ')
+    // The speaker off only keeps the answers from being read on their own: play is never gray for it.
+    expect(play?.props.color === '#495057').toBe(false)
     expect((await ui.find({ type: 'Text', in: 'speedy:switch' }))?.text).toBe(row.speaker)
     talks.on = false
     await w.clock.advance(200)
@@ -627,13 +627,17 @@ test('a text copied while the menu is open is read at once: the first row reads 
   await ui.unmount()
 })
 
-test('switched off, the clip stays, in gray, and reads nothing', { timeoutMs: 30000 }, async ($, on) => {
+test('switched off, the clip stays lit and reads the selection: off only keeps the answers from being read on their own', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { isEnabled: false })
-  expect((await ui.find({ type: 'Text', in: 'speedy:clip' }))?.props.color).toBe('#495057')
+  expect((await ui.find({ type: 'Text', in: 'speedy:clip' }))?.props.color).toBe('#ffd43b')
   await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   await w.clock.advance(200)
-  expect(w.spoken).toEqual([])
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Hola, este es el texto que seleccioné en la terminal.'])
+  await band.unmount()
   await ui.unmount()
 })
 

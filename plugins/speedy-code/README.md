@@ -21,7 +21,7 @@ From left to right:
 | *Mode* ▾ | The permission mode in force (Manual, Ediciones, Plan, Sin permisos, Auto). Opens the menu that explains what each lets Claude Code do without asking; a click on one changes to it, by pressing shift+tab until it is reached. shift+tab itself works as ever, and Claude Code's own line under the prompt stays |
 | 🗜️ | Runs `/compact`; always shown, whatever the context used |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
-| ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
+| ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray only before the first answer; the narrator off (🔇) only keeps the answers from being read on their own, so this and 📎 work all the same |
 | 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk. On Windows a kept narration plays in the viewer's popup, with its bar to seek back and forth; so does ⏵ once the answer was read and kept |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |

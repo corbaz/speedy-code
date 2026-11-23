@@ -2932,9 +2932,9 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
   // Text glyphs, never emojis: an emoji's width differs from one to the next, a text glyph's does not,
   // so play and pause take the same room. U+FE0E asks for the text form.
   const play = ({ idle: ['⏵', '#51cf66'], thinking: ['⧗', '#748ffc'], playing: ['⏸︎', '#ffd43b'], paused: ['⏵', '#51cf66'] } as const)[now]
-  // Always drawn, so nothing in the footer moves: disabled, in gray, while the narrator is off and
-  // before the first answer, when there is nothing to read again.
-  const canPlay = isPlayable(enabled, now)
+  // Always drawn, so nothing in the footer moves: in gray before the first answer, when there is nothing to
+  // read again. The narrator off does not gray it: off only keeps the answers from being read on their own.
+  const canPlay = isPlayable(now)
   // A Client drawing `label` in `color`, as wide as the label is on a terminal.
   // With Nerd Fonts every emoji is its glyph, as wide as the emoji was, in the color a glyph can take.
   const isNerd = (await read($, icons)) === 'nerd'
@@ -2988,7 +2988,7 @@ async function footerGroups ($: EngineInterface, e: Drawn) {
     { group: 'clear', key: 'speedy:clear', footer: ' 🗑️ ', panel: ' 🗑️ borrar ', color: '#adb5bd', tip: 'borrar el prompt' },
     { group: 'narrator', key: 'speedy:switch', footer: ` ${enabled ? '🔊' : '🔇'} `, panel: enabled ? ' 🔊 narrador ' : ' 🔇 narrador apagado ', color: enabled ? '#51cf66' : '#868e96', tip: enabled ? 'apagar el narrador' : 'encender el narrador' },
     { group: 'narrator', key: 'speedy:play', footer: ` ${play[0]} `, panel: ` ${play[0]} leer de nuevo `, color: canPlay ? play[1] : DISABLED, tip: now === 'playing' ? 'pausar' : 'leer de nuevo' },
-    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 audios y selección ', color: enabled ? '#ffd43b' : DISABLED, tip: 'audios y selección' },
+    { group: 'narrator', key: 'speedy:clip', footer: ' 📎 ', panel: ' 📎 audios y selección ', color: '#ffd43b', tip: 'audios y selección' },
     { group: 'mic', key: 'speedy:mic', footer: ` ${MIC_GLYPHS[listen]} `, panel: listen === 'off' ? ` ${MIC_GLYPHS.off} dictar ` : ` ${MIC_GLYPHS[listen]} dictando `, color: MIC_COLORS[listen], tip: listen === 'off' ? 'dictar' : 'dejar de dictar' },
     { group: 'mic', key: 'speedy:mics', footer: '▾ ', panel: ' ▾ micrófono ', color: MIC_COLORS.off, tip: 'micrófono' },
     { group: 'reload', key: 'speedy:reload', footer: ' 🔄 ', panel: ' 🔄 recargar ', color: '#adb5bd', tip: 'recargar' },
@@ -3295,9 +3295,12 @@ async function runSetup ($: EngineInterface) {
   }
 }
 
-/** Whether the play button acts: the narrator on, and something under way or to read again. */
-function isPlayable (enabled: boolean, now: Speech) {
-  return enabled && (now !== 'idle' || lastAnswer !== '')
+/**
+ * Whether the play button acts: something under way or to read again. The narrator off only keeps the
+ * answers from being read on their own: reading again and reading a selection work all the same.
+ */
+function isPlayable (now: Speech) {
+  return now !== 'idle' || lastAnswer !== ''
 }
 
 /** The play button: reads the last answer again, cancels Haiku, pauses, or goes on. */
@@ -4286,11 +4289,11 @@ export const register: Register = on => {
     } else if (e.element === 'speedy:mic') {
       if ((await read($, listening)) === 'off') void listen($)
       else await stopListening($)
-    } else if (e.element === 'speedy:clip' && (await read($, isEnabled))) {
+    } else if (e.element === 'speedy:clip') {
       // The selection is taken as 📎 is pressed, before the menu opens, so it is not lost to the menu.
       if ((await read($, menu)) !== 'history') await takeSelection($)
       await openMenu($, 'history')
-    } else if (e.element === 'speedy:play' && isPlayable(await read($, isEnabled), await read($, speech))) {
+    } else if (e.element === 'speedy:play' && isPlayable(await read($, speech))) {
       await pressPlay($)
     }
     return result
