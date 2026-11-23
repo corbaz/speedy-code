@@ -1,7 +1,7 @@
 # Speaks NARRATOR_TEXT with the Microsoft Edge neural voice NARRATOR_VOICE (edge-tts), for the speedy-code mod.
 # Prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 # Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
-# With NARRATOR_SAVE_AS set, the whole narration is joined into that file once it has played (history.py).
+# With NARRATOR_SAVE_AS set, the whole narration is joined into that file (history.py), stopped halfway or not.
 #
 # The text is cut in up to five parts at sentence ends, all synthesized at once: the first plays as soon
 # as it is ready while the rest are still being made, and each plays after the one before.
@@ -53,6 +53,15 @@ $key = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(
 $audios = @(0..($parts.Count - 1) | ForEach-Object { Join-Path $temp "speedy-code-$key-$_.mp3" })
 $isKept = @($audios | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -eq 0
 
+# Python started by Windows itself, hidden, with these arguments: not this process's child, so it outlives a
+# stop that ends this process with all it started. It answers the process, or nothing if it could not start.
+function Start-Apart($arguments) {
+  $hidden = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+  $made = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "`"$python`" $($arguments -join ' ')"; ProcessStartupInformation = $hidden }
+  if ($made.ReturnValue -ne 0) { return $null }
+  Get-Process -Id $made.ProcessId -ErrorAction SilentlyContinue
+}
+
 $maker = $null
 $textFiles = @()
 try {
@@ -64,7 +73,19 @@ try {
     }
     # One process makes them all: the first alone, then the rest at once while it plays.
     $arguments = @("`"$PSScriptRoot\tts.py`"", $voice, $rate, "`"$(Join-Path $temp "speedy-code-$key")`"") + $textFiles
-    $maker = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    # A narration that is kept is made apart from this process, so a stop that ends it and what it started
+    # leaves the maker to finish.
+    $maker = if ($saveAs) { Start-Apart $arguments } else { Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru }
+  }
+  # Kept for the history from the start, not once it has played: the join runs detached and waits for the
+  # parts, so a narration stopped halfway is kept whole all the same.
+  if ($saveAs) {
+    # The narrated text goes to the join in a file, written beside the MP3: a process started apart inherits
+    # no environment. The hour's cleaning takes the file.
+    $narrated = Join-Path $temp "speedy-code-$key.txt"
+    [IO.File]::WriteAllText($narrated, $text, (New-Object Text.UTF8Encoding $false))
+    $joinArguments = @("`"$PSScriptRoot\history.py`"", '--wait', '--text', "`"$narrated`"", "`"$saveAs`"") + @($audios | ForEach-Object { "`"$_`"" })
+    [void](Start-Apart $joinArguments)
   }
 
   Add-Type -AssemblyName PresentationCore
@@ -112,20 +133,17 @@ try {
     }
     $player.Stop()
   }
-  # Every part has played, so each exists whole. The join runs detached: the sound has already ended.
-  if ($saveAs) {
-    $joinArguments = @("`"$PSScriptRoot\history.py`"", "`"$saveAs`"") + @($audios | ForEach-Object { "`"$_`"" })
-    # The narrated text goes to the join through the environment, which the process inherits: it is written beside the MP3.
-    $env:SPEEDY_NARRATION = $text
-    Start-Process -FilePath $python -ArgumentList $joinArguments -WindowStyle Hidden | Out-Null
-  }
   foreach ($one in $players) { $one.Close() }
 } catch {
   Say "error $($_.Exception.Message)"
   exit 1
 } finally {
-  # Ended early: the maker, if it still runs, stops with it.
-  if ($maker -and -not $maker.HasExited) { Stop-Process -Id $maker.Id -Force -ErrorAction SilentlyContinue }
-  foreach ($textFile in $textFiles) { Remove-Item -LiteralPath $textFile.Trim('"') -Force -ErrorAction SilentlyContinue }
+  # Ended early: the maker, if it still runs, stops with it. One whose narration is kept goes on to the
+  # end, with the texts it reads: the join waits for its parts. The texts go with the hour's cleaning.
+  $isMaking = $maker -and -not $maker.HasExited
+  if ($isMaking -and -not $saveAs) { Stop-Process -Id $maker.Id -Force -ErrorAction SilentlyContinue }
+  if (-not ($isMaking -and $saveAs)) {
+    foreach ($textFile in $textFiles) { Remove-Item -LiteralPath $textFile.Trim('"') -Force -ErrorAction SilentlyContinue }
+  }
   if ($control) { Remove-Item -LiteralPath $control -Force -ErrorAction SilentlyContinue }
 }

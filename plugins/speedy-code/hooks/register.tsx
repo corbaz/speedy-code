@@ -1049,6 +1049,13 @@ async function clearClips ($: EngineInterface) {
     { env: { SPEEDY_HISTORY: await historyDir($) } }
   ).catch(() => undefined)
   await update($, clips, () => [])
+  // The selection's row is blanked with them: its text goes, and its narration ends if it is the one sounding.
+  // The answer kept for the play button has no file any more.
+  await pendingRead?.catch(() => {})
+  pendingSelection = ''
+  pendingRead = undefined
+  lastNarration.file = ''
+  if (await read($, clipNow)) await stop($)
   $.ui.toast('speedy-code: historial borrado.')
 }
 

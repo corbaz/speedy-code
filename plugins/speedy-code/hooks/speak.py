@@ -3,7 +3,7 @@
 It does what speak.ps1 does on Windows, with afplay in place of Windows' media player:
 prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
-With NARRATOR_SAVE_AS set, the whole narration is joined into that file once it has played (history.py).
+With NARRATOR_SAVE_AS set, the whole narration is joined into that file (history.py), stopped halfway or not.
 
 The text is cut in up to five parts at sentence ends, all synthesized at once (tts.py): the first plays as
 soon as it is ready while the rest are still being made, and each plays after the one before.
@@ -107,7 +107,13 @@ def main() -> int:
                     target.write(part)
                 text_files.append(text_file)
             # One process makes them all: the first alone, then the rest at once while it plays.
-            maker = subprocess.Popen([sys.executable, os.path.join(HERE, "tts.py"), voice, rate, prefix, *text_files])
+            # A maker whose narration is kept is its own session: a stop of this process leaves it to finish.
+            maker = subprocess.Popen([sys.executable, os.path.join(HERE, "tts.py"), voice, rate, prefix, *text_files], start_new_session=bool(save_as))
+        # Kept for the history from the start, not once it has played: the join runs detached and waits for
+        # the parts, so a narration stopped halfway is kept whole all the same.
+        if save_as:
+            environment = {**os.environ, "SPEEDY_NARRATION": text}
+            subprocess.Popen([sys.executable, os.path.join(HERE, "history.py"), "--wait", save_as, *audios], env=environment, start_new_session=True)
 
         is_told = False
         is_paused = False
@@ -137,21 +143,20 @@ def main() -> int:
             if player.failed():
                 say(f"error could not play part {index + 1}")
                 return 1
-        # Every part has played, so each exists whole. The join runs detached: the sound has already ended.
-        if save_as:
-            environment = {**os.environ, "SPEEDY_NARRATION": text}
-            subprocess.Popen([sys.executable, os.path.join(HERE, "history.py"), save_as, *audios], env=environment, start_new_session=True)
         return 0
     finally:
         player.stop()
-        # Ended early: the maker, if it still runs, stops with it.
-        if maker and maker.poll() is None:
+        # Ended early: the maker, if it still runs, stops with it. One whose narration is kept goes on to the
+        # end, with the texts it reads: the join waits for its parts. The texts go with the hour's cleaning.
+        is_making = maker is not None and maker.poll() is None
+        if is_making and not save_as:
             maker.kill()
-        for text_file in text_files:
-            try:
-                os.remove(text_file)
-            except OSError:
-                pass
+        if not (is_making and save_as):
+            for text_file in text_files:
+                try:
+                    os.remove(text_file)
+                except OSError:
+                    pass
         if control:
             try:
                 os.remove(control)

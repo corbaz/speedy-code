@@ -477,6 +477,22 @@ async function footerSession ($: Engine, on: On, store: Record<string, unknown>,
   return { w, ui: await $.ui.mount(FOOTER) }
 }
 
+test('clearing the history blanks the selection’s row too: nothing is left to read until another text is taken', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-clear' })
+  await w.clock.advance(200)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.advance(200)
+  expect(w.spoken.filter(env => env.NARRATOR_TEXT)).toEqual([])
+  expect(TOASTS.at(-1)).toBe('speedy-code: seleccioná o copiá un texto primero.')
+  await band.unmount()
+  await ui.unmount()
+})
+
 test('the clip opens the menu; its first row reads the selection taken, and play reads it again', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
