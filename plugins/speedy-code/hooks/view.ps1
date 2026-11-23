@@ -3,7 +3,8 @@
 # 80% of that screen's working area and never larger than the picture: the picture fills its place, never
 # deformed. Its frame, from outside in: a wide black contour that hides what is behind, a blue line, and a
 # black margin. On the top line, as the terminal panel has them: the file's name in the middle and the
-# close mark at the right.
+# close mark at the right, the move mark at its left: held down, it carries the popup where it is dropped;
+# opened again, the popup stands in the middle once more.
 # The close mark or Esc closes it. It says "shown" once it is up, then "." every tenth of a second, so the
 # mod wakes to end it; with no one reading, the write fails and it closes.
 $ErrorActionPreference = 'Stop'
@@ -41,6 +42,29 @@ $close.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
 $close.BackColor = $black
 $close.Cursor = [System.Windows.Forms.Cursors]::Hand
 
+# The move mark, at the close mark's left, as the viewer has it: held down, the popup follows the
+# pointer and stays where it is let go. A label pressed keeps the mouse until it is let go, so the
+# moves reach it even off the mark.
+$drag = @{ At = $null }
+$move = New-Object System.Windows.Forms.Label
+$move.Text = " $([string][char]0x2725) "
+$move.AutoSize = $true
+$move.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 12, [System.Drawing.FontStyle]::Bold)
+$move.ForeColor = $blue
+$move.BackColor = $black
+$move.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+$move.Add_MouseDown({
+  if ($_.Button -ne 'Left') { return }
+  $at = [System.Windows.Forms.Cursor]::Position
+  $drag.At = @(($at.X - $form.Left), ($at.Y - $form.Top))
+})
+$move.Add_MouseMove({
+  if (-not $drag.At) { return }
+  $at = [System.Windows.Forms.Cursor]::Position
+  $form.Location = New-Object System.Drawing.Point(($at.X - $drag.At[0]), ($at.Y - $drag.At[1]))
+})
+$move.Add_MouseUp({ $drag.At = $null })
+
 # Read into memory, not with FromFile, which holds the file till the popup closes: clearing the history
 # could not delete the image shown.
 $image = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(, [System.IO.File]::ReadAllBytes($env:SPEEDY_IMAGE))))
@@ -51,7 +75,7 @@ $width = [int][Math]::Round($image.Width * $scale)
 $height = [int][Math]::Round($image.Height * $scale)
 # A small picture still leaves the top line room for its title and close mark: the picture stays its
 # size, centered, with black beside it.
-$popupWidth = [Math]::Max($width + $extraWidth, 2 * $contour + $title.PreferredWidth + 2 * $close.PreferredWidth + 48)
+$popupWidth = [Math]::Max($width + $extraWidth, 2 * $contour + $title.PreferredWidth + 2 * ($close.PreferredWidth + $move.PreferredWidth + 2) + 48)
 $popupHeight = $height + $extraHeight
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -90,10 +114,13 @@ $form.Controls.Add($frame)
 $lineMiddle = $contour + [int]($line / 2)
 $form.Controls.Add($title)
 $form.Controls.Add($close)
+$form.Controls.Add($move)
 $title.BringToFront()
 $close.BringToFront()
+$move.BringToFront()
 $title.Location = New-Object System.Drawing.Point(([int](($popupWidth - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
 $close.Location = New-Object System.Drawing.Point(($popupWidth - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
+$move.Location = New-Object System.Drawing.Point(($close.Location.X - $move.PreferredWidth - 2), ($lineMiddle - [int]($move.PreferredHeight / 2)))
 $close.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })

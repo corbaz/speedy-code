@@ -1,10 +1,11 @@
 # A small dialog for the speedy-code explorer, in the middle of the screen the pointer is on, framed as
-# the viewer's popups are: a wide black contour, a blue line, the title on the top line and the close mark.
+# the viewer's popups are: a wide black contour, a blue line, a black band inside it, the title on the top
+# line, the move mark and the close mark. Both kinds have one size and the same two buttons, at the same place.
 #   SPEEDY_MODE=rename: two fields, the name and the extension of $env:SPEEDY_FILE, and Aceptar / Cancelar.
 #     The new name is checked here (not empty, none of \ / : * ? " < > |, not another file of the folder)
 #     and the dialog stays open, saying why, until it is right or cancelled.
 #     Prints `rename <base64 of the UTF-8 new name>`, or `cancel`.
-#   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si / No. Prints `delete` or `cancel`.
+#   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si, borrar / Cancelar. Prints `delete` or `cancel`.
 # Enter accepts a rename (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
 $ErrorActionPreference = 'Stop'
@@ -35,7 +36,12 @@ $line = 2
 $margin = 12
 $band = 16
 $width = 520 + 2 * $margin
-$height = $(if ($mode -eq 'rename') { 250 } else { 200 }) + 2 * $band
+# Renombrar and Borrar are one dialog: the same size, the text from the same top, the same two buttons at
+# the same place, the one that does it first and Cancelar after it.
+$height = 250 + 2 * $band
+$buttonWidth = 130
+$buttonHeight = 38
+$gap = 24
 
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -65,7 +71,7 @@ $body.BackColor = $paper
 $inside.Controls.Add($body)
 $form.Controls.Add($frame)
 
-# The title and the close mark ride the top line, on black, as the viewer's do.
+# The title, the move mark and the close mark ride the top line, on black, as the viewer's do.
 $title = New-Object System.Windows.Forms.Label
 $title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } else { 'Renombrar' }) + ' '
 $title.AutoSize = $true
@@ -79,13 +85,38 @@ $close.Font = $bold
 $close.ForeColor = $red
 $close.BackColor = $black
 $close.Cursor = [System.Windows.Forms.Cursors]::Hand
+# The move mark, at the close mark's left, as the viewer has it: held down, the popup follows the
+# pointer and stays where it is let go. A label pressed keeps the mouse until it is let go, so the
+# moves reach it even off the mark.
+$drag = @{ At = $null }
+$move = New-Object System.Windows.Forms.Label
+$move.Text = " $([string][char]0x2725) "
+$move.AutoSize = $true
+$move.Font = New-Object System.Drawing.Font('Segoe UI Symbol', 12, [System.Drawing.FontStyle]::Bold)
+$move.ForeColor = $frame.BackColor
+$move.BackColor = $black
+$move.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+$move.Add_MouseDown({
+  if ($_.Button -ne 'Left') { return }
+  $at = [System.Windows.Forms.Cursor]::Position
+  $drag.At = @(($at.X - $form.Left), ($at.Y - $form.Top))
+})
+$move.Add_MouseMove({
+  if (-not $drag.At) { return }
+  $at = [System.Windows.Forms.Cursor]::Position
+  $form.Location = New-Object System.Drawing.Point(($at.X - $drag.At[0]), ($at.Y - $drag.At[1]))
+})
+$move.Add_MouseUp({ $drag.At = $null })
 $form.Controls.Add($title)
 $form.Controls.Add($close)
+$form.Controls.Add($move)
 $title.BringToFront()
 $close.BringToFront()
+$move.BringToFront()
 $lineMiddle = $contour + [int]($line / 2)
 $title.Location = New-Object System.Drawing.Point(([int](($width - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
 $close.Location = New-Object System.Drawing.Point(($width - $contour - $close.PreferredWidth - 10), ($lineMiddle - [int]($close.PreferredHeight / 2)))
+$move.Location = New-Object System.Drawing.Point(($close.Location.X - $move.PreferredWidth - 2), ($lineMiddle - [int]($move.PreferredHeight / 2)))
 
 function New-Text([string]$text, [int]$x, [int]$y, $color, $face) {
   $label = New-Object System.Windows.Forms.Label
@@ -112,15 +143,20 @@ function New-Box([string]$text, [int]$x, [int]$y, [int]$boxWidth) {
   $box
 }
 
-function New-Action([string]$text, $fill, $color, [int]$x, [int]$y) {
+# A button, all of one size, its text in the middle. `slot` 0 is the one that does it, 1 Cancelar after it:
+# both on the bottom row, at the right, in every dialog.
+function New-Action([string]$text, $fill, $color, [int]$slot) {
   $button = New-Object System.Windows.Forms.Label
-  $button.Text = "  $text  "
-  $button.AutoSize = $true
+  $button.Text = $text
+  $button.AutoSize = $false
+  $button.Size = New-Object System.Drawing.Size($buttonWidth, $buttonHeight)
+  $button.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
   $button.Font = $bold
   $button.BackColor = $fill
   $button.ForeColor = $color
-  $button.Padding = New-Object System.Windows.Forms.Padding(4, 5, 4, 5)
   $button.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $x = $inner - $gap - $buttonWidth - (1 - $slot) * ($buttonWidth + 12)
+  $y = $innerHeight - $gap - $buttonHeight
   $button.Location = New-Object System.Drawing.Point($x, $y)
   $body.Controls.Add($button)
   $button
@@ -133,19 +169,20 @@ function Finish([string]$answer) {
 }
 
 $inner = $width - 2 * ($contour + $line + $margin)
+$innerHeight = $height - 2 * ($contour + $line + $band)
 if ($mode -eq 'rename') {
   # A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them.
   $dot = $fileName.LastIndexOf('.')
   $base = if ($dot -gt 0) { $fileName.Substring(0, $dot) } else { $fileName }
   $extension = if ($dot -gt 0) { $fileName.Substring($dot + 1) } else { '' }
-  [void](New-Text 'Nombre' 24 30 $dim $font)
-  [void](New-Text (T 'Extensi\u00f3n') 330 30 $dim $font)
-  $nameBox = New-Box $base 24 56 290
-  [void](New-Text '.' 318 58 $ink $bold)
-  $extensionBox = New-Box $extension 330 56 ($inner - 330 - 24)
-  $problem = New-Text '' 24 96 $red $font
-  $accept = New-Action 'Aceptar' $blue $black ($inner - 24 - 220) 136
-  $cancel = New-Action 'Cancelar' $field $ink ($inner - 24 - 100) 136
+  [void](New-Text 'Nombre' $gap $gap $dim $font)
+  [void](New-Text (T 'Extensi\u00f3n') 330 $gap $dim $font)
+  $nameBox = New-Box $base $gap 52 290
+  [void](New-Text '.' 318 54 $ink $bold)
+  $extensionBox = New-Box $extension 330 52 ($inner - 330 - $gap)
+  $problem = New-Text '' $gap 92 $red $font
+  $accept = New-Action 'Aceptar' $blue $black 0
+  $cancel = New-Action 'Cancelar' $field $ink 1
 
   function Try-Accept {
     $name = $nameBox.Text.Trim()
@@ -165,12 +202,12 @@ if ($mode -eq 'rename') {
   $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
   $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Accept; $_.Handled = $true; $_.SuppressKeyPress = $true } })
 } else {
-  [void](New-Text (T '\u00bfMandar a la papelera?') 24 26 $ink $bold)
+  [void](New-Text (T '\u00bfMandar a la papelera?') $gap $gap $ink $bold)
   $shown = if ($fileName.Length -gt 46) { $fileName.Substring(0, 45) + [char]0x2026 } else { $fileName }
-  [void](New-Text $shown 24 54 $blue $bold)
-  [void](New-Text (T 'Se puede recuperar desde la Papelera de reciclaje.') 24 82 $dim $font)
-  $accept = New-Action (T 'S\u00ed, borrar') $red $black ($inner - 24 - 200) 112
-  $cancel = New-Action 'No' $field $ink ($inner - 24 - 60) 112
+  [void](New-Text $shown $gap 52 $blue $bold)
+  [void](New-Text (T 'Se puede recuperar desde la Papelera de reciclaje.') $gap 80 $dim $font)
+  $accept = New-Action (T 'S\u00ed, borrar') $red $black 0
+  $cancel = New-Action 'Cancelar' $field $ink 1
   $accept.Add_Click({ Finish 'delete' })
   $cancel.Add_Click({ Finish 'cancel' })
   $form.Add_Shown({ $form.Activate(); [void]$cancel.Focus() })
