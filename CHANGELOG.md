@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explorer: a filter under the field for a path. A pattern (`*.pdf`, `a*.docx`), Enter, and the disk shown is searched (`find_files.py`, the session's folder first): the tree holds only the files found, under their folders. `× limpiar` brings the whole tree back.
+- Windows: a presentation (pptx, ppt) opens as its slides and a Word document (docx, doc) as its pages, under the bar a PDF has, as on macOS. PowerPoint or Word writes the pages where installed; without them Edge prints the popup's own drawing of a .pptx or a .docx (`office_pages.py`). A notice stands in the middle of the screen while the pages are got ready.
 - macOS: a file of the explorer opens in a popup drawn as the Windows one (`view_file.py`), in place of Quick Look: text and code with Copiar and Formateado, Markdown, HTML and SVG with their Preview, a PDF's pages and text, spreadsheets, Word documents, SQLite databases, zip listings, audio and video. A kept narration plays in it, as on Windows.
 - macOS: a presentation (pptx) opens as its slides, and a Word document (docx, doc) as its pages on paper, both under the bar a PDF has: go to a page, zoom, fit the width, the whole page. An old .ppt or .xls opens in Quick Look.
 - Explorer: the scroll bar's thumb is held and moved with the mouse; a press on its track brings it there.
