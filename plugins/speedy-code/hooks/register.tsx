@@ -977,22 +977,49 @@ async function setEnabled ($: EngineInterface, value: boolean) {
 
 /** The clipboard's text while it is still being read for the 📎 menu: its first row waits for it. */
 let pendingRead: Promise<void> | undefined
-/** Whether what 📎 reads was selected with the mouse; else it is the clipboard's, read again at each press. */
-let isPendingSelected = false
+/** The selection as 📎 took it, and what was last looked at and read: the newer of the two texts is read. */
+let takenSelection = ''
+let lastRead: { selection: string, clipboard: string, source: '' | 'selection' | 'clipboard' } = { selection: '', clipboard: '', source: '' }
+
+/**
+ * Which of the two 📎 reads: the selection or the clipboard's text, the one that changed since they were last
+ * looked at; a new selection first. A text sent to the clipboard by any means is so read even while an
+ * older selection is still there. With nothing changed, what was read last.
+ */
+export function readSource (selection: string, clipboard: string, last: { selection: string, clipboard: string, source: '' | 'selection' | 'clipboard' }) {
+  if (selection && selection !== last.selection) return 'selection'
+  if (clipboard && clipboard !== last.clipboard) return 'clipboard'
+  if (last.source === 'selection' && selection) return 'selection'
+  if (last.source === 'clipboard' && clipboard) return 'clipboard'
+  return selection ? 'selection' : 'clipboard'
+}
+
+/** Sets what 📎 reads from the selection taken and the clipboard as it is now. */
+async function choosePending ($: EngineInterface) {
+  const clipboard = freshClipboard(await clipboardText($))
+  const source = readSource(takenSelection, clipboard, lastRead)
+  lastRead = { selection: takenSelection, clipboard, source }
+  pendingSelection = source === 'selection' ? takenSelection : clipboard
+}
 
 /**
  * What 📎 reads: the text selected with the mouse, taken at once, before the menu opens and the
- * selection goes; else the clipboard's, read after, as PowerShell is slow to start on Windows.
+ * selection goes, or the clipboard's, read after, as PowerShell is slow to start on Windows.
  */
 async function takeSelection ($: EngineInterface) {
   const selection = await $.ui.selection().catch(() => undefined)
-  pendingSelection = selection?.text.trim() ?? ''
-  isPendingSelected = pendingSelection !== ''
-  pendingRead = pendingSelection ? undefined : clipboardText($).then(text => { pendingSelection = freshClipboard(text) })
+  const selected = selection?.text.trim() ?? ''
+  // The selection the history was cleared with is passed over, as the clipboard's text is, until another is made.
+  if (clearedSelection !== undefined && selected !== clearedSelection) clearedSelection = undefined
+  takenSelection = clearedSelection === undefined ? selected : ''
+  pendingSelection = takenSelection
+  pendingRead = choosePending($)
 }
 
 /** The clipboard's text as it was when the history was cleared: passed over until the clipboard holds another. */
 let clearedClipboard: string | undefined
+/** The selection there when the history was cleared, passed over the same way. */
+let clearedSelection: string | undefined
 
 /** The clipboard's text for 📎 to read: none while it is still the one the history was cleared with. */
 function freshClipboard (text: string) {
@@ -1070,6 +1097,8 @@ async function clearClips ($: EngineInterface) {
   await pendingRead?.catch(() => {})
   pendingSelection = ''
   pendingRead = undefined
+  clearedSelection = takenSelection || undefined
+  takenSelection = ''
   // What the clipboard holds now was there before the clearing: it is not read again, only a text copied after.
   clearedClipboard = await clipboardText($)
   lastNarration.file = ''
@@ -1143,7 +1172,7 @@ async function readPending ($: EngineInterface) {
     return
   }
   // The clipboard as it is now, not as it was when the menu opened: a text copied since is the one read.
-  if (!isPendingSelected) pendingSelection = freshClipboard(await clipboardText($))
+  await choosePending($)
   if (!pendingSelection) {
     $.ui.toast('speedy-code: seleccioná o copiá un texto primero.')
     return
@@ -3935,6 +3964,10 @@ export const register: Register = on => {
   isInteractive = true
   current = undefined
   lastAnswer = ''
+  takenSelection = ''
+  lastRead = { selection: '', clipboard: '', source: '' }
+  clearedClipboard = undefined
+  clearedSelection = undefined
 
   // The warnings: once each, when the context or a limit crosses its line, and again only after it falls back.
   // The context line is where Claude Code compacts (about 80% used); a limit warns at 90% used.

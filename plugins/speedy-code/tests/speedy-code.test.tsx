@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -622,6 +622,42 @@ test('a text copied while the menu is open is read at once: the first row reads 
   await w.clock.advance(200)
   await w.clock.settle()
   expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual(['Texto que copié de otro lado, en el portapapeles.'])
+  CLIPBOARD.now = undefined
+  await band.unmount()
+  await ui.unmount()
+})
+
+test('readSource: of the selection and the clipboard, the one that changed last is read; a new selection first', () => {
+  const none = { selection: '', clipboard: '', source: '' as const }
+  expect(readSource('sel', 'clip', none)).toBe('selection')
+  expect(readSource('', 'clip', none)).toBe('clipboard')
+  // The selection still there from before, and a text copied since: the clipboard's.
+  expect(readSource('sel', 'nuevo', { selection: 'sel', clipboard: 'clip', source: 'selection' })).toBe('clipboard')
+  // Another text selected since: the selection's, whatever the clipboard.
+  expect(readSource('otra', 'nuevo', { selection: 'sel', clipboard: 'clip', source: 'clipboard' })).toBe('selection')
+  // Nothing changed: what was read last is read again.
+  expect(readSource('sel', 'clip', { selection: 'sel', clipboard: 'clip', source: 'clipboard' })).toBe('clipboard')
+  expect(readSource('sel', 'clip', { selection: 'sel', clipboard: 'clip', source: 'selection' })).toBe('selection')
+  expect(readSource('', '', none)).toBe('clipboard')
+})
+
+test('a text sent to the clipboard by any means is read, even with an older selection still there', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
+  CLIPBOARD.now = ''
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.settle()
+  // Copied since, from anywhere: the selection is the same one, so the clipboard's is the newer text.
+  CLIPBOARD.now = 'Texto que copié de otro lado, en el portapapeles.'
+  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await w.clock.settle()
+  expect(w.spoken.map(env => env.NARRATOR_TEXT)).toEqual([
+    'Hola, este es el texto que seleccioné en la terminal.',
+    'Texto que copié de otro lado, en el portapapeles.',
+  ])
   CLIPBOARD.now = undefined
   await band.unmount()
   await ui.unmount()
