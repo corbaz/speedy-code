@@ -871,6 +871,9 @@ async function stop ($: EngineInterface) {
   current = undefined
   historyPlay?.abort()
   historyPlay = undefined
+  // A narration sounding in the viewer's popup ends with it: its popup closes.
+  popupPlay?.abort()
+  popupPlay = undefined
   await update($, clipNow, () => '')
   await update($, speech, () => 'idle')
 }
@@ -1114,11 +1117,18 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
  * A narration kept, played in the viewer's popup, where its bar seeks back and forth: on Windows, which has
  * the popup, and only while the file is there. It says whether it opened; elsewhere the player plays it.
  */
-async function playInViewer ($: EngineInterface, path: string) {
+async function playInViewer ($: EngineInterface, path: string, source = '') {
   if (!path || (await osNow($)) !== 'windows') return false
   if (!(await $.fs.stat(path).then(found => found.kind === 'file', () => false))) return false
   await stop($)
-  void runViewer($, 'view_file.ps1', path)
+  // It is driven as a narration is: the same speech state and a control file, so the footer's ⏸ and the
+  // row's pause it and go on, and their marks follow what the popup's own button does.
+  const control = await homeFile($, `${CONTROL_DIR}/popup-${crypto.randomUUID()}.txt`)
+  controlFile = control
+  await $.fs.write(control, 'play')
+  await update($, speech, () => 'playing')
+  await update($, clipNow, () => source)
+  void runViewer($, 'view_file.ps1', path, control)
   return true
 }
 
@@ -1147,11 +1157,11 @@ async function readPending ($: EngineInterface) {
  * or none, starts this one.
  */
 async function clipPress ($: EngineInterface, clip: HistoryClip) {
-  if (await playInViewer($, clip.path)) return
   const playing = await read($, clipNow)
   const now = await read($, speech)
   if (playing === clip.path && now === 'playing') return control($, 'pause')
   if (playing === clip.path && now === 'paused') return control($, 'play')
+  if (await playInViewer($, clip.path, clip.path)) return
   return playClip($, clip)
 }
 
@@ -1459,12 +1469,20 @@ const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.
  * Runs a popup in the middle of the screen: `script` on Windows, Quick Look on macOS, for the file at `path`.
  * One popup at a time: another closes it.
  */
-async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string) {
+/** The popup a narration kept sounds in, while it does: `stop` closes it. */
+let popupPlay: AbortController | undefined
+
+/**
+ * Shows a file in the viewer's popup. With `control`, it is a narration sounding there: the popup obeys
+ * that file's `pause` and `play`, and the speech state follows what the popup says of its sound.
+ */
+async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string, control = '') {
   // Windows PowerShell by its path: `powershell` on the PATH can be a shim to PowerShell 7, whose popup
   // never shows, and only Windows PowerShell reads a PDF through Windows' own reader.
   viewing?.abort()
   const controller = new AbortController()
   viewing = controller
+  if (control) popupPlay = controller
   try {
     const viewer = $.process.spawn({
       argv: (await osNow($)) === 'windows'
@@ -1472,7 +1490,7 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
         : MAC.view,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
       // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
-      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)) }
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it. Copiar in the
     // file viewer says `copied <base64>` too: the text goes into the prompt, on a line of its own.
@@ -1484,6 +1502,19 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
       const lines = pending.split(/\r?\n/)
       pending = lines.pop() ?? ''
       for (const line of lines) {
+        // `media playing`, `media paused`, `media ended`: the popup's own button, or its sound's end. The
+        // control file is set to match, so the next pause or play asked from here is a change the popup sees.
+        if (control && popupPlay === controller && line.startsWith('media ')) {
+          const said = line.slice('media '.length).trim()
+          if (said === 'playing' || said === 'paused') {
+            await $.fs.write(control, said === 'playing' ? 'play' : 'pause').catch(() => undefined)
+            await update($, speech, () => said)
+          } else if (said === 'ended') {
+            await $.fs.write(control, 'pause').catch(() => undefined)
+            await update($, speech, () => 'paused')
+          }
+          continue
+        }
         // `attach <base64 path>`: a picture Copiar took (an SVG drawn, an image), attached to the prompt.
         if (line.startsWith('attach ')) {
           const file = fromBase64Utf8(line.slice('attach '.length).trim())
@@ -1500,6 +1531,13 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
     if (viewing === controller) viewing = undefined
+    // The popup closed: its narration is over.
+    if (popupPlay === controller) {
+      popupPlay = undefined
+      if (controlFile === control) controlFile = ''
+      await update($, clipNow, () => '')
+      await update($, speech, () => 'idle')
+    }
   }
 }
 

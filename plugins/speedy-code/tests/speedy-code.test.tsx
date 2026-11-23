@@ -20,7 +20,7 @@ const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
 const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
-const VIEWER = { says: '' }
+const VIEWER = { says: '', stays: false, next: [] as string[] }
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -280,6 +280,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.endsWith('view_file.ps1'))) {
       spoken.push(e.env ?? {})
       yield { stream: 'stdout' as const, text: `shown\r\n${VIEWER.says}` }
+      // A popup left open says what a test hands it, a line at a time, until the test closes it.
+      while (VIEWER.stays) {
+        await clock.sleep(100)
+        yield { stream: 'stdout' as const, text: `${VIEWER.next.shift() ?? '.'}\r\n` }
+      }
       return { value: { code: 0, signal: null } }
     }
     if (e.argv.some(arg => arg.endsWith('listen.py'))) {
@@ -2125,6 +2130,28 @@ test('on Windows a narration kept plays in the viewer’s popup, where it can be
   await w.clock.advance(100)
   expect([viewed(), played()]).toEqual([1, 0])
   expect(w.spoken.at(-1)?.SPEEDY_FILE?.replace(/\\/g, '/').endsWith('speedy-code/audio/Nuevo-26-11-19_20-30-00.mp3')).toBe(true)
+  // While the popup plays it, the row shows ⏸, as the footer's play does; pressed, it pauses the popup by
+  // its control file and shows ⏵; a play pressed in the popup itself brings ⏸ back; closed, ▶ again.
+  const mark = async () => (await band.find({ type: 'Text', in: 'speedy:clip-play:0' }))?.text
+  await w.clock.advance(300)
+  expect(await mark()).toBe(' ▶ ')
+  VIEWER.stays = true
+  await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
+  await w.clock.advance(100)
+  expect(await mark()).toBe(' ⏸︎ ')
+  expect(w.spoken.at(-1)?.SPEEDY_CONTROL ?? '').not.toBe('')
+  await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
+  expect(w.written.at(-1)?.text).toBe('pause')
+  expect(await mark()).toBe(' ⏵ ')
+  VIEWER.next.push('media playing')
+  await w.clock.advance(200)
+  expect(await mark()).toBe(' ⏸︎ ')
+  VIEWER.next.push('media paused')
+  await w.clock.advance(200)
+  expect(await mark()).toBe(' ⏵ ')
+  VIEWER.stays = false
+  await w.clock.advance(300)
+  expect(await mark()).toBe(' ▶ ')
   await band.unmount()
   // An answer read to its end is kept: the play button opens that file in the popup, and says nothing again.
   await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
@@ -2134,7 +2161,7 @@ test('on Windows a narration kept plays in the viewer’s popup, where it can be
   const said = w.spoken.filter(env => env.NARRATOR_TEXT).length
   await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.advance(100)
-  expect(viewed()).toBe(2)
+  expect(viewed()).toBe(3)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe(kept)
   expect(w.spoken.filter(env => env.NARRATOR_TEXT).length).toBe(said)
   await ui.unmount()

@@ -1991,7 +1991,7 @@ try {
     . {
       $uri = New-Object System.Uri($path)
       $barHeight = 40
-      $media = [pscustomobject]@{ Ready = $false; Playing = $true; Seconds = 0.0 }
+      $media = [pscustomobject]@{ Ready = $false; Playing = $true; Seconds = 0.0; Asked = 'play' }
       $panel = New-Object System.Windows.Forms.Panel
       $panel.BackColor = $black
       $panel.Dock = 'Fill'
@@ -2126,12 +2126,16 @@ try {
       $t = [TimeSpan]::FromSeconds([Math]::Floor([Math]::Max(0, $seconds)))
       if ($t.TotalHours -ge 1) { '{0}:{1:00}:{2:00}' -f [int][Math]::Floor($t.TotalHours), $t.Minutes, $t.Seconds } else { '{0}:{1:00}' -f $t.Minutes, $t.Seconds }
     }
-    function Switch-Playing {
+    # Plays or pauses, and says which, so the mod's own play marks follow the popup's.
+    function Set-Playing([bool]$on) {
       $media = $mediaParts.Media
-      if ($media.Playing) { $player.Pause() } else { $player.Play() }
-      $media.Playing = -not $media.Playing
-      $mediaParts.Play.Text = [string][char]$(if ($media.Playing) { 0xE769 } else { 0xE768 })
+      if ($media.Playing -eq $on) { return }
+      if ($on) { $player.Play() } else { $player.Pause() }
+      $media.Playing = $on
+      $mediaParts.Play.Text = [string][char]$(if ($on) { 0xE769 } else { 0xE768 })
+      try { Say $(if ($on) { 'media playing' } else { 'media paused' }) } catch { }
     }
+    function Switch-Playing { Set-Playing (-not $mediaParts.Media.Playing) }
     $player.Add_MediaOpened({
       $media = $mediaParts.Media
       $media.Ready = $true
@@ -2157,6 +2161,7 @@ try {
       $player.Position = [TimeSpan]::Zero
       $mediaParts.Media.Playing = $false
       $mediaParts.Play.Text = [string][char]0xE768
+      try { Say 'media ended' } catch { }
     })
     if ($kind -eq 'audio') { $player.Open((New-Object System.Uri($path))) }
     $player.Play()
@@ -2591,6 +2596,16 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 100
 $timer.Add_Tick({
   try { Say '.' } catch { $form.Close(); return }
+  # The mod's own pause and play (SPEEDY_CONTROL, a file saying `pause` or `play`) drive the sound too: what it
+  # asks is done once, when it changes, so a pause pressed in the popup stands.
+  if ($player -and $env:SPEEDY_CONTROL) {
+    $asked = ''
+    try { $asked = ([IO.File]::ReadAllText($env:SPEEDY_CONTROL)).Trim() } catch { $asked = '' }
+    if ($asked -in @('pause', 'play') -and $asked -ne $mediaParts.Media.Asked) {
+      $mediaParts.Media.Asked = $asked
+      Set-Playing ($asked -eq 'play')
+    }
+  }
   # Office, at work on its own, is looked in on; past 90 seconds it is given up on.
   if ($state.Office) {
     $office = $state.Office
