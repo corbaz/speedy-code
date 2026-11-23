@@ -2381,6 +2381,18 @@ export function windowTop (rows: readonly TreeRow[], top: number, room: number) 
   return Math.min(last, Math.max(0, here - Math.floor(room / 2)))
 }
 
+/**
+ * The tree's scroll bar, at its right when the tree is taller than its room: the rows of the room its thumb
+ * takes, as `start` and `size`. The thumb is as tall as the share of the tree shown, a row at least, and
+ * stands at the top with the first row and at the bottom with the last. No bar (size 0) when all rows fit.
+ */
+export function scrollThumb (total: number, top: number, room: number) {
+  if (room < 1 || total <= room) return { start: 0, size: 0 }
+  const size = Math.max(1, Math.min(room, Math.round(room * room / total)))
+  const start = Math.round(Math.min(1, Math.max(0, top / (total - room))) * (room - size))
+  return { start, size }
+}
+
 /** The wheel or the keys over the explorer: its tree moves under the disks, which stay. */
 async function scrollExplorer ($: EngineInterface, by: number, bodyRows: number) {
   const state = await read($, explorer)
@@ -2728,6 +2740,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
   const top = windowTop(rows, state.top, room)
+  // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
+  const thumb = scrollThumb(rows.length, top, room)
+  const treeWidth = width - (thumb.size > 0 ? 1 : 0)
   return (
     <Box flexDirection="column" width={width}>
       <Box flexDirection="row" columnGap={1}>
@@ -2756,6 +2771,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           )
         : null}
       <Text dimColor>{'─'.repeat(width)}</Text>
+      <Box flexDirection="row" width={width}>
+      <Box flexDirection="column" width={treeWidth}>
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
@@ -2767,7 +2784,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const toolsWidth = EXPLORER_TOOLS_WIDTH
           // The name is cut to its room, then filled with spaces up to the tools: the fill under the pointer
           // runs to them, so it is plain which tools are the row's, and a long name keeps to its row.
-          const nameRoom = Math.max(4, width - toolsWidth)
+          const nameRoom = Math.max(4, treeWidth - toolsWidth)
           const text = isFolder ? `${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}` : `${indent}  ${row.name}`
           const cut = cutCells(text, nameRoom)
           const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
@@ -2810,7 +2827,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             tool(kind, toolLabel(isGlyphs ? glyph : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color)
           ])
           return (
-            <Box key={`explorer-row:${row.path}`} flexDirection="row" width={width}>
+            <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>
               <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
               <Box flexDirection="row" flexShrink={0} width={toolsWidth}>{tools}</Box>
             </Box>
@@ -2832,6 +2849,19 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           </Button>
         )
       })}
+      </Box>
+      {/* The scroll bar: its track dim, its thumb in the folders' color, a row each. */}
+      {thumb.size > 0
+        ? (
+          <Box flexDirection="column" width={1}>
+            {Array.from({ length: room }, (_, index) => {
+              const isThumb = index >= thumb.start && index < thumb.start + thumb.size
+              return <Text key={`explorer-bar:${index}`} color={isThumb ? EXPLORER_DIR_COLOR : undefined} dimColor={!isThumb}>{isThumb ? '█' : '│'}</Text>
+            })}
+          </Box>
+          )
+        : null}
+      </Box>
     </Box>
   )
 }

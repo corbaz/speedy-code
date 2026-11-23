@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, windowTop, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -1815,6 +1815,16 @@ test('on macOS a narration is spoken by speak.py in the mod’s Python, its path
   await ui.unmount()
 })
 
+test('scrollThumb: the explorer’s scroll bar has a thumb only when the tree is taller than its room, from top to bottom', () => {
+  expect(scrollThumb(10, 0, 10)).toEqual({ start: 0, size: 0 })
+  expect(scrollThumb(4, 0, 10)).toEqual({ start: 0, size: 0 })
+  expect(scrollThumb(40, 0, 10)).toEqual({ start: 0, size: 3 })
+  expect(scrollThumb(40, 15, 10)).toEqual({ start: 4, size: 3 })
+  expect(scrollThumb(40, 30, 10)).toEqual({ start: 7, size: 3 })
+  // A long tree keeps a thumb of one row, and it reaches the last row with the tree's end.
+  expect(scrollThumb(5000, 4990, 10)).toEqual({ start: 9, size: 1 })
+})
+
 test('on macOS a pasted image opens in view.py’s popup, and in Quick Look where pywebview is missing', () => {
   expect(MAC.viewImage.slice(0, 2)).toEqual(['/bin/sh', '-c'])
   const script = MAC.viewImage[2] ?? ''
@@ -2297,6 +2307,8 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
  */
 async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
   return (await ui.findAll({})).flatMap(element => {
+    // The scroll bar at the tree's right is no row: it is read apart, by explorerBar.
+    if (element.type === 'Text' && /^[│█]$/.test(element.text ?? '')) return []
     // The blank gaps between a row's tools are left out, as the tools are.
     if (element.type === 'Text') return (element.text ?? '').trim() ? [{ text: element.text ?? '', look: element.props ?? {} }] : []
     if (element.type === 'Client' && /^speedy:explorer-(view|folder):/.test(String(element.key))) {
@@ -2305,6 +2317,11 @@ async function explorerRows (ui: { findAll: (query: { type?: string }) => Promis
     }
     return []
   })
+}
+
+/** The explorer's scroll bar, top to bottom: `█` its thumb, `│` its track; empty when the tree fits. */
+async function explorerBar (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string }>> }) {
+  return (await ui.findAll({ type: 'Text' })).map(element => element.text ?? '').filter(text => /^[│█]$/.test(text)).join('')
 }
 
 test('the footer’s folder opens the explorer beside the chat: the disks above, the tree open down to the session’s folder; a folder opens and closes, a disk shows its own, and the folder clicked again closes it', { timeoutMs: 30000 }, async ($, on) => {
@@ -2362,6 +2379,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
   expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
+  // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
+  expect(await explorerBar(short)).toBe('│██│')
   await short.unmount()
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
   // The rows' texts, without each file's 📋 🔗 🗑.
