@@ -520,7 +520,7 @@ test('the clip opens the menu; its first row reads the selection taken, and play
   await ui.unmount()
 })
 
-test('the selection’s row shows ⏸ while it is read, ⏵ paused, and ▶ again once it ends', { timeoutMs: 30000 }, async ($, on) => {
+test('a selection read goes to the history at once: its row there shows ⏸, ⏵ and ▶, and the selection’s row stays ready for the next text', { timeoutMs: 30000 }, async ($, on) => {
   on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
   const talks = { on: true }
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, undefined, 'windows', talks)
@@ -528,19 +528,25 @@ test('the selection’s row shows ⏸ while it is read, ⏵ paused, and ▶ agai
   await w.clock.advance(200)
   const band = await $.ui.mount(BAND)
   const row = async () => (await band.find({ type: 'Text', in: 'speedy:clip-read' }))?.text
+  const kept = async () => (await band.find({ type: 'Text', in: 'speedy:clip-play:0' }))?.text
+  expect(await band.find({ key: 'speedy:clip-play:0' })).toBeUndefined()
   await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
   await w.clock.advance(300)
-  expect(await row()).toBe(' ⏸︎ ')
-  // Pressed again while it plays: a pause, not a new reading.
-  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  // It is in the history as it starts, the first row there, and that row is the one playing.
+  expect(await kept()).toBe(' ⏸︎ ')
+  expect(await row()).toBe(' ▶ ')
+  expect((await band.find({ type: 'Text', text: /Hola,-este-es/ }))?.text).toBeDefined()
+  // Its row pauses it and goes on, not a new reading.
+  await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
   await w.clock.advance(200)
-  expect(await row()).toBe(' ⏵ ')
+  expect(await kept()).toBe(' ⏵ ')
   expect(w.spoken.length).toBe(1)
-  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
   await w.clock.advance(200)
-  expect(await row()).toBe(' ⏸︎ ')
+  expect(await kept()).toBe(' ⏸︎ ')
   talks.on = false
   await w.clock.advance(500)
+  expect(await kept()).toBe(' ▶ ')
   expect(await row()).toBe(' ▶ ')
   await band.unmount()
   await ui.unmount()

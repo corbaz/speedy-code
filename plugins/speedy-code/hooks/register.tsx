@@ -500,7 +500,7 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
   // The narrations kept are read when the menu opens, so it lists what is on disk now.
   if (which === 'history') {
     const found = await listClips($)
-    await update($, clips, () => found)
+    await update($, clips, () => withStarted(found))
   }
   // The images too: the copies kept are listed at once, and one pasted a moment ago is copied after
   // the menu is open, by PowerShell on Windows, slow to start: the menu shows it as it comes.
@@ -923,6 +923,16 @@ async function narrate ($: EngineInterface, answer: string, source = '') {
     const saveAs = isSame ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
     // Where this narration is kept once it has played: the play button opens it from there.
     if (saveAs) lastNarration.file = saveAs
+    // A selection read is in the history as it starts: its row there is the one playing, with ⏸ and ⏵, and
+    // the selection's own row is free for the next text.
+    if (source === SELECTION_CLIP && lastNarration.file) {
+      const kept = lastNarration.file
+      await update($, clipNow, () => kept)
+      if (saveAs) {
+        startedClips.add(saveAs)
+        await update($, clips, list => withStarted(list))
+      }
+    }
     const pythonFile = await python($)
     const speaker = $.process.spawn({
       argv: (await osNow($)) === 'windows'
@@ -948,12 +958,22 @@ async function narrate ($: EngineInterface, answer: string, source = '') {
   }
 }
 
+/** The narrations started and listed before their file is written: a selection read shows in the history at once. */
+const startedClips = new Set<string>()
+
+/** The list with the narrations started and not yet on the disk on top, newest first; one found there is no longer waited for. */
+function withStarted (list: HistoryClip[]) {
+  for (const clip of list) startedClips.delete(clip.path)
+  const started = [...startedClips].reverse().map(path => ({ path, name: (path.split('/').pop() ?? path).replace(/\.mp3$/i, '') }))
+  return [...started, ...list].slice(0, HISTORY_LENGTH)
+}
+
 /** Reads the kept narrations again once the join has written the new one, a moment after the sound ends. */
 async function refreshClipsLater ($: EngineInterface) {
   await new Promise(resolve => setTimeout(resolve, 1500))
   if ((await read($, menu)) !== 'history') return
   const found = await listClips($)
-  await update($, clips, () => found)
+  await update($, clips, () => withStarted(found))
 }
 
 async function control ($: EngineInterface, asked: 'pause' | 'play') {
@@ -1097,6 +1117,7 @@ async function clearClips ($: EngineInterface) {
   await pendingRead?.catch(() => {})
   pendingSelection = ''
   pendingRead = undefined
+  startedClips.clear()
   clearedSelection = takenSelection || undefined
   takenSelection = ''
   // What the clipboard holds now was there before the clearing: it is not read again, only a text copied after.
@@ -1164,13 +1185,6 @@ async function playInViewer ($: EngineInterface, path: string, source = '') {
 /** The first row of the 📎 menu: reads the selection taken when 📎 was pressed, else says there is none. */
 async function readPending ($: EngineInterface) {
   await pendingRead?.catch(() => {})
-  // Its row pauses and goes on while it is read, as a kept narration's does.
-  const now = await read($, speech)
-  if (pendingSelection && (await read($, clipNow)) === SELECTION_CLIP && now !== 'idle') {
-    if (now === 'playing') await control($, 'pause')
-    else if (now === 'paused') await control($, 'play')
-    return
-  }
   // The clipboard as it is now, not as it was when the menu opened: a text copied since is the one read.
   await choosePending($)
   if (!pendingSelection) {
