@@ -186,7 +186,9 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
 
 - Windows 10 or 11, with PowerShell 5.1 (it ships with Windows); or macOS.
 - On macOS, 🖼️, ⏎ and pasting a kept image press keys through System Events: allow your terminal in
-  System Settings → Privacy & Security → Accessibility. Images open in Quick Look, narrations play with
+  System Settings → Privacy & Security → Accessibility. A pasted image and the rename and delete dialogs open in
+  popups drawn as the Windows ones (Python with pywebview, which the installer adds; without it, Quick Look and
+  macOS's own dialogs). The explorer's files open in Quick Look, narrations play with
   `afplay`, and the history and image copies live in `~/Library/Application Support/speedy-code`.
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY` (on macOS, exported in `~/.zshrc`); the draft is sent to Groq.

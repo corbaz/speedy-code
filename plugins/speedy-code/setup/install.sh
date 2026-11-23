@@ -56,6 +56,8 @@ python_step() {
 packages_step() {
   uv pip install --python "$python" edge-tts transcribe-cpp sounddevice numpy pdfminer.six jsbeautifier cssbeautifier certifi truststore >/dev/null 2>&1 || { echo 'uv pip install falló'; return 1; }
   "$python" -c "import edge_tts, transcribe_cpp, sounddevice, numpy, pdfminer, jsbeautifier, cssbeautifier" >/dev/null 2>&1 || { echo 'los paquetes no se pueden importar'; return 1; }
+  # The popups' windows (dialog.py, view.py). Left out, the mod asks with macOS's own dialog and shows with Quick Look.
+  uv pip install --python "$python" pywebview >/dev/null 2>&1 || true
   # uv's Python on macOS does not read the macOS keychain, and edge-tts trusts certifi's list alone: a
   # network that inspects HTTPS (a company proxy, an antivirus) signs with a root only the keychain has,
   # and every connection fails (ClientConnectorCertificateError). truststore makes Python verify with the

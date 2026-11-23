@@ -95,6 +95,17 @@ export const MAC = {
     "trap 'kill $viewer 2>/dev/null' EXIT",
     "trap 'exit 0' HUP INT TERM PIPE",
     'while kill -0 $viewer 2>/dev/null; do echo .; sleep 0.1; done'
+  ].join('\n')],
+  /**
+   * A pasted image in view.py's popup, framed as view.ps1 frames it on Windows; where pywebview is not
+   * installed, Quick Look as before. SPEEDY_POPUP names the script, SPEEDY_PYTHON the mod's Python.
+   */
+  viewImage: ['/bin/sh', '-c', [
+    `if "$SPEEDY_PYTHON" -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("webview") else 1)' 2>/dev/null; then exec "$SPEEDY_PYTHON" "$SPEEDY_POPUP"; fi`,
+    'qlmanage -p "$SPEEDY_IMAGE" >/dev/null 2>&1 & viewer=$!',
+    "trap 'kill $viewer 2>/dev/null' EXIT",
+    "trap 'exit 0' HUP INT TERM PIPE",
+    'while kill -0 $viewer 2>/dev/null; do echo .; sleep 0.1; done'
   ].join('\n')]
 }
 
@@ -1530,13 +1541,16 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
   viewing = controller
   if (control) popupPlay = controller
   try {
+    const isWindows = (await osNow($)) === 'windows'
+    // On macOS a pasted image has view.py's popup, as view.ps1's on Windows; a file of the explorer, Quick Look.
+    const macImage = !isWindows && script === 'view.ps1'
     const viewer = $.process.spawn({
-      argv: (await osNow($)) === 'windows'
+      argv: isWindows
         ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
-        : MAC.view,
+        : macImage ? MAC.viewImage : MAC.view,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
       // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
-      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}) }
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}), ...(macImage ? { SPEEDY_POPUP: `${$.plugin.root}/hooks/view.py` } : {}) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it. Copiar in the
     // file viewer says `copied <base64>` too: the text goes into the prompt, on a line of its own.
@@ -2459,19 +2473,28 @@ export function badFileName (name: string) {
 
 /**
  * Asks in a dialog in the middle of the screen, as the viewer's popups stand: dialog.ps1 on Windows (the
- * rename with a field for the name and one for the extension), a Finder dialog on macOS. It answers
- * `rename <base64 name>` (macOS: `name <name>`), `delete` or `cancel`.
+ * rename with a field for the name and one for the extension), dialog.py's popup on macOS, drawn the same
+ * (a dialog of macOS's own where pywebview is not installed). It answers `rename <base64 name>` (macOS's
+ * own dialog: `name <name>`), `delete` or `cancel`.
  */
 async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: string) {
   const native = await nativePath($, path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
   const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind }
+  const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
+  // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
+  if (!isWindows) {
+    const popup = await $.process.run([await python($), `${$.plugin.root}/hooks/dialog.py`], { env }).catch(() => undefined)
+    const answer = said(popup?.stdout)
+    if (answer) return answer
+  }
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
     : MAC.dialog(mode, path.split('/').pop() ?? path)
-  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind } }).catch(() => undefined)
-  return (result?.stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? 'cancel'
+  const result = await $.process.run(argv, { env }).catch(() => undefined)
+  return said(result?.stdout) ?? 'cancel'
 }
 
 /** ✏: the rename dialog, then the rename it asked for. */

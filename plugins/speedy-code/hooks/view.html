@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- One pasted image in a popup on macOS, drawn as view.ps1 draws it on Windows: the picture in its own
+     proportions inside the frame, the file's name on the top line. view.py opens it; popup.css is the frame. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+/*popup.css*/
+  :root { --contour: 24px; }
+  /* Inside the line: the band on top under the title, the margin around the picture. */
+  .picture { position: absolute; inset: 42px 38px 38px 38px; display: flex; align-items: center; justify-content: center; }
+  .picture img { display: block; max-width: 100%; max-height: 100%; -webkit-user-drag: none; }
+  #close { right: calc(var(--contour) + 14px); }
+  #move { right: calc(var(--contour) + 42px); }
+</style>
+</head>
+<body>
+  <div class="frame"></div>
+  <div id="title" class="on-line"></div>
+  <!--marks-->
+  <div class="picture"><img id="image" alt=""></div>
+<script>
+  const $ = id => document.getElementById(id)
+  let api
+
+  async function start () {
+    api = window.pywebview.api
+    const asked = await api.asked()
+    $('title').textContent = asked.name
+    $('close').onclick = () => api.close()
+    const image = $('image')
+    image.width = asked.width
+    image.height = asked.height
+    image.onload = image.onerror = () => api.shown()
+    image.src = asked.source
+  }
+
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') api.close() })
+  document.addEventListener('contextmenu', event => event.preventDefault())
+  if (window.pywebview && window.pywebview.api) start()
+  else window.addEventListener('pywebviewready', start)
+</script>
+</body>
+</html>

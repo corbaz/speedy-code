@@ -1815,6 +1815,14 @@ test('on macOS a narration is spoken by speak.py in the mod’s Python, its path
   await ui.unmount()
 })
 
+test('on macOS a pasted image opens in view.py’s popup, and in Quick Look where pywebview is missing', () => {
+  expect(MAC.viewImage.slice(0, 2)).toEqual(['/bin/sh', '-c'])
+  const script = MAC.viewImage[2] ?? ''
+  expect(script).toContain('exec "$SPEEDY_PYTHON" "$SPEEDY_POPUP"')
+  expect(script).toContain('qlmanage -p "$SPEEDY_IMAGE"')
+  expect(script.indexOf('SPEEDY_POPUP')).toBeLessThan(script.indexOf('qlmanage'))
+})
+
 test('on macOS, leaving puts the resume command on the clipboard by osascript', { timeoutMs: 30000 }, async ($, on) => {
   const w = world(on, {}, '', { on: false }, '', { on: false }, { reply: '', sent: [] }, true, { on: false }, 'mac')
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })

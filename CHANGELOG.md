@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- macOS: the rename and delete dialogs and the pasted image's popup are drawn as the Windows ones (`dialog.py`, `view.py`: an HTML page in a window by pywebview, which `install.sh` adds). Without pywebview they stay macOS's own dialog and Quick Look. Windows is unchanged.
+
 - Docs: in VS Code the window's zoom must be a whole level, or the footer's clicks land on the wrong cells.
 - Status line: the version closes the line, named (`claude:v2.1.329`).
 - Terminal font: in an editor's terminal (VS Code, Kiro, Cursor, Windsurf) the editor's `terminal.integrated.fontFamily` and `fontSize` are set, and nothing else; there the Nerd Fonts glyphs showed as squares. Terminal's and iTerm2's window fills the screen again over three seconds, larger font or smaller.

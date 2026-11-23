@@ -1,0 +1,106 @@
+<!doctype html>
+<!-- The explorer's dialog on macOS, drawn as dialog.ps1 draws it on Windows: a wide black contour, a line of
+     color, a black band inside it, the title on the top line, the move mark and the close mark. Renombrar and
+     Borrar are one dialog: one size, the same two buttons at the same place. dialog.py opens it and answers; popup.css is the frame. -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+/*popup.css*/
+  body.delete { --line: #ff6b6b; }
+  .paper { position: absolute; inset: 38px 34px; background: var(--paper); }
+  .paper > * { position: absolute; }
+  .dim { color: var(--dim); }
+  .strong { font-weight: bold; }
+  .blue { color: var(--blue); }
+  input { top: 52px; height: 27px; padding: 0 2px; font: inherit; color: var(--ink); background: var(--field); border: 1px solid #7a7a7a; border-radius: 0; outline: none; user-select: text; -webkit-user-select: text; }
+  input::selection { background: #0078d7; color: #fff; }
+  #problem { left: 26px; top: 92px; color: var(--red); white-space: nowrap; }
+  .action { top: 144px; width: 130px; height: 38px; line-height: 38px; text-align: center; font-weight: bold; cursor: pointer; }
+  #accept { left: 180px; background: var(--line); color: #000; }
+  #cancel { left: 322px; background: var(--field); color: var(--ink); }
+  .one-line { left: 26px; max-width: 428px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.rename .for-delete, body.delete .for-rename, body.dir .for-file { display: none; }
+  body.dir #name { width: 428px !important; }
+</style>
+</head>
+<body class="rename">
+  <div class="frame"></div>
+  <div id="title" class="on-line"></div>
+  <!--marks-->
+  <div class="paper">
+    <span class="for-rename dim" style="left:26px;top:24px">Nombre</span>
+    <span class="for-rename for-file dim" style="left:332px;top:24px">Extensión</span>
+    <input class="for-rename" id="name" style="left:24px;width:290px" spellcheck="false" autocomplete="off">
+    <span class="for-rename for-file strong" style="left:319px;top:56px;font-size:17px">.</span>
+    <input class="for-rename for-file" id="extension" style="left:330px;width:122px" spellcheck="false" autocomplete="off">
+    <span class="for-rename" id="problem"></span>
+    <span class="for-delete strong one-line" style="top:24px">¿Mandar a la papelera?</span>
+    <span class="for-delete strong blue one-line" id="doomed" style="top:52px"></span>
+    <span class="for-delete dim one-line" id="note" style="top:80px"></span>
+    <div class="action" id="accept"></div>
+    <div class="action" id="cancel">Cancelar</div>
+  </div>
+<script>
+  const $ = id => document.getElementById(id)
+  let api, fileName = '', isFolder = false, mode = 'rename'
+
+  function finish (answer) { api.finish(answer) }
+
+  function toBase64 (text) {
+    return btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+  }
+
+  // The new name is checked here and the dialog stays open, saying why, until it is right or cancelled.
+  async function tryAccept () {
+    const name = $('name').value.trim()
+    const extension = isFolder ? '' : $('extension').value.trim().replace(/^\.+/, '')
+    const wanted = extension ? `${name}.${extension}` : name
+    let why = ''
+    if (!name) why = 'El nombre está vacío.'
+    else if (wanted === '.' || wanted === '..') why = 'Ese nombre no es válido.'
+    else if (/[\\/:*?"<>|]/.test(wanted)) why = 'No puede tener \\ / : * ? " < > |'
+    else if (wanted !== fileName && wanted.toLowerCase() !== fileName.toLowerCase() && await api.exists(wanted)) why = `Ya hay ${isFolder ? 'una carpeta o un archivo' : 'un archivo'} ${wanted} en esa carpeta.`
+    if (why) { $('problem').textContent = why; return }
+    finish(wanted === fileName ? 'cancel' : 'rename ' + toBase64(wanted))
+  }
+
+  async function start () {
+    api = window.pywebview.api
+    const asked = await api.asked()
+    fileName = asked.name
+    isFolder = asked.kind === 'dir'
+    mode = asked.mode
+    document.body.className = mode + (isFolder ? ' dir' : '')
+    $('title').textContent = mode === 'delete' ? 'Borrar' : 'Renombrar'
+    $('cancel').onclick = () => finish('cancel')
+    $('close').onclick = () => finish('cancel')
+    if (mode === 'delete') {
+      $('doomed').textContent = fileName
+      $('note').textContent = isFolder ? 'Con todo lo que tiene. Se puede recuperar desde la Papelera.' : 'Se puede recuperar desde la Papelera.'
+      $('accept').textContent = 'Sí, borrar'
+      $('accept').onclick = () => finish('delete')
+    } else {
+      // A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them.
+      const dot = isFolder ? -1 : fileName.lastIndexOf('.')
+      $('name').value = dot > 0 ? fileName.slice(0, dot) : fileName
+      $('extension').value = dot > 0 ? fileName.slice(dot + 1) : ''
+      $('accept').textContent = 'Aceptar'
+      $('accept').onclick = tryAccept
+      $('name').focus()
+      $('name').select()
+    }
+    api.shown()
+  }
+
+  // Enter accepts a rename (a delete only by its button), and Esc cancels.
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') finish('cancel')
+    else if (event.key === 'Enter' && mode === 'rename') { event.preventDefault(); tryAccept() }
+  })
+  document.addEventListener('contextmenu', event => event.preventDefault())
+  if (window.pywebview && window.pywebview.api) start()
+  else window.addEventListener('pywebviewready', start)
+</script>
+</body>
+</html>
