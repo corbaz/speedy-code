@@ -2048,6 +2048,37 @@ test('the 📎 menu lists the narrations kept from their folder, newest first by
   await ui.unmount()
 })
 
+test('on Windows a narration kept plays in the viewer’s popup, where it can be sought: a row of the 📎 menu, and the play button once the answer was read', { timeoutMs: 30000 }, async ($, on) => {
+  on('fs.list', (_, e) => ({ value: e.path.replace(/\\/g, '/').endsWith('speedy-code/audio') ? [{ name: 'Nuevo-26-11-19_20-30-00.mp3', kind: 'file', size: 1 }] : [] }))
+  // The narrations kept are there, as files.
+  on('fs.stat', (_, e) => {
+    if (!e.path.endsWith('.mp3')) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }
+  })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' }, isEnabled: true })
+  const viewed = () => w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1'))).length
+  const played = () => w.ran.filter(argv => argv.some(arg => arg.endsWith('play.ps1'))).length
+  await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+  const band = await $.ui.mount(BAND)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
+  await w.clock.advance(100)
+  expect([viewed(), played()]).toEqual([1, 0])
+  expect(w.spoken.at(-1)?.SPEEDY_FILE?.replace(/\\/g, '/').endsWith('speedy-code/audio/Nuevo-26-11-19_20-30-00.mp3')).toBe(true)
+  await band.unmount()
+  // An answer read to its end is kept: the play button opens that file in the popup, and says nothing again.
+  await answer($, 'Listo, ya funciona la voz de Elena en el pie de la pantalla.')
+  await w.clock.settle()
+  const kept = w.spoken.find(env => env.NARRATOR_SAVE_AS)?.NARRATOR_SAVE_AS
+  expect(kept?.endsWith('.mp3')).toBe(true)
+  const said = w.spoken.filter(env => env.NARRATOR_TEXT).length
+  await ui.post({ isClicked: true }, { in: 'speedy:play' })
+  await w.clock.advance(100)
+  expect(viewed()).toBe(2)
+  expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe(kept)
+  expect(w.spoken.filter(env => env.NARRATOR_TEXT).length).toBe(said)
+  await ui.unmount()
+})
+
 test('driveOf, chainOf and driveLabel: the disk a folder is on, each folder from the disk down to it, and the disk’s name', () => {
   expect(driveOf('C:/Users/test/proyectos', ['C:/', 'D:/'], true)).toBe('C:/')
   expect(driveOf('d:/datos', ['C:/', 'D:/'], true)).toBe('D:/')

@@ -854,7 +854,7 @@ let isInteractive = true
 let current: AbortController | undefined
 let lastAnswer = ''
 /** The last narration written, so saying it again calls no model: the answer, its language, the text. */
-let lastNarration = { answer: '', lang: '', text: '' }
+let lastNarration = { answer: '', lang: '', text: '', file: '' }
 /** Whether switching the narrator off paused the voice: switching it on goes on. */
 let isPausedByOff = false
 /** The pause file of the narration under way. */
@@ -911,13 +911,15 @@ async function narrate ($: EngineInterface, answer: string, source = '') {
     // Said again, nothing is written nor made: it shows as playing at once.
     await update($, speech, () => (isSame ? 'playing' : 'thinking'))
     const text = isSame ? lastNarration.text : await narrationOf($, answer, lang, controller.signal)
-    if (text) lastNarration = { answer, lang, text }
+    if (text) lastNarration = { answer, lang, text, file: isSame ? lastNarration.file : '' }
     if (!text || controller.signal.aborted) return
     const control = await homeFile($, `${CONTROL_DIR}/control-${crypto.randomUUID()}.txt`)
     controlFile = control
     await $.fs.write(control, 'play')
     // A new narration is kept in the history; saying the same one again is not, it is already there.
     const saveAs = isSame ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
+    // Where this narration is kept once it has played: the play button opens it from there.
+    if (saveAs) lastNarration.file = saveAs
     const pythonFile = await python($)
     const speaker = $.process.spawn({
       argv: (await osNow($)) === 'windows'
@@ -1086,6 +1088,18 @@ async function playClip ($: EngineInterface, clip: HistoryClip) {
   }
 }
 
+/**
+ * A narration kept, played in the viewer's popup, where its bar seeks back and forth: on Windows, which has
+ * the popup, and only while the file is there. It says whether it opened; elsewhere the player plays it.
+ */
+async function playInViewer ($: EngineInterface, path: string) {
+  if (!path || (await osNow($)) !== 'windows') return false
+  if (!(await $.fs.stat(path).then(found => found.kind === 'file', () => false))) return false
+  await stop($)
+  void runViewer($, 'view_file.ps1', path)
+  return true
+}
+
 /** The first row of the 📎 menu: reads the selection taken when 📎 was pressed, else says there is none. */
 async function readPending ($: EngineInterface) {
   await pendingRead?.catch(() => {})
@@ -1109,6 +1123,7 @@ async function readPending ($: EngineInterface) {
  * or none, starts this one.
  */
 async function clipPress ($: EngineInterface, clip: HistoryClip) {
+  if (await playInViewer($, clip.path)) return
   const playing = await read($, clipNow)
   const now = await read($, speech)
   if (playing === clip.path && now === 'playing') return control($, 'pause')
@@ -3226,7 +3241,13 @@ function isPlayable (enabled: boolean, now: Speech) {
 /** The play button: reads the last answer again, cancels Haiku, pauses, or goes on. */
 async function pressPlay ($: EngineInterface) {
   const now = await read($, speech)
-  if (now === 'idle' && lastAnswer) void narrate($, lastAnswer)
+  if (now === 'idle' && lastAnswer) {
+    // The answer already read and kept plays in the popup, where it can be sought; otherwise it is read again.
+    const lang = (await read($, picks)).active ?? DEFAULT_LANG
+    const isKept = lastNarration.answer === lastAnswer && lastNarration.lang === lang
+    if (isKept && await playInViewer($, lastNarration.file)) return
+    void narrate($, lastAnswer)
+  }
   else if (now === 'thinking') await stop($)
   else if (now === 'playing') await control($, 'pause')
   else if (now === 'paused') await control($, 'play')

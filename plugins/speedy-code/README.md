@@ -22,7 +22,7 @@ From left to right:
 | 🗜️ | Runs `/compact`; always shown, whatever the context used |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray while the narrator is off |
-| 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk |
+| 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk. On Windows a kept narration plays in the viewer's popup, with its bar to seek back and forth; so does ⏵ once the answer was read and kept |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
