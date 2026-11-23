@@ -874,6 +874,8 @@ $image = $null
 $pdfPages = $null
 $pdfText = $null
 $pagesFile = $null        # the PDF a Word document or a presentation was turned into, when it was
+$isDeck = $false          # whether those pages are a presentation's slides: its bar has Run
+$slideShow = $null        # the presentation being played, while it is
 $player = $null
 $svgExport = $null      # an SVG's markup and size for Copiar's PNG
 $state = [pscustomobject]@{ View = $null; CopyFlash = 0; Office = $null; Pages = $null; Picked = $false; Drawing = $false; Ticks = 0; Drag = $null; Moved = $false }
@@ -1720,6 +1722,12 @@ function New-PdfView($document) {
   $fitPage = New-ToolButton 0 $fitPageText (T 'Una p\u00e1gina entera a la vista') { Set-PdfFit 'page' }
   Add-ToolItem $bar $fitWidth 12
   Add-ToolItem $bar $fitPage 4
+  if ($isDeck) {
+    $run = New-ToolButton 0 'Run' (T 'Reproducir la presentaci\u00f3n a pantalla completa (F5)') { Start-SlideShow }
+    $run.Font = New-Object System.Drawing.Font('Segoe UI', 9.75, [System.Drawing.FontStyle]::Bold)
+    $run.Size = New-Object System.Drawing.Size(([Math]::Max(30, $run.PreferredWidth + 14)), 26)
+    Add-ToolItem $bar $run 12
+  }
   $pdf.PageBox = $pageBox.Box; $pdf.ZoomBox = $zoomBox; $pdf.FitWidth = $fitWidth; $pdf.FitPage = $fitPage
   $script:toolbars['PDF'] = $bar
   $panel
@@ -1918,7 +1926,73 @@ function Update-PdfPages([switch]$All) {
   }
 }
 
+# ---- A presentation, played --------------------------------------------------------------------------------
+# Run: a slide at a time, whole and as large as the screen the popup is on takes it, over black. Right, Down,
+# Space, Enter, AvPag, the wheel or a click go on; Left, Up, Backspace, RePag or the right button go back;
+# Inicio and Fin are the first and the last. Esc ends it, and so does going on past the last slide: the popup
+# is then at the slide it ended on.
+function Set-SlideShow([int]$index) {
+  $one = $script:slideShow
+  if (-not $one) { return }
+  if ($index -ge $pdf.Count) { $one.Form.Close(); return }
+  $index = [Math]::Max(0, $index)
+  $size = $one.Form.ClientSize
+  $scale = [Math]::Min($size.Width / $pdf.PageW[$index], $size.Height / $pdf.PageH[$index])
+  $bitmap = $null
+  try { $bitmap = Get-PdfBitmap $index ([int][Math]::Max(1, [Math]::Floor($pdf.PageW[$index] * $scale))) } catch { }
+  if ($one.Bitmap) { $one.Bitmap.Dispose() }
+  $one.Bitmap = $bitmap
+  $one.Index = $index
+  $one.Form.Invalidate()
+}
+
+function Start-SlideShow {
+  if (-not $pdf -or $pdf.Count -eq 0 -or $script:slideShow) { return }
+  $show = New-Object System.Windows.Forms.Form
+  $show.FormBorderStyle = 'None'
+  $show.StartPosition = 'Manual'
+  $show.Bounds = [System.Windows.Forms.Screen]::FromControl($form).Bounds
+  $show.BackColor = [System.Drawing.Color]::Black
+  $show.TopMost = $true
+  $show.ShowInTaskbar = $false
+  $show.KeyPreview = $true
+  Set-DoubleBuffered $show
+  $script:slideShow = [pscustomobject]@{ Form = $show; Index = [Math]::Max(0, (Get-PdfCurrent) - 1); Bitmap = $null }
+  $show.Add_Paint({
+    $one = $script:slideShow
+    if (-not $one -or -not $one.Bitmap) { return }
+    $size = $this.ClientSize
+    $_.Graphics.DrawImageUnscaled($one.Bitmap, [int](($size.Width - $one.Bitmap.Width) / 2), [int](($size.Height - $one.Bitmap.Height) / 2))
+  })
+  $show.Add_KeyDown({
+    $at = $script:slideShow.Index
+    $key = [string]$_.KeyCode
+    if ($key -eq 'Escape') { $this.Close() }
+    elseif ($key -in @('Right', 'Down', 'Space', 'Return', 'Enter', 'Next', 'PageDown')) { Set-SlideShow ($at + 1) }
+    elseif ($key -in @('Left', 'Up', 'Back', 'Prior', 'PageUp')) { Set-SlideShow ($at - 1) }
+    elseif ($key -eq 'Home') { Set-SlideShow 0 }
+    elseif ($key -eq 'End') { Set-SlideShow ($pdf.Count - 1) }
+    $_.Handled = $true
+    $_.SuppressKeyPress = $true
+  })
+  $show.Add_MouseDown({
+    $at = $script:slideShow.Index
+    if ($_.Button -eq 'Right') { Set-SlideShow ($at - 1) } elseif ($_.Button -eq 'Left') { Set-SlideShow ($at + 1) }
+  })
+  $show.Add_MouseWheel({ Set-SlideShow ($script:slideShow.Index + $(if ($_.Delta -lt 0) { 1 } else { -1 })) })
+  $show.Add_Shown({ $this.Activate(); Set-SlideShow $script:slideShow.Index })
+  try { [void]$show.ShowDialog($form) } finally {
+    $at = $script:slideShow.Index
+    if ($script:slideShow.Bitmap) { $script:slideShow.Bitmap.Dispose() }
+    $script:slideShow = $null
+    $show.Dispose()
+    Go-PdfPage ($at + 1)
+    [void]$pdf.Canvas.Focus()
+  }
+}
+
 function Invoke-PdfKey($e) {
+  if ($isDeck -and $e.KeyCode -eq 'F5') { Start-SlideShow; return $true }
   if ($e.Control) {
     switch ($e.KeyCode) {
       { $_ -in @('Add', 'Oemplus') } { Step-PdfZoom 1 0; return $true }
@@ -2034,6 +2108,7 @@ try {
     try { $wait.Close(); $wait.Dispose() } catch { }
     if ($pagesFile) {
       $labelNames['PDF'] = if ($kind -in @('pptx', 'ppt')) { 'Diapositivas' } else { 'Documento' }
+      $isDeck = $kind -in @('pptx', 'ppt')
       $kind = 'pdf'
     } elseif ($kind -in @('pptx', 'ppt')) {
       $kind = if (Test-ZipHead (Read-Bytes $path 16)) { 'zip' } else { 'text' }

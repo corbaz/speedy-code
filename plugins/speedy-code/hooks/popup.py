@@ -131,6 +131,36 @@ def resize(window, width, height):
     AppHelper.callAfter(apply)
 
 
+# The place and the level a popup had before it covered its screen, by the window's own id.
+_covered = {}
+
+
+def cover(window, on):
+    """The popup over the whole of its screen, above the menu bar and the Dock, while a presentation is played;
+    and back at the place, the size and the level it had."""
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+        from webview.platforms.cocoa import BrowserView
+    except ImportError:
+        return
+
+    def apply():
+        native = BrowserView.instances[window.uid].window
+        if on:
+            if window.uid not in _covered:
+                _covered[window.uid] = (native.frame(), native.level())
+            screen = native.screen() or AppKit.NSScreen.mainScreen()
+            native.setLevel_(AppKit.NSMainMenuWindowLevel + 1)
+            native.setFrame_display_(screen.frame(), True)
+        elif window.uid in _covered:
+            frame, level = _covered.pop(window.uid)
+            native.setLevel_(level)
+            native.setFrame_display_(frame, True)
+
+    AppHelper.callAfter(apply)
+
+
 def open_window(webview, title, name, api, width, height, screen=None, url=None):
     """The page `name` (or the page at `url`) in a window of that size, in the middle of `screen`, above the
     others. An `api` that keeps a `_window` gets the window. Runs until it ends."""

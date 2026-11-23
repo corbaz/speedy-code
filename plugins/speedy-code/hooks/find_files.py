@@ -11,7 +11,8 @@ files found since the line before (each path with `/` alone) and the entries loo
 has "done": true and "cut", whether it stopped at the most with folders still unread.
 
 Links and junctions are never followed. The folders of the system that hold no file of a person's and take
-the longest, or that macOS asks a permission for, are not read: see `unread`.
+the longest, or that macOS asks a permission for, are not read: see `unread`. Nor are the folders named
+`node_modules` and `.git`, wherever they are: they hold a great many files, and none a person keeps.
 """
 import collections
 import json
@@ -23,6 +24,8 @@ import time
 SAY_EVERY = 0.25
 # A junction, as Windows tags it: a folder that is another one, never followed.
 JUNCTION = 0xA0000003
+# Folders left unread wherever they are, by their names in small letters.
+NEVER_READ = {'node_modules', '.git'}
 
 
 def matcher(pattern):
@@ -44,7 +47,10 @@ def unread(root):
 
 
 def is_unread(path, name, skipped):
-    """Whether a folder is left unread: one of the system's, a person's Library or a Photos library on a Mac."""
+    """Whether a folder is left unread: node_modules or .git, one of the system's, a person's Library or a
+    Photos library on a Mac."""
+    if name.lower() in NEVER_READ:
+        return True
     if sys.platform == 'win32':
         return path.lower() in skipped
     if path in skipped or name.endswith('.photoslibrary'):

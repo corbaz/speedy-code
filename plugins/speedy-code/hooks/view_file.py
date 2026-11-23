@@ -482,6 +482,10 @@ class Popup:
         grown by its layout."""
         popup.resize(self._window, width, height)
 
+    def cover(self, on):
+        """The popup over its whole screen while a presentation is played, and back as it was."""
+        popup.cover(self._window, bool(on))
+
     def close(self):
         if self._scratch:
             shutil.rmtree(self._scratch, ignore_errors=True)

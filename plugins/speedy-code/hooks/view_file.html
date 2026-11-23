@@ -47,6 +47,10 @@
   .pdf .sheet > img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
   /* A page drawn as HTML (a slide), at its own size and scaled to the zoom. */
   .pdf .sheet > .drawn { transform-origin: 0 0; user-select: text; -webkit-user-select: text; }
+  /* A presentation, played: a slide whole over black, the popup over its whole screen. */
+  #show { position: fixed; inset: 0; z-index: 50; background: #000; overflow: hidden; cursor: default; user-select: none; -webkit-user-select: none; }
+  #show-slide { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; overflow: hidden; }
+  .tool.run { font-weight: 700; }
 
   /* The bar above a view: a PDF's pages and zoom, a page's zoom. Flat buttons, centered. */
   #toolbar { flex: none; height: 34px; background: var(--bar); border-bottom: 1px solid var(--edge); display: flex; align-items: center; justify-content: center; gap: 2px; }
@@ -101,6 +105,7 @@
     <div id="views"></div>
   </div>
   <div id="zoom-menu" class="hidden"></div>
+  <div id="show" class="hidden"><div id="show-slide"></div></div>
 <script>
   const $ = id => document.getElementById(id)
   const base = location.pathname.replace(/\/page$/, '')
@@ -464,6 +469,13 @@
       whole.textContent = 'Página completa'
       whole.addEventListener('click', () => calls.pick('Página completa'))
       bar.append(element('span', 'gap'), width, whole)
+      if (view.drawn) {
+        const run = element('div', 'tool text run')
+        run.textContent = '▶ Run'
+        run.title = 'Reproducir la presentación a pantalla completa (F5)'
+        run.addEventListener('click', startShow)
+        bar.append(element('span', 'gap'), run)
+      }
       part.bar = { page, zoom, width, whole, calls }
     } else {
       const calls = {
@@ -644,9 +656,73 @@
     if (said.control && media) media.set(said.control === 'play')
   }
 
+  // ---- A presentation, played -----------------------------------------------------------------------------
+
+  // Run: a slide at a time, whole and as large as the screen takes it, over black, the popup over its whole
+  // screen. The arrows, Space, Enter, the page keys or a click go on and back; Esc ends it, and so does going
+  // on past the last slide: the popup is then as it was, at the slide it ended on.
+  let show = null
+
+  function startShow () {
+    const { pdf } = pdfPart()
+    if (show || !pdf.drawn || !pdf.drawn.length) return
+    hideZoomMenu()
+    show = { index: pdfCurrent() - 1 }
+    $('show').classList.remove('hidden')
+    api.cover(true)
+    drawShow()
+  }
+
+  function drawShow () {
+    if (!show) return
+    const { pdf } = pdfPart()
+    const [width, height] = pdf.pages[show.index]
+    const scale = Math.min(innerWidth / width, innerHeight / height)
+    const slide = $('show-slide')
+    if (slide.dataset.index !== String(show.index)) {
+      slide.dataset.index = show.index
+      slide.innerHTML = pdf.drawn[show.index]
+    }
+    slide.style.width = `${width}px`
+    slide.style.height = `${height}px`
+    slide.style.transform = `translate(${Math.round((innerWidth - width * scale) / 2)}px, ${Math.round((innerHeight - height * scale) / 2)}px) scale(${scale})`
+  }
+
+  function stepShow (to) {
+    if (!show) return
+    if (to >= pdfPart().pdf.drawn.length) { endShow(); return }
+    show.index = Math.max(0, to)
+    drawShow()
+  }
+
+  function endShow () {
+    if (!show) return
+    const at = show.index
+    show = null
+    $('show').classList.add('hidden')
+    $('show-slide').innerHTML = ''
+    delete $('show-slide').dataset.index
+    api.cover(false)
+    // The popup is back at its size a moment after: the slide is found again then.
+    goPdfPage(at + 1)
+    setTimeout(() => { goPdfPage(at + 1); pdfPart().box.focus({ preventScroll: true }) }, 350)
+  }
+
+  function onShowKey (event) {
+    const key = event.key
+    if (key === 'Escape') endShow()
+    else if (['ArrowRight', 'ArrowDown', ' ', 'Enter', 'PageDown'].includes(key)) stepShow(show.index + 1)
+    else if (['ArrowLeft', 'ArrowUp', 'Backspace', 'PageUp'].includes(key)) stepShow(show.index - 1)
+    else if (key === 'Home') stepShow(0)
+    else if (key === 'End') stepShow(pdfPart().pdf.drawn.length - 1)
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   // ---- The keys -------------------------------------------------------------------------------------------
 
   function onKey (event) {
+    if (show) { onShowKey(event); return }
     const command = event.metaKey || event.ctrlKey
     if (event.key === 'Escape') {
       if (!$('zoom-menu').classList.contains('hidden')) { hideZoomMenu(); return }
@@ -670,7 +746,8 @@
     if (command && calls && (event.key === '+' || event.key === '=')) { calls.step(1); event.preventDefault(); return }
     if (command && calls && event.key === '-') { calls.step(-1); event.preventDefault(); return }
     if (view.type === 'pdf') {
-      if (event.key === 'Home') { goPdfPage(1); event.preventDefault() }
+      if (event.key === 'F5' && part.pdf.drawn) { startShow(); event.preventDefault() }
+      else if (event.key === 'Home') { goPdfPage(1); event.preventDefault() }
       else if (event.key === 'End') { goPdfPage(view.pages.length); event.preventDefault() }
       else if (event.key === 'PageDown') { part.box.scrollTop += part.box.clientHeight - 40; event.preventDefault() }
       else if (event.key === 'PageUp') { part.box.scrollTop -= part.box.clientHeight - 40; event.preventDefault() }
@@ -691,7 +768,9 @@
     document.addEventListener('keydown', onKey)
     document.addEventListener('mousedown', event => { if (!$('zoom-menu').contains(event.target)) hideZoomMenu() })
     document.addEventListener('contextmenu', event => event.preventDefault())
-    addEventListener('resize', () => { setTopLine(); if (paged && shown === paged && pdfPart().pdf.mode !== 'fixed') setPdfZoom(pdfFit(pdfPart().pdf.mode), pdfPart().pdf.mode) })
+    $('show').addEventListener('click', () => stepShow(show.index + 1))
+    $('show').addEventListener('contextmenu', event => { event.preventDefault(); stepShow(show.index - 1) })
+    addEventListener('resize', () => { if (show) drawShow(); setTopLine(); if (paged && shown === paged && pdfPart().pdf.mode !== 'fixed') setPdfZoom(pdfFit(pdfPart().pdf.mode), pdfPart().pdf.mode) })
     showView(doc.open)
     api.shown()
   }
