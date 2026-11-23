@@ -923,7 +923,7 @@ async function narrate ($: EngineInterface, answer: string, source = '') {
     controlFile = control
     await $.fs.write(control, 'play')
     // A new narration is kept in the history; saying the same one again is not, it is already there.
-    const saveAs = isSame ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
+    const saveAs = isSame && lastNarration.file ? '' : `${await historyDir($)}/${historyName(text, new Date())}`
     // Where this narration is kept once it has played: the play button opens it from there.
     if (saveAs) lastNarration.file = saveAs
     // A selection read is in the history as it starts: its row there is the one playing, with ⏸ and ⏵, and
