@@ -102,8 +102,20 @@ def square(window):
     AppHelper.callAfter(apply)
 
 
+def no_dock_icon():
+    """A popup is a window of the mod's, not a program of its own: no Python icon in the Dock, no menu bar.
+    pywebview asks for both as its macOS part loads, so that is loaded here, and the asking undone at once."""
+    try:
+        import AppKit
+        import webview.platforms.cocoa  # noqa: F401
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    except Exception:
+        pass
+
+
 def open_window(webview, title, name, api, width, height, screen=None):
     """The page `name` in a window of that size, in the middle of `screen`, above the others. Runs until it ends."""
+    no_dock_icon()
     window = webview.create_window(
         title, html=page(name), js_api=api, width=int(width), height=int(height), screen=screen,
         frameless=True, easy_drag=False, resizable=False, on_top=True, background_color='#000000')
