@@ -2305,6 +2305,13 @@ const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, 
 const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
 /** The rows above the tree: the disks, the field a path is pasted in, the filter's, and a rule. They stay while the tree scrolls. */
 const EXPLORER_HEADER_ROWS = 4
+/** The scroll bar's cells: an empty one that parts it from the tree's tools, and the bar. */
+const EXPLORER_BAR_WIDTH = 2
+/** The bar's track: dark, under a thumb in the folders' color. */
+const EXPLORER_TRACK_COLOR = '#3a3a3a'
+/** The tree's first row the bar asked for last, while an earlier one is still being set: only the last is set. */
+let barAsked: number | undefined
+let isBarMoving = false
 /** The most files a filter shows: more would bury the tree, and the pattern can be made narrower. */
 const FILTER_MOST = 1000
 
@@ -3003,7 +3010,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const top = windowTop(rows, state.top, room)
   // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
   const thumb = scrollThumb(rows.length, top, room)
-  const treeWidth = width - (thumb.size > 0 ? 1 : 0)
+  const treeWidth = width - (thumb.size > 0 ? EXPLORER_BAR_WIDTH : 0)
   return (
     <Box flexDirection="column" width={width}>
       <Box flexDirection="row" columnGap={1}>
@@ -3126,16 +3133,17 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         )
       })}
       </Box>
-      {/* The scroll bar: its track dim, its thumb in the folders' color, a row each. Where the surface draws a
-          Client it is one, scrollbar.tsx: held down, its thumb follows the pointer and the tree with it. */}
+      {/* The scroll bar, an empty cell away from the tools: its track dark, its thumb in the folders' color, a
+          row each. Where the surface draws a Client it is one, scrollbar.tsx: held down, its thumb follows the
+          pointer and the tree with it. */}
       {thumb.size > 0 && Client
-        ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={1} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR }} />
+        ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={EXPLORER_BAR_WIDTH} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR }} />
         : thumb.size > 0
         ? (
-          <Box flexDirection="column" width={1}>
+          <Box flexDirection="column" width={EXPLORER_BAR_WIDTH}>
             {Array.from({ length: room }, (_, index) => {
               const isThumb = index >= thumb.start && index < thumb.start + thumb.size
-              return <Text key={`explorer-bar:${index}`} color={isThumb ? EXPLORER_DIR_COLOR : undefined} dimColor={!isThumb}>{isThumb ? '█' : '│'}</Text>
+              return <Text key={`explorer-bar:${index}`} color={isThumb ? EXPLORER_DIR_COLOR : EXPLORER_TRACK_COLOR}>{' █'}</Text>
             })}
           </Box>
           )
@@ -4549,7 +4557,20 @@ export const register: Register = on => {
     // The explorer's scroll bar, held and moved: the tree's first row it asks for.
     if (e.element === 'speedy:explorer-bar') {
       const to = data?.scrollTo
-      if (typeof to === 'number' && Number.isFinite(to)) await update($, explorer, now => ({ ...now, top: Math.max(0, Math.round(to)) }))
+      if (typeof to !== 'number' || !Number.isFinite(to)) return result
+      // The rows asked for while the tree was being moved are passed over: it goes to the last one.
+      barAsked = Math.max(0, Math.round(to))
+      if (isBarMoving) return result
+      isBarMoving = true
+      try {
+        while (barAsked !== undefined) {
+          const top = barAsked
+          barAsked = undefined
+          await update($, explorer, now => now.top === top ? now : { ...now, top })
+        }
+      } finally {
+        isBarMoving = false
+      }
       return result
     }
     if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result

@@ -26,7 +26,9 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
+OPTIONS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
+# What ssh itself ends with when it did not connect, whatever was to run there.
+NOT_CONNECTED = 255
 # No console window of ssh's own flashes on Windows.
 HIDDEN = {'creationflags': 0x08000000} if sys.platform == 'win32' else {}
 # A copy fetched stays a day: the viewer may still show it, the clipboard still hold it.
@@ -69,13 +71,52 @@ def hosts():
     return ['mac'] if 'mac' in known else []
 
 
+def ssh_programs():
+    """The ssh programs to try, in order: the one the PATH finds, then, on Windows, Git's own.
+
+    Windows has two: its own refuses ~/.ssh/config when another account may read it ("Bad owner or
+    permissions"), and Git's does not; which one the PATH finds first depends on where the program was started.
+    """
+    found = [shutil.which('ssh')]
+    if sys.platform == 'win32':
+        git = shutil.which('git')
+        roots = [os.path.dirname(os.path.dirname(git))] if git else []
+        roots += [os.path.join(os.environ[name], 'Git') for name in ('ProgramFiles', 'ProgramW6432') if os.environ.get(name)]
+        if os.environ.get('LOCALAPPDATA'):
+            roots.append(os.path.join(os.environ['LOCALAPPDATA'], 'Programs', 'Git'))
+        found += [os.path.join(root, 'usr', 'bin', 'ssh.exe') for root in roots]
+    programs = []
+    for program in found:
+        if program and os.path.isfile(program) and os.path.normcase(os.path.realpath(program)) not in [os.path.normcase(os.path.realpath(one)) for one in programs]:
+            programs.append(program)
+    return programs or ['ssh']
+
+
+def connects(program, host):
+    """Whether one ssh program reaches the machine, with nothing to run there."""
+    try:
+        return subprocess.run([program] + OPTIONS + [host, 'true'], capture_output=True, stdin=subprocess.DEVNULL, timeout=20, **HIDDEN).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def run_there(host, command, **how):
+    """A command run on the machine, by the first ssh program that connects; None when none ran."""
+    done = None
+    for program in ssh_programs():
+        try:
+            done = subprocess.run([program] + OPTIONS + [host] + command, **how, **HIDDEN)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode != NOT_CONNECTED:
+            return done
+    return done
+
+
 def python_there(host, script, timeout=30):
     """Runs a script on the machine's python3, sent by its input; what it printed, or None."""
-    try:
-        done = subprocess.run(SSH + [host, 'python3', '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout, **HIDDEN)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return done.stdout.decode('utf-8', 'replace') if done.returncode == 0 else None
+    done = run_there(host, ['python3', '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout)
+    return done.stdout.decode('utf-8', 'replace') if done is not None and done.returncode == 0 else None
 
 
 def ask(host, script, path):
@@ -105,11 +146,13 @@ def fetch(host, path):
     os.utime(folder, None)
     target = os.path.join(folder, re.sub(r'[\\/:*?"<>|]', '_', path.rsplit('/', 1)[-1]) or 'file')
     try:
-        with open(target, 'wb') as file:
-            done = subprocess.run(SSH + [host, 'cat -- ' + shlex.quote(path)], stdout=file, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, **HIDDEN)
+        done = run_there(host, ['cat -- ' + shlex.quote(path)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        if done is not None and done.returncode == 0:
+            with open(target, 'wb') as file:
+                file.write(done.stdout)
     except OSError:
-        return None
-    if done.returncode != 0:
+        done = None
+    if done is None or done.returncode != 0:
         shutil.rmtree(folder, ignore_errors=True)
         return None
     return target
@@ -121,8 +164,11 @@ def find(host):
         source = file.read()
     settings = {'SPEEDY_ROOT': '/', 'SPEEDY_FIRST': '', 'SPEEDY_PATTERN': os.environ.get('SPEEDY_PATTERN', ''), 'SPEEDY_MOST': os.environ.get('SPEEDY_MOST', '')}
     script = f'import os\nos.environ.update({ascii(settings)})\n{source}'
+    # The search goes by the ssh program that connects.
+    programs = ssh_programs()
+    program = next((one for one in programs if connects(one, host)), programs[0])
     try:
-        search = subprocess.Popen(SSH + [host, 'python3', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
+        search = subprocess.Popen([program] + OPTIONS + [host, 'python3', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
     except OSError:
         say({'paths': [], 'seen': 0, 'done': True, 'cut': False})
         return

@@ -2430,6 +2430,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
   expect(await explorerBar(short)).toBe('│██│')
+  // An empty cell parts the bar from the tree's tools: it is two cells wide.
+  expect((await short.find({ key: 'speedy:explorer-bar' }))?.props?.width).toBe(2)
   // Held by its thumb and moved, the bar takes the tree with it: down to its last rows, and past the bar's
   // top back to its first; let go, a move does nothing.
   const shortRows = async () => (await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, '')).slice(4)
