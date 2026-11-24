@@ -10,7 +10,7 @@
 #   a spreadsheet (xlsx, xlsm; xls through Excel) or a Word document (docx; doc through Word): drawn as a page;
 #   a Word document, a Markdown or an HTML Preview also gets the bar's zoom;
 #   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume,
-#     and a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar; one
+#     and a switch for the speed, x0.5 x0.75 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar; one
 #     Windows does not play as it is (AV1 with no decoder for it) is made again as H.264 by ffmpeg, when
 #     there is one, and plays;
 #   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
@@ -2293,7 +2293,7 @@ try {
         $about.SetBounds(54, 2, 330, 46)
         $stage.Controls.Add($note)
         $stage.Controls.Add($about)
-        $inner = New-Object System.Drawing.Size(620, 90)
+        $inner = New-Object System.Drawing.Size(660, 90)
       }
       $stage.Dock = 'Fill'
       $player.Volume = 0.8
@@ -2364,14 +2364,14 @@ try {
       $volumeIcon.Text = [string][char]0xE767
       $volumeBar = & $makeSlider 0.8
       foreach ($one in @($playButton, $seekBar, $timeLabel, $volumeIcon, $volumeBar)) { $bar.Controls.Add($one) }
-      # The speed's switch: x0.5 x1 x1.25 x1.5 x2, the one in force filled, x1 as it opens. A sound has it
+      # The speed's switch: x0.5 x0.75 x1 x1.25 x1.5 x2, the one in force filled, x1 as it opens. A sound has it
       # after its size; a video, which fills its stage, in the bar before the time.
       $speedButtons = New-Object System.Collections.ArrayList
       $speedWidth = 38
       $speedGap = 2
-      $speedsWidth = 5 * $speedWidth + 4 * $speedGap
+      $speedsWidth = 6 * $speedWidth + 5 * $speedGap
       $speedOff = [System.Drawing.ColorTranslator]::FromHtml('#25282e')
-      foreach ($speed in @(0.5, 1.0, 1.25, 1.5, 2.0)) {
+      foreach ($speed in @(0.5, 0.75, 1.0, 1.25, 1.5, 2.0)) {
         $one = New-Object System.Windows.Forms.Label
         $one.Text = 'x' + ([double]$speed).ToString('0.##', [Globalization.CultureInfo]::InvariantCulture)
         $one.Font = New-Object System.Drawing.Font('Segoe UI', 9)

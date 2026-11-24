@@ -333,9 +333,9 @@
     const seek = slider('seek', 0, value => { if (player.duration) player.currentTime = value * player.duration })
     const loud = slider('loud', 0.8, value => { player.volume = value })
     controls.append(play, seek, time, element('div', 'volume', icon('loud', 16)), loud)
-    // The speed's switch: x0.5 x1 x1.25 x1.5 x2, x1 as it opens.
+    // The speed's switch: x0.5 x0.75 x1 x1.25 x1.5 x2, x1 as it opens.
     const speeds = element('div', 'speeds')
-    for (const speed of [0.5, 1, 1.25, 1.5, 2]) {
+    for (const speed of [0.5, 0.75, 1, 1.25, 1.5, 2]) {
       const one = element('div', speed === 1 ? 'on' : 'off')
       one.textContent = `x${speed}`
       one.addEventListener('click', () => {
