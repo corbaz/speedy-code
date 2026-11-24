@@ -75,6 +75,7 @@
   .stage video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   .stage.audio { justify-content: flex-start; padding-left: 12px; gap: 12px; color: var(--dim); font-size: 13.33px; }
   .stage.audio svg { width: 30px; height: 30px; fill: var(--line); }
+  .failed.converting { color: var(--dim); }
   .failed { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; white-space: pre-line; color: var(--red); background: #000; padding: 0 12px; }
   .controls { flex: none; height: 40px; display: flex; align-items: center; background: #000; }
   .controls .play { width: 34px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--line); cursor: pointer; }
@@ -378,12 +379,32 @@
       mark()
       api.media('ended')
     })
+    // What macOS does not play (AV1 on a Mac with no decoder for it, VP9) is made again as H.264 by ffmpeg,
+    // once, and that plays in its place. With no ffmpeg, or when it could not, it says so.
+    let isConverted = false
     player.addEventListener('error', () => {
       const why = player.error && player.error.message ? player.error.message : ''
-      failed.textContent = `No se puede reproducir este formato en macOS${view.video ? '\n\n' : '\n'}${why}`
+      const gap = view.video ? '\n\n' : '\n'
+      const refuse = more => {
+        failed.classList.remove('converting')
+        failed.textContent = `No se puede reproducir este formato en macOS${gap}${more || why}`
+        media.playing = false
+        mark()
+      }
       failed.classList.remove('hidden')
-      media.playing = false
-      mark()
+      if (isConverted) return refuse('')
+      isConverted = true
+      failed.classList.add('converting')
+      failed.textContent = `macOS no reproduce este formato tal cual.${gap}Convirtiéndolo para verlo…`
+      api.convert().then(made => {
+        if (!made || !made.ok) return refuse(made && made.why === 'none' ? 'Para verlo hace falta ffmpeg (brew install ffmpeg).' : '')
+        failed.classList.add('hidden')
+        failed.classList.remove('converting')
+        player.src = `${base}/played`
+        media.playing = true
+        mark()
+        player.play().catch(() => { media.playing = false; mark(); api.media('paused') })
+      }, () => refuse(''))
     })
     player.src = `${base}/file`
     // macOS may hold a sound until the popup is pressed: it then stands paused, and the mod is told.

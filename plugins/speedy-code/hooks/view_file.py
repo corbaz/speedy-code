@@ -87,6 +87,8 @@ class Popup:
         self._pdf_lock = threading.Lock()
         self._jobs = []
         self._scratch = None
+        # The file made again for macOS to play, once `convert` made it.
+        self._played = ''
         self._window = None
         self._doc = self._read()
 
@@ -477,6 +479,32 @@ class Popup:
         if state in ('playing', 'paused', 'ended'):
             popup.say('media ' + state)
 
+    def convert(self):
+        """A sound or a video macOS does not play (AV1 on a Mac with no decoder for it, VP9, an old codec), made
+        again as one it does, H.264 and AAC, by ffmpeg when there is one: the page then plays `/played`.
+
+        It answers {'ok': True}, or {'ok': False, 'why': 'none'} with no ffmpeg, 'failed' when ffmpeg could not."""
+        ffmpeg = shutil.which('ffmpeg') or next((one for one in ('/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg') if os.path.isfile(one)), '')
+        if not ffmpeg:
+            return {'ok': False, 'why': 'none'}
+        if self._scratch is None:
+            self._scratch = tempfile.mkdtemp(prefix='speedy-code-doc-')
+        is_video = self._doc['kind'] == 'video'
+        target = os.path.join(self._scratch, 'played.mp4' if is_video else 'played.m4a')
+        sound = ['-c:a', 'aac', '-b:a', '160k']
+        # The Mac's own encoder first, which is quick; ffmpeg's own after it.
+        ways = [['-c:v', 'h264_videotoolbox', '-b:v', '6M'], ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22']] if is_video else [['-vn']]
+        for way in ways:
+            try:
+                done = subprocess.run([ffmpeg, '-y', '-v', 'error', '-i', self._path, *way, '-pix_fmt', 'yuv420p', *sound, '-movflags', '+faststart', target],
+                                      capture_output=True, stdin=subprocess.DEVNULL, timeout=600)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if done.returncode == 0 and os.path.isfile(target) and os.path.getsize(target) > 0:
+                self._played = target
+                return {'ok': True}
+        return {'ok': False, 'why': 'failed'}
+
     def resize(self, width, height):
         """The popup at another size, in the middle of its screen: a video once its own size is known, a text
         grown by its layout."""
@@ -542,6 +570,8 @@ class Popup:
             request._send(200, 'text/html; charset=utf-8', self._pages[steps[3]].encode('utf-8'))
         elif route == 'file':
             self._send_file(request, self._path)
+        elif route == 'played' and self._played:
+            self._send_file(request, self._played)
         elif route == 'dir':
             # What a page of the file's own folder asks for: its pictures, its styles. Nothing above the folder.
             wanted = os.path.realpath(os.path.join(self._folder, *[urllib.parse.unquote(step) for step in steps[3:]]))
