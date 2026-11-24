@@ -2207,8 +2207,20 @@ try {
         $player.Source = $uri
         $inner = New-Object System.Drawing.Size(([int][Math]::Min(640, $room.Width)), ([int][Math]::Min(360 + $barHeight, $room.Height)))
       } else {
-        $player = New-Object System.Windows.Media.MediaPlayer
+        # A sound is played by the player a video has, on a cell of its own that shows nothing: that one
+        # takes a new speed at once, where the player for sound alone goes on two or three seconds as it was.
+        $player = New-Object System.Windows.Controls.MediaElement
+        $player.LoadedBehavior = [System.Windows.Controls.MediaState]::Manual
+        $player.UnloadedBehavior = [System.Windows.Controls.MediaState]::Manual
+        $grid = New-Object System.Windows.Controls.Grid
+        $grid.Background = [System.Windows.Media.Brushes]::Black
+        [void]$grid.Children.Add($player)
+        $sound = New-Object System.Windows.Forms.Integration.ElementHost
+        $sound.BackColor = $black
+        $sound.SetBounds(0, 0, 1, 1)
+        $sound.Child = $grid
         $stage = New-Object System.Windows.Forms.Panel
+        $stage.Controls.Add($sound)
         $stage.BackColor = $black
         $note = New-Object System.Windows.Forms.Label
         $note.Text = [string][char]0xE8D6
@@ -2346,9 +2358,6 @@ try {
     function Set-Speed([double]$speed) {
       $mediaParts.Media.Speed = $speed
       $player.SpeedRatio = $speed
-      # A sound already has two or three seconds made at the speed before, and would play them first: put
-      # again where it stands, it drops them and goes on from there at the new speed. A video needs none of it.
-      if ($kind -ne 'video' -and $mediaParts.Media.Ready) { $player.Position = $player.Position }
       foreach ($one in $speedButtons) {
         $isOn = [Math]::Abs([double]$one.Tag - $speed) -lt 0.001
         $one.BackColor = $(if ($isOn) { $blue } else { $speedOff })
@@ -2394,7 +2403,7 @@ try {
       $mediaParts.Play.Text = [string][char]0xE768
       try { Say 'media ended' } catch { }
     })
-    if ($kind -eq 'audio') { $player.Open((New-Object System.Uri($path))) }
+    if ($kind -eq 'audio') { $player.Source = New-Object System.Uri($path) }
     $player.Play()
   } else {
     $bytes = Read-Bytes $path
