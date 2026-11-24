@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- The explorer's dialog on macOS, drawn as dialog.ps1 draws it on Windows: a wide black contour, a line of
-     color, a black band inside it, the title on the top line, the move mark and the close mark. Renombrar and
-     Borrar are one dialog: one size, the same two buttons at the same place. dialog.py opens it and answers; popup.css is the frame. -->
+     color, a black band inside it, the title on the top line, the move mark and the close mark. Renombrar,
+     Borrar and Pegar are one dialog: one size, the same two buttons at the same place; Pegar has a third at
+     their left, Copiar, until one is chosen, and then asks whether for sure. dialog.py opens it and answers;
+     popup.css is the frame. -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -19,8 +21,10 @@
   .action { top: 144px; width: 130px; height: 38px; line-height: 38px; text-align: center; font-weight: bold; cursor: pointer; }
   #accept { left: 180px; background: var(--line); color: #000; }
   #cancel { left: 322px; background: var(--field); color: var(--ink); }
+  #other { left: 38px; background: var(--line); color: #000; }
   .one-line { left: 26px; max-width: 428px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   body.rename .for-delete, body.delete .for-rename, body.dir .for-file { display: none; }
+  body.paste .for-rename, body.paste .for-delete, body:not(.paste) .for-paste, body.sure #other { display: none; }
   body.dir #name { width: 428px !important; }
 </style>
 </head>
@@ -38,6 +42,10 @@
     <span class="for-delete strong one-line" style="top:24px">¿Mandar a la papelera?</span>
     <span class="for-delete strong blue one-line" id="doomed" style="top:52px"></span>
     <span class="for-delete dim one-line" id="note" style="top:80px"></span>
+    <span class="for-paste strong one-line" id="asking" style="top:24px">¿Copiar o mover?</span>
+    <span class="for-paste strong blue one-line" id="pasted" style="top:52px"></span>
+    <span class="for-paste dim one-line" id="where" style="top:80px"></span>
+    <div class="action for-paste" id="other">Copiar</div>
     <div class="action" id="accept"></div>
     <div class="action" id="cancel">Cancelar</div>
   </div>
@@ -72,10 +80,27 @@
     isFolder = asked.kind === 'dir'
     mode = asked.mode
     document.body.className = mode + (isFolder ? ' dir' : '')
-    $('title').textContent = mode === 'delete' ? 'Borrar' : 'Renombrar'
+    $('title').textContent = mode === 'delete' ? 'Borrar' : mode === 'paste' ? 'Pegar' : 'Renombrar'
     $('cancel').onclick = () => finish('cancel')
     $('close').onclick = () => finish('cancel')
-    if (mode === 'delete') {
+    if (mode === 'paste') {
+      // Copiar or Mover first; the one chosen is then asked again, for sure, and only that answers. A press
+      // within half a second of the choice is the same press twice, and is not an answer.
+      let verb = '', since = 0
+      const choose = chosen => {
+        verb = chosen
+        since = Date.now()
+        document.body.classList.add('sure')
+        $('asking').textContent = chosen === 'move' ? '¿Seguro que querés moverlo?' : '¿Seguro que querés copiarlo?'
+        $('accept').textContent = chosen === 'move' ? 'Sí, mover' : 'Sí, copiar'
+      }
+      $('pasted').textContent = fileName
+      // The folder it goes into, its end kept when it is too long for the line.
+      $('where').textContent = 'a ' + (asked.target.length > 50 ? '\u2026' + asked.target.slice(-49) : asked.target)
+      $('accept').textContent = 'Mover'
+      $('other').onclick = () => choose('copy')
+      $('accept').onclick = () => { if (!verb) choose('move'); else if (Date.now() - since > 500) finish(verb) }
+    } else if (mode === 'delete') {
       $('doomed').textContent = fileName
       $('note').textContent = isFolder ? 'Con todo lo que tiene. Se puede recuperar desde la Papelera.' : 'Se puede recuperar desde la Papelera.'
       $('accept').textContent = 'Sí, borrar'

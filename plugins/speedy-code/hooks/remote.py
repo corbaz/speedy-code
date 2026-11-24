@@ -5,6 +5,8 @@ those of Windows in the explorer of a Mac.
                       commas), or those of `mac` and `windows` that ~/.ssh/config has a `Host` for.
     remote.py list    a folder's entries: {"entries": [{"name", "kind": "dir" | "file", "isLink"}]}.
     remote.py stat    what a path is: {"kind": "dir" | "file" | ""}, empty when nothing is there.
+    remote.py home    where the machine's disk opens: {"home": the person's folder there}, and `/` on Windows,
+                      whose disks are under its root.
     remote.py fetch   a file copied here, into a folder of its own under the temporary one, for the viewer
                       and the clipboard: {"file": its path here}.
     remote.py find    the explorer's filter there: find_files.py itself runs on the machine, over its whole
@@ -66,6 +68,11 @@ print(json.dumps({'entries': out}))
 STAT = THERE + '''
 import json
 print(json.dumps({'kind': 'dir' if ROOT or os.path.isdir(PATH) else 'file' if os.path.exists(PATH) else ''}))
+'''
+
+HOME = '''
+import json, os
+print(json.dumps({'home': '/' if os.name == 'nt' else os.path.expanduser('~')}))
 '''
 
 FETCH = THERE + '''
@@ -276,6 +283,10 @@ def main():
     if mode == 'find':
         find(host)
         return 0
+    if mode == 'home':
+        answer = ask(host, HOME, '/')
+        say(answer if answer is not None else {'error': 'not reached'})
+        return 0 if answer is not None else 1
     if not path.startswith('/'):
         say({'error': 'no path'})
         return 1

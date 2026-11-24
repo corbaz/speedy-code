@@ -7,6 +7,8 @@
 #     Prints `rename <base64 of the UTF-8 new name>`, or `cancel`.
 #   SPEEDY_KIND=dir: a folder; one field for its name, and Borrar says it goes with what it holds.
 #   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si, borrar / Cancelar. Prints `delete` or `cancel`.
+#   SPEEDY_MODE=paste: asks whether $env:SPEEDY_FILE is copied or moved into the folder $env:SPEEDY_TARGET,
+#     Copiar / Mover / Cancelar, and then whether for sure, Si, copiar / Cancelar. Prints `copy`, `move` or `cancel`.
 # Enter accepts a rename (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
 $ErrorActionPreference = 'Stop'
@@ -17,7 +19,7 @@ function T([string]$text) { [regex]::Unescape($text) }
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
 $path = $env:SPEEDY_FILE
-$mode = if ($env:SPEEDY_MODE -eq 'delete') { 'delete' } else { 'rename' }
+$mode = if ($env:SPEEDY_MODE -eq 'delete') { 'delete' } elseif ($env:SPEEDY_MODE -eq 'paste') { 'paste' } else { 'rename' }
 $fileName = [IO.Path]::GetFileName($path)
 # A folder (SPEEDY_KIND=dir) is renamed whole, with no extension, and goes to the trash with what it holds.
 $isFolder = $env:SPEEDY_KIND -eq 'dir'
@@ -76,7 +78,7 @@ $form.Controls.Add($frame)
 
 # The title, the move mark and the close mark ride the top line, on black, as the viewer's do.
 $title = New-Object System.Windows.Forms.Label
-$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } else { 'Renombrar' }) + ' '
+$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } elseif ($mode -eq 'paste') { 'Pegar' } else { 'Renombrar' }) + ' '
 $title.AutoSize = $true
 $title.Font = $bold
 $title.ForeColor = $frame.BackColor
@@ -147,7 +149,7 @@ function New-Box([string]$text, [int]$x, [int]$y, [int]$boxWidth) {
 }
 
 # A button, all of one size, its text in the middle. `slot` 0 is the one that does it, 1 Cancelar after it:
-# both on the bottom row, at the right, in every dialog.
+# both on the bottom row, at the right, in every dialog. Pegar has one more at their left, slot -1.
 function New-Action([string]$text, $fill, $color, [int]$slot) {
   $button = New-Object System.Windows.Forms.Label
   $button.Text = $text
@@ -210,6 +212,34 @@ if ($mode -eq 'rename') {
   $cancel.Add_Click({ Finish 'cancel' })
   $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
   $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Accept; $_.Handled = $true; $_.SuppressKeyPress = $true } })
+} elseif ($mode -eq 'paste') {
+  # Copiar or Mover first; the one chosen is then asked again, for sure, and only that answers. A press within
+  # half a second of the choice is the same press twice, and is not an answer.
+  $asking = New-Text (T '\u00bfCopiar o mover?') $gap $gap $ink $bold
+  $shown = if ($fileName.Length -gt 46) { $fileName.Substring(0, 45) + [char]0x2026 } else { $fileName }
+  [void](New-Text $shown $gap 52 $blue $bold)
+  # The folder it goes into, its end kept when it is too long for the line.
+  $where = [string]$env:SPEEDY_TARGET
+  if ($where.Length -gt 50) { $where = [char]0x2026 + $where.Substring($where.Length - 49) }
+  [void](New-Text "a $where" $gap 80 $dim $font)
+  $copyIt = New-Action 'Copiar' $blue $black -1
+  $accept = New-Action 'Mover' $blue $black 0
+  $cancel = New-Action 'Cancelar' $field $ink 1
+  $chosen = @{ Verb = ''; Since = [DateTime]::MinValue }
+  function Choose([string]$verb) {
+    $chosen.Verb = $verb
+    $chosen.Since = [DateTime]::Now
+    $copyIt.Visible = $false
+    $asking.Text = if ($verb -eq 'move') { T '\u00bfSeguro que quer\u00e9s moverlo?' } else { T '\u00bfSeguro que quer\u00e9s copiarlo?' }
+    $accept.Text = if ($verb -eq 'move') { T 'S\u00ed, mover' } else { T 'S\u00ed, copiar' }
+  }
+  $copyIt.Add_Click({ Choose 'copy' })
+  $accept.Add_Click({
+    if (-not $chosen.Verb) { Choose 'move' }
+    elseif (([DateTime]::Now - $chosen.Since).TotalMilliseconds -gt 500) { Finish $chosen.Verb }
+  })
+  $cancel.Add_Click({ Finish 'cancel' })
+  $form.Add_Shown({ $form.Activate(); [void]$cancel.Focus() })
 } else {
   [void](New-Text (T '\u00bfMandar a la papelera?') $gap $gap $ink $bold)
   $shown = if ($fileName.Length -gt 46) { $fileName.Substring(0, 45) + [char]0x2026 } else { $fileName }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explorer: 📥, a fifth tool on each row, pastes what 📋 took last: grey until a file or a folder was taken, then it asks whether to copy or to move it into the row's folder, and whether for sure (`paste.py`; a third mode of the dialog). Nothing is written over.
+- Explorer: another machine's disk opens at its person's folder, marked and in the middle; one with Windows at its root.
 - Explorer: a machine with Windows reached by ssh has a disk too (`windows`, when `~/.ssh/config` has a `Host windows`): its disks under its root, `windows:/C:/Users/ana`; its Python is `python` where there is no `python3`. A file is fetched by the machine's Python, no longer by `cat`.
 - Explorer: the scroll bar moves the tree at a pace, so a terminal that reports pixels does not flood it.
 - Explorer: the scroll bar stands an empty cell away from the tree's tools, on a dark track; held, its thumb follows the pointer at once and each row is asked for once, so it no longer lags on terminals that report pixels (iTerm2, Ghostty, kitty, WezTerm).

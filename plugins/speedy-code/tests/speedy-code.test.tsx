@@ -15,6 +15,8 @@ const GIT = { stamp: '', aborts: 0, branch: '', behind: 0, merges: 0, mergeFails
 const CODE_MODE = { on: false, ran: [] as string[] }
 /** The files the explorer put on the clipboard and sent to the trash, by Windows PowerShell. */
 const FILES = { copied: [] as string[], trashed: [] as string[], renamed: [] as string[] }
+/** What the explorer's paste.py was asked, and what it says. */
+const PASTE = { ran: [] as string[], says: 'done' }
 /** The clipboard's text when a test changes it midway; undefined: the one its world was given. */
 const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
@@ -26,6 +28,8 @@ const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string
 /** Another machine's disk, as remote.py answers for it: the machines there are, what was asked, and its folders. */
 const REMOTE = {
   hosts: [] as string[],
+  /** Where the machine's disk opens: its person's folder; `/` on one with Windows. */
+  home: '/',
   asked: [] as Array<Record<string, string>>,
   tree: {
     '/': [{ name: 'Users', kind: 'dir', isLink: false }, { name: 'nota.md', kind: 'file', isLink: false }],
@@ -231,6 +235,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       const isFile = Object.entries(REMOTE.tree).some(([parent, entries]) => entries.some(entry => `${parent === '/' ? '' : parent}/${entry.name}` === path))
       const said = mode === 'hosts'
         ? REMOTE.hosts
+        : mode === 'home'
+          ? { home: REMOTE.home }
         : mode === 'list'
           ? (folder ? { entries: folder } : { error: 'not reached' })
           : mode === 'stat'
@@ -242,6 +248,10 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.includes('SetFileDropList'))) {
       FILES.copied.push(e.init?.env?.SPEEDY_FILE ?? '')
       return { value: { exitCode: 0, stdout: 'copied\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv.some(arg => arg.endsWith('paste.py'))) {
+      PASTE.ran.push(`${e.init?.env?.SPEEDY_VERB ?? ''} ${e.init?.env?.SPEEDY_FILE ?? ''} -> ${e.init?.env?.SPEEDY_TARGET ?? ''}`)
+      return { value: { exitCode: 0, stdout: `${PASTE.says}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.endsWith('dialog.ps1'))) {
       DIALOG.asked.push([e.init?.env?.SPEEDY_MODE ?? '', e.init?.env?.SPEEDY_KIND === 'dir' ? 'dir' : ''].filter(Boolean).join(' '))
@@ -2528,8 +2538,17 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // and stays while the pointer is on its tools; a disk's root has none.
   const folderLook = await look('speedy:explorer-folder:C:/Windows')
   expect(folderLook?.hover).toMatchObject({ backgroundColor: '#74c0fc', color: '#1a1a1a' })
-  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await look(`speedy:explorer-${tool}:C:/Windows`))?.hover?.scope).toBe(folderLook?.hover?.scope)
+  for (const tool of ['copy', 'path', 'rename', 'trash', 'paste']) expect((await look(`speedy:explorer-${tool}:C:/Windows`))?.hover?.scope).toBe(folderLook?.hover?.scope)
   expect(await pane.find({ key: 'speedy:explorer-trash:C:/' })).toBeUndefined()
+  // 📥, the last tool, is grey while 📋 took nothing: pressed, it says what to do first and asks nothing.
+  const pasteLook = async (path: string) => (await pane.find({ type: 'Text', in: `speedy:explorer-paste:${path}` }))
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
+  expect((await pasteLook('C:/Windows'))?.props).toMatchObject({ color: '#495057' })
+  DIALOG.asked = []
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: primero copiá un archivo o una carpeta con 📋.')
+  expect(DIALOG.asked).toEqual([])
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
@@ -2549,6 +2568,46 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // The path goes into the prompt as well; the text before it already ends in a space.
   expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
+  // 📥 is lit on every row once 📋 took a file. On a folder's row it asks whether the file is copied or moved
+  // into it, and whether for sure: Cancelar does nothing; Copiar copies it and the file stays taken.
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('📥')
+  expect((await pasteLook('C:/Windows'))?.props).toMatchObject({ color: '#ffa94d' })
+  expect((await pane.find({ key: 'speedy:explorer-paste:C:/setup.exe' }))?.props?.width).toBe(2)
+  DIALOG.asked = []
+  DIALOG.answer = 'cancel'
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(DIALOG.asked).toEqual(['paste'])
+  expect(PASTE.ran).toEqual([])
+  DIALOG.answer = 'copy'
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(PASTE.ran).toEqual(['copy C:\\Users\\test\\proyectos\\notas.txt -> C:\\Windows\\notas.txt'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt se copió a Windows.')
+  // On a file's row it goes into the folder the file is in: a disk's root here.
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/setup.exe' })
+  await w.clock.advance(100)
+  expect(PASTE.ran.at(-1)).toBe('copy C:\\Users\\test\\proyectos\\notas.txt -> C:\\notas.txt')
+  // Into the folder it is in already, nothing is asked; nor where a file of its name is.
+  DIALOG.asked = []
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Users/test/proyectos/notas.txt' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ya está en esa carpeta.')
+  expect(DIALOG.asked).toEqual([])
+  // What paste.py could not do is said, and the file stays taken.
+  PASTE.says = 'error'
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: no pude copiar notas.txt.')
+  PASTE.says = 'done'
+  // Mover moves it: nothing is taken any more, and 📥 is grey again.
+  DIALOG.answer = 'move'
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(PASTE.ran.at(-1)).toBe('move C:\\Users\\test\\proyectos\\notas.txt -> C:\\Windows\\notas.txt')
+  expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt se movió a Windows.')
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
+  DIALOG.answer = 'cancel'
   // ✏ asks the new name in a dialog in the middle of the screen; Cancelar leaves the file; Aceptar renames it.
   FILES.renamed = []
   DIALOG.asked = []
@@ -2705,6 +2764,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/nota.md' })
   expect(FILES.copied.at(-1)).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
   expect(prompt.fills.at(-1)).toContain('mac:/nota.md')
+  // Nor is 📥 for another machine's folders, nor does 📋 take a file of it to paste.
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/Users' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: primero copiá un archivo o una carpeta con 📋.')
   // ✏ and 🗑 are not for another machine's files: no dialog asks.
   const dialogs = DIALOG.asked.length
   await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
@@ -2721,8 +2784,26 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(REMOTE.asked.at(-1)).toEqual({ mode: 'find', host: 'mac', pattern: '*.pdf' })
   expect((await farRows()).slice(5)).toEqual(['▾ mac:/', '  ▾ Users', '    ▾ ana', '        informe.pdf'])
-  REMOTE.hosts = []
+  // A machine's disk opens at its person's folder, in the middle and marked; one with Windows, as `mac` here
+  // said it was, at its root. Where each one opens is asked once.
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-unfilter:' })
   await far.unmount()
+  REMOTE.hosts = ['studio']
+  REMOTE.home = '/Users/ana'
+  REMOTE.tree['/Users/ana'] = [{ name: 'apuntes.txt', kind: 'file', isLink: false }]
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  const studio = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
+  await studio.press({ key: 'explorer-drive:studio:/' })
+  for (let turn = 0; turn < 5; turn++) await w.clock.advance(100)
+  expect(REMOTE.asked.some(one => one.mode === 'home' && one.host === 'studio')).toBe(true)
+  expect((await explorerRows(studio)).map(row => row.text.replace(/ {2,}$/, '')).slice(5)).toEqual(['▾ studio:/', '  ▾ Users', '    ▾ ana', '        apuntes.txt', '    nota.md'])
+  REMOTE.home = '/'
+  delete REMOTE.tree['/Users/ana']
+  REMOTE.hosts = []
+  await studio.unmount()
   await footer.unmount()
 })
 

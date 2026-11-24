@@ -57,6 +57,8 @@ export const MAC = {
   open: (link: string) => ['open', link],
   /** A file to the clipboard as a file, as Finder's Copy leaves it. */
   copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
+  /** 📥's dialog, by AppleScript: whether the file is copied or moved into a folder, then whether for sure. */
+  pasteDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set verb to button returned of (display dialog ("¿Copiar o mover " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"Cancelar", "Mover", "Copiar"} default button "Copiar" cancel button "Cancelar")', '-e', 'display dialog ("¿Seguro? " & verb & " " & (item 1 of argv) & " a " & (item 2 of argv)) with title "Pegar" buttons {"No", "Sí"} default button "No" cancel button "No"', '-e', 'if verb is "Mover" then return "move"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
   /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), or whether the file goes to the Trash. */
   dialog: (mode: 'rename' | 'delete', name: string) => mode === 'rename'
     ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog "Nombre nuevo:" default answer (item 1 of argv) with title "Renombrar" buttons {"Cancelar", "Aceptar"} default button "Aceptar" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
@@ -2250,16 +2252,20 @@ function followDock ($: EngineInterface, width: number) {
   explorerDock = width
   $.ui.invalidate('ui.render')
 }
-/** The cells each file's 📋 🔗 🗑 take at its right, a spare one with them: an emoji's width varies by terminal. */
-const EXPLORER_TOOLS_WIDTH = 15
+/** The cells each row's five tools take at its right: each on its own two, a gap of two between them and one before the first. */
+const EXPLORER_TOOLS_WIDTH = 19
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
  * Fonts) and its color. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['copy', '📋', '\uf0c5', '#74c0fc'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
   ['rename', '✏', '\uf044', '#b197fc'],
-  ['trash', '🗑', '\uf1f8', '#ff8787']
+  ['trash', '🗑', '\uf1f8', '#ff8787'],
+  ['paste', '📥', '\uf0ea', '#ffa94d']
 ]
+/** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
+const PASTE_IDLE_MARK = '↧'
+const PASTE_IDLE_COLOR = '#495057'
 
 /** The file tool just pressed, green for a second as a sign the press was taken; empty: none. */
 const explorerFlash = atom({ plugin: 'speedy-code', key: 'explorerFlash' } as const, '')
@@ -2543,6 +2549,8 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
     : MAC.copyFile(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
+  // 📥 pastes what was taken last, a file or a folder of this machine.
+  if (!remote && result?.stdout.trim() === 'copied') await update($, explorer, now => ({ ...now, clip: path }))
   if (remote) {
     await insertInPrompt($, path, ' ')
     $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt y una copia suya en el portapapeles; pegala en una carpeta.` : `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt; no pude copiar el archivo al portapapeles.`)
@@ -2601,14 +2609,15 @@ export function badFileName (name: string) {
  * Asks in a dialog in the middle of the screen, as the viewer's popups stand: dialog.ps1 on Windows (the
  * rename with a field for the name and one for the extension), dialog.py's popup on macOS, drawn the same
  * (a dialog of macOS's own where pywebview is not installed). It answers `rename <base64 name>` (macOS's
- * own dialog: `name <name>`), `delete` or `cancel`.
+ * own dialog: `name <name>`), `delete` or `cancel`. 📥's (`paste`) asks whether the file is copied or moved
+ * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: string) {
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '') {
   const native = await nativePath($, path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
   const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
-  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind }
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
   // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
   if (!isWindows) {
@@ -2618,9 +2627,73 @@ async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: s
   }
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
-    : MAC.dialog(mode, path.split('/').pop() ?? path)
+    : mode === 'paste' ? MAC.pasteDialog(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
   const result = await $.process.run(argv, { env }).catch(() => undefined)
   return said(result?.stdout) ?? 'cancel'
+}
+
+/** The folder a file of the tree is in: a disk's root keeps its `/`. */
+const folderOf = (path: string) => {
+  const parent = path.slice(0, path.lastIndexOf('/'))
+  if (parent === '') return '/'
+  return parent.endsWith(':') ? `${parent}/` : parent
+}
+
+/**
+ * 📥: what 📋 took last is copied or moved into a row's folder (a file's row: the folder it is in), once the
+ * dialog asked which, and whether for sure. Nothing is written over, a folder does not go into itself, and
+ * another machine's folders take nothing. Moved, nothing is taken any more.
+ */
+async function pasteInto ($: EngineInterface, path: string) {
+  const state = await read($, explorer)
+  const clip = state.clip
+  if (!clip) {
+    $.ui.toast('speedy-code: primero copiá un archivo o una carpeta con 📋.')
+    return
+  }
+  const remote = remoteOf(path)
+  if (remote) {
+    $.ui.toast(`speedy-code: pegar no está disponible en ${remote.host}: sus archivos se leen por ssh.`)
+    return
+  }
+  const name = clip.split('/').pop() ?? clip
+  const kind = await kindAt($, clip)
+  if (!kind) {
+    $.ui.toast(`speedy-code: ${name} ya no está donde se copió.`)
+    await update($, explorer, now => ({ ...now, clip: undefined }))
+    return
+  }
+  const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
+  const target = joinPath(folder, name)
+  const key = (one: string) => pathKey(one, state.caseless)
+  if (key(folderOf(clip)) === key(folder)) {
+    $.ui.toast(`speedy-code: ${name} ya está en esa carpeta.`)
+    return
+  }
+  if (kind === 'dir' && isUnder(key(folder), key(clip))) {
+    $.ui.toast(`speedy-code: ${name} no puede ir dentro de sí misma.`)
+    return
+  }
+  if (await kindAt($, target)) {
+    $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
+    return
+  }
+  const verb = await askDialog($, 'paste', clip, folder)
+  if (verb !== 'copy' && verb !== 'move') return
+  const isMove = verb === 'move'
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/paste.py`], { env: { SPEEDY_FILE: await nativePath($, clip), SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: verb, PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  if (result?.stdout.trim() !== 'done') {
+    $.ui.toast(`speedy-code: no pude ${isMove ? 'mover' : 'copiar'} ${name}.`)
+    return
+  }
+  $.ui.toast(`speedy-code: ${name} se ${isMove ? 'movió' : 'copió'} a ${driveLabel(folder)}.`)
+  // The folder it went into is read again, and opened to show it; moved, the one it left too.
+  const folders = isMove ? [folder, folderOf(clip)] : [folder]
+  const reread = await Promise.all(folders.map(async one => [key(one), await readFolder($, one)] as const))
+  await update($, explorer, now => {
+    const next = { ...now, listed: { ...now.listed, ...Object.fromEntries(reread) }, open: now.open.includes(key(folder)) ? now.open : [...now.open, key(folder)] }
+    return isMove ? filterMoved({ ...next, clip: undefined }, clip, target) : next
+  })
 }
 
 /** ✏ and 🗑 are not for another machine's files: a toast says so, and nothing is done. */
@@ -2682,7 +2755,7 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
  * What remote.py answers about a path on another machine: its folder's entries (`list`), what it is (`stat`),
  * its copy here (`fetch`), or the machines there are (`hosts`). Nothing when the machine was not reached.
  */
-async function askRemote ($: EngineInterface, mode: 'hosts' | 'list' | 'stat' | 'fetch', path = ''): Promise<unknown> {
+async function askRemote ($: EngineInterface, mode: 'hosts' | 'list' | 'stat' | 'fetch' | 'home', path = ''): Promise<unknown> {
   const remote = remoteOf(path)
   const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, mode], { env: { SPEEDY_HOST: remote?.host ?? '', SPEEDY_PATH: remote?.path ?? '' } }).catch(() => undefined)
   try {
@@ -2699,6 +2772,21 @@ const saidField = (said: unknown, field: string): unknown => said && typeof said
 async function remoteDrives ($: EngineInterface) {
   const said = await askRemote($, 'hosts')
   return Array.isArray(said) ? said.filter((one): one is string => typeof one === 'string' && /^[A-Za-z][\w.-]+$/.test(one)).map(host => `${host}:/`) : []
+}
+
+/** Where each other machine's disk opens, once it said: its person's folder; `/` for one with Windows. */
+const remoteHomes = new Map<string, string>()
+
+/** Where another machine's disk opens; empty when the machine did not say, and it is asked again the next time. */
+async function remoteHome ($: EngineInterface, drive: string) {
+  const remote = remoteOf(drive)
+  if (!remote) return ''
+  const known = remoteHomes.get(remote.host)
+  if (known !== undefined) return known
+  const home = saidField(await askRemote($, 'home', drive), 'home')
+  if (typeof home !== 'string' || !home.startsWith('/')) return ''
+  remoteHomes.set(remote.host, home)
+  return home
 }
 
 /** What is at a path, here or on another machine: a folder, a file, or nothing. */
@@ -2781,7 +2869,8 @@ async function toggleExplorer ($: EngineInterface) {
   const drive = driveOf(here, drives, caseless)
   const chain = drive ? chainOf(here, drive) : []
   const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
-  await update($, explorer, () => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1 }))
+  // What 📋 took stays taken while the explorer is closed.
+  await update($, explorer, now => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1, clip: now.clip }))
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
@@ -2985,7 +3074,8 @@ async function goToPath ($: EngineInterface, text: string) {
 }
 
 /** A disk pressed: its tree is shown, its root open; each disk keeps what was open in it. The session's disk
- * shows the session's folder in the middle again; another, its top. */
+ * shows the session's folder in the middle again; another, its top. Another machine's opens down to its
+ * person's folder, in the middle and marked; one with Windows at its root, where its disks are. */
 async function pickDrive ($: EngineInterface, drive: string) {
   await forgetFound($)
   const state = await read($, explorer)
@@ -2994,9 +3084,14 @@ async function pickDrive ($: EngineInterface, drive: string) {
   await update($, explorer, now => ({ ...now, drive, top, open: now.open.includes(key) ? now.open : [...now.open, key] }))
   // A filter follows the disk: it is searched as the one before was.
   if (state.filter && drive !== state.drive) void filterExplorer($, state.filter.pattern)
-  if (state.listed[key] !== undefined) return
-  const listed = await readFolder($, drive)
-  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+  const home = remoteOf(drive) && !state.filter ? remoteHome($, drive) : undefined
+  if (state.listed[key] === undefined) {
+    const listed = await readFolder($, drive)
+    await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+  }
+  const where = await home
+  // Unless another disk was pressed meanwhile.
+  if (where && where !== '/' && (await read($, explorer)).drive === drive) await goToPath($, `${drive.slice(0, -1)}${where}`)
 }
 
 /** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●.
@@ -3068,9 +3163,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {rows.slice(top, top + room).map(row => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
-        // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it and 🗑 sends
-        // it to the trash, each of the last two after a dialog. A file's name is yellow and opens the viewer; a
-        // folder's is blue and opens or closes it. A disk's root has no tools.
+        // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it, 🗑 sends
+        // it to the trash and 📥 pastes here what 📋 took, each of the last three after a dialog. A file's name
+        // is yellow and opens the viewer; a folder's is blue and opens or closes it. A disk's root has no tools.
         const isFolder = row.kind === 'dir'
         if (row.kind === 'file' || (isFolder && row.depth > 0)) {
           const toolsWidth = EXPLORER_TOOLS_WIDTH
@@ -3114,9 +3209,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
             : <Text key={kind} color={color}>{label}</Text>
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
+          // 📥 is lit only while 📋 has taken a file or a folder to paste.
+          const isIdle = (kind: string) => kind === 'paste' && !state.clip
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            tool(kind, toolLabel(isGlyphs ? glyph : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : color)
+            tool(kind, toolLabel(isGlyphs ? glyph : isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
           ])
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>
@@ -4610,6 +4707,7 @@ export const register: Register = on => {
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
       else if (kind === 'trash') void askTrash($, path)
       else if (kind === 'rename') void askRename($, path)
+      else if (kind === 'paste') void pasteInto($, path)
       else if (kind === 'unfilter') await clearFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
