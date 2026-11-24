@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Viewer, Windows: a sound is played by Windows' newer player (Windows.Media.Playback), which takes a new speed at once, from where it stands; the one before went silent for a second or two.
 - Viewer: a sound's and a video's popup has a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar.
 - Narration: with the narrator on, an answer's narration is made whole first (`NARRATOR_ONLY_MAKE`) and then played in the viewer's popup, where there is one; a selection read is spoken as before.
 - Explorer: 📥 goes across machines, copied or moved: from another machine here, from here to it, and within it, a folder too (`remote.py pull | push | paste`, by tar over ssh).

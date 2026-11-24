@@ -212,6 +212,55 @@ function Read-Bytes([string]$file, [int]$limit = 0) {
   } finally { $stream.Dispose() }
 }
 
+# A sound's player: Windows' newer one (Windows.Media.Playback), which takes a new speed at once, from where
+# it stands; the one a video has goes silent for a second or two, and then goes on behind. It is given the
+# members of that one the popup uses, and says it opened, failed or ended by a look ten times a second: it has
+# no event a script hears. Nothing when this Windows has no such player.
+function New-SoundPlayer {
+  try {
+    $null = [Windows.Media.Playback.MediaPlayer, Windows.Media.Playback, ContentType = WindowsRuntime]
+    $null = [Windows.Media.Core.MediaSource, Windows.Media.Core, ContentType = WindowsRuntime]
+    $inner = New-Object Windows.Media.Playback.MediaPlayer
+  } catch { return $null }
+  $sound = [pscustomobject]@{ Inner = $inner; Opened = $null; Failed = $null; Ended = $null; IsOpen = $false; IsOver = $false; Since = [DateTime]::Now; Watch = $null }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Add_MediaOpened -Value { param($do) $this.Opened = $do }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Add_MediaFailed -Value { param($do) $this.Failed = $do }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Add_MediaEnded -Value { param($do) $this.Ended = $do }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Play -Value { $this.Inner.Play() }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Pause -Value { $this.Inner.Pause() }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Stop -Value { $this.Inner.Pause() }
+  Add-Member -InputObject $sound -MemberType ScriptMethod -Name Close -Value { if ($this.Watch) { $this.Watch.Stop() }; $this.Inner.Dispose() }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name Source -Value { $null } -SecondValue { param($uri) $this.Since = [DateTime]::Now; $this.Inner.Source = [Windows.Media.Core.MediaSource]::CreateFromUri($uri) }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name Position -Value { $this.Inner.PlaybackSession.Position } -SecondValue { param($at) $this.Inner.PlaybackSession.Position = $at }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name Volume -Value { $this.Inner.Volume } -SecondValue { param($volume) $this.Inner.Volume = [double]$volume }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name SpeedRatio -Value { $this.Inner.PlaybackSession.PlaybackRate } -SecondValue { param($speed) $this.Inner.PlaybackSession.PlaybackRate = [double]$speed }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name NaturalDuration -Value {
+    $whole = $this.Inner.PlaybackSession.NaturalDuration
+    [pscustomobject]@{ HasTimeSpan = $whole.Ticks -gt 0; TimeSpan = $whole }
+  }
+  $watch = New-Object System.Windows.Forms.Timer
+  $watch.Interval = 100
+  $watch.Tag = $sound
+  $watch.Add_Tick({
+    $sound = $this.Tag
+    $session = $sound.Inner.PlaybackSession
+    if (-not $sound.IsOpen) {
+      # Open once it knows how long the sound is; one it cannot read never does, and is given up after a while.
+      if ($session.NaturalDuration.Ticks -gt 0) { $sound.IsOpen = $true; if ($sound.Opened) { & $sound.Opened } }
+      elseif (-not $sound.IsOver -and ([DateTime]::Now - $sound.Since).TotalSeconds -gt 8) { $sound.IsOver = $true; if ($sound.Failed) { & $sound.Failed } }
+      return
+    }
+    # Ended: it stands at its end, and plays no more.
+    $isAtEnd = $session.Position.Ticks -ge $session.NaturalDuration.Ticks - 2000000
+    if ($isAtEnd -and "$($session.PlaybackState)" -ne 'Playing') {
+      if (-not $sound.IsOver) { $sound.IsOver = $true; if ($sound.Ended) { & $sound.Ended } }
+    } else { $sound.IsOver = $false }
+  })
+  $sound.Watch = $watch
+  $watch.Start()
+  $sound
+}
+
 function Format-Size([long]$size) {
   if ($size -lt 1KB) { return "$size bytes" }
   if ($size -lt 1MB) { return ('{0:N1} KB ({1:N0} bytes)' -f ($size / 1KB), $size) }
@@ -2207,20 +2256,23 @@ try {
         $player.Source = $uri
         $inner = New-Object System.Drawing.Size(([int][Math]::Min(640, $room.Width)), ([int][Math]::Min(360 + $barHeight, $room.Height)))
       } else {
-        # A sound is played by the player a video has, on a cell of its own that shows nothing: that one
-        # takes a new speed at once, where the player for sound alone goes on two or three seconds as it was.
-        $player = New-Object System.Windows.Controls.MediaElement
-        $player.LoadedBehavior = [System.Windows.Controls.MediaState]::Manual
-        $player.UnloadedBehavior = [System.Windows.Controls.MediaState]::Manual
-        $grid = New-Object System.Windows.Controls.Grid
-        $grid.Background = [System.Windows.Media.Brushes]::Black
-        [void]$grid.Children.Add($player)
-        $sound = New-Object System.Windows.Forms.Integration.ElementHost
-        $sound.BackColor = $black
-        $sound.SetBounds(0, 0, 1, 1)
-        $sound.Child = $grid
+        # A sound is played by Windows' newer player, which takes a new speed at once. Where there is none,
+        # by the player a video has, on a cell of its own that shows nothing.
         $stage = New-Object System.Windows.Forms.Panel
-        $stage.Controls.Add($sound)
+        $player = New-SoundPlayer
+        if (-not $player) {
+          $player = New-Object System.Windows.Controls.MediaElement
+          $player.LoadedBehavior = [System.Windows.Controls.MediaState]::Manual
+          $player.UnloadedBehavior = [System.Windows.Controls.MediaState]::Manual
+          $grid = New-Object System.Windows.Controls.Grid
+          $grid.Background = [System.Windows.Media.Brushes]::Black
+          [void]$grid.Children.Add($player)
+          $sound = New-Object System.Windows.Forms.Integration.ElementHost
+          $sound.BackColor = $black
+          $sound.SetBounds(0, 0, 1, 1)
+          $sound.Child = $grid
+          $stage.Controls.Add($sound)
+        }
         $stage.BackColor = $black
         $note = New-Object System.Windows.Forms.Label
         $note.Text = [string][char]0xE8D6
