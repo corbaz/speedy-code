@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explorer: a machine with Windows reached by ssh has a disk too (`windows`, when `~/.ssh/config` has a `Host windows`): its disks under its root, `windows:/C:/Users/ana`; its Python is `python` where there is no `python3`. A file is fetched by the machine's Python, no longer by `cat`.
+- Explorer: the scroll bar moves the tree at a pace, so a terminal that reports pixels does not flood it.
 - Explorer: the scroll bar stands an empty cell away from the tree's tools, on a dark track; held, its thumb follows the pointer at once and each row is asked for once, so it no longer lags on terminals that report pixels (iTerm2, Ghostty, kitty, WezTerm).
 - Explorer: another machine's disk is reached by the first ssh program that connects: on Windows, Git's when Windows' own refuses `~/.ssh/config` ("Bad owner or permissions"), which left the disk at `(sin conexión por ssh)`.
 - Explorer: another machine reached by ssh has a disk after this machine's (`mac`, when `~/.ssh/config` has a `Host mac`, or the names in `SPEEDY_REMOTES`): its folders, its files in the viewer (fetched to the temporary folder) and the filter over its disk, by `remote.py`. Nothing is installed on that machine; ✏ and 🗑 are not for its files.

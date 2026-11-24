@@ -1,24 +1,27 @@
-"""Another machine's disk for the explorer, reached by ssh: a Mac's files in the explorer of Windows.
+"""Another machine's disks for the explorer, reached by ssh: a Mac's files in the explorer of Windows, and
+those of Windows in the explorer of a Mac.
 
     remote.py hosts   the machines there are, a JSON list of names: those of SPEEDY_REMOTES (names apart by
-                      commas), or `mac` alone when ~/.ssh/config has a `Host mac`.
+                      commas), or those of `mac` and `windows` that ~/.ssh/config has a `Host` for.
     remote.py list    a folder's entries: {"entries": [{"name", "kind": "dir" | "file", "isLink"}]}.
     remote.py stat    what a path is: {"kind": "dir" | "file" | ""}, empty when nothing is there.
     remote.py fetch   a file copied here, into a folder of its own under the temporary one, for the viewer
                       and the clipboard: {"file": its path here}.
     remote.py find    the explorer's filter there: find_files.py itself runs on the machine, over its whole
-                      disk, and its lines are said again with each path as the explorer writes it, `mac:/...`.
+                      disk (the system's, on Windows), and its lines are said again with each path as the
+                      explorer writes it, `mac:/...`.
 
 SPEEDY_HOST is the machine, as ssh knows it; SPEEDY_PATH the path on it, with `/`; SPEEDY_PATTERN and
-SPEEDY_MOST are find_files.py's. Nothing is installed on the machine: what runs there is sent with each
-asking, to its `python3`. ssh never asks for anything (BatchMode): a machine that would ask a password is
-not reached, and the answer is {"error": why} with the exit code 1.
+SPEEDY_MOST are find_files.py's. A machine with Windows has its disks under its root: `/` holds `C:`, `D:`,
+and a path is `/C:/Users/ana`. Nothing is installed on the machine: what runs there is sent with each
+asking, to its Python (`python3`, or `python` where there is no such name, as on Windows). ssh never asks
+for anything (BatchMode): a machine that would ask a password is not reached, and the answer is
+{"error": why} with the exit code 1.
 """
 import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -27,29 +30,55 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OPTIONS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
-# What ssh itself ends with when it did not connect, whatever was to run there.
-NOT_CONNECTED = 255
+# The machines a disk is shown of with nothing set, when ~/.ssh/config names them.
+KNOWN_HOSTS = ('mac', 'windows')
+# The names a machine's Python may have: `python3` on a Mac or Linux, `python` on Windows.
+PYTHONS = ('python3', 'python')
 # No console window of ssh's own flashes on Windows.
 HIDDEN = {'creationflags': 0x08000000} if sys.platform == 'win32' else {}
 # A copy fetched stays a day: the viewer may still show it, the clipboard still hold it.
 KEPT_SECONDS = 24 * 3600
 
-LIST = '''
-import json, os
+# Before each script: PATH is the path asked. On Windows `/C:/Users` is `C:/Users`, and `/C:` the disk's root.
+THERE = '''
+import os
+ROOT = os.name == 'nt' and PATH == '/'
+if os.name == 'nt' and not ROOT:
+    PATH = PATH[1:] + ('/' if len(PATH) == 3 else '')
+'''
+
+LIST = THERE + '''
+import json
 out = []
-with os.scandir(PATH) as entries:
-    for entry in entries:
-        try:
-            link = entry.is_symlink()
-            out.append({'name': entry.name, 'kind': 'dir' if entry.is_dir(follow_symlinks=False) else 'file', 'isLink': link})
-        except OSError:
-            pass
+if ROOT:
+    out = [{'name': letter + ':', 'kind': 'dir', 'isLink': False} for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' if os.path.isdir(letter + ':/')]
+else:
+    with os.scandir(PATH) as entries:
+        for entry in entries:
+            try:
+                link = entry.is_symlink()
+                out.append({'name': entry.name, 'kind': 'dir' if entry.is_dir(follow_symlinks=False) else 'file', 'isLink': link})
+            except OSError:
+                pass
 print(json.dumps({'entries': out}))
 '''
 
-STAT = '''
-import json, os
-print(json.dumps({'kind': 'dir' if os.path.isdir(PATH) else 'file' if os.path.exists(PATH) else ''}))
+STAT = THERE + '''
+import json
+print(json.dumps({'kind': 'dir' if ROOT or os.path.isdir(PATH) else 'file' if os.path.exists(PATH) else ''}))
+'''
+
+FETCH = THERE + '''
+import shutil, sys
+with open(PATH, 'rb') as file:
+    shutil.copyfileobj(file, sys.stdout.buffer)
+'''
+
+# Before find_files.py: the disk it searches there, the system's on Windows.
+FIND = '''
+import os
+SETTINGS['SPEEDY_ROOT'] = os.environ.get('SystemDrive', 'C:') + '/' if os.name == 'nt' else '/'
+os.environ.update(SETTINGS)
 '''
 
 
@@ -68,7 +97,7 @@ def hosts():
             known = [name for line in file if line.strip().lower().startswith('host ') for name in line.split()[1:]]
     except OSError:
         return []
-    return ['mac'] if 'mac' in known else []
+    return [name for name in KNOWN_HOSTS if name in known]
 
 
 def ssh_programs():
@@ -92,68 +121,105 @@ def ssh_programs():
     return programs or ['ssh']
 
 
-def connects(program, host):
-    """Whether one ssh program reaches the machine, with nothing to run there."""
-    try:
-        return subprocess.run([program] + OPTIONS + [host, 'true'], capture_output=True, stdin=subprocess.DEVNULL, timeout=20, **HIDDEN).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+def base():
+    """The folder under the temporary one where the copies fetched and what is known of each machine are kept."""
+    folder = os.path.join(tempfile.gettempdir(), 'speedy-remote')
+    os.makedirs(folder, exist_ok=True)
+    return folder
 
 
-def run_there(host, command, **how):
-    """A command run on the machine, by the first ssh program that connects; None when none ran."""
-    done = None
+def way_file(host):
+    return os.path.join(base(), f'{host}.way.json')
+
+
+def find_way(host):
+    """How the machine is reached: the ssh program that connects and its Python's name, asked of it; or None."""
     for program in ssh_programs():
+        for python in PYTHONS:
+            try:
+                done = subprocess.run([program] + OPTIONS + [host, python, '--version'], capture_output=True, stdin=subprocess.DEVNULL, timeout=20, **HIDDEN)
+            except (OSError, subprocess.TimeoutExpired):
+                break
+            if done.returncode == 0:
+                return [program, python]
+            if done.returncode == 255:
+                # ssh itself did not connect: its other program may.
+                break
+    return None
+
+
+def way(host, anew=False):
+    """How the machine is reached, as found before (kept a day) or found now; None when it is not reached."""
+    kept = way_file(host)
+    if not anew:
         try:
-            done = subprocess.run([program] + OPTIONS + [host] + command, **how, **HIDDEN)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if done.returncode != NOT_CONNECTED:
-            return done
-    return done
+            if time.time() - os.path.getmtime(kept) < KEPT_SECONDS:
+                with open(kept, encoding='utf-8') as file:
+                    found = json.load(file)
+                if isinstance(found, list) and len(found) == 2 and os.path.isfile(found[0]):
+                    return found
+        except (OSError, ValueError):
+            pass
+    found = find_way(host)
+    try:
+        if found:
+            with open(kept, 'w', encoding='utf-8') as file:
+                json.dump(found, file)
+        elif os.path.exists(kept):
+            os.remove(kept)
+    except OSError:
+        pass
+    return found
 
 
 def python_there(host, script, timeout=30):
-    """Runs a script on the machine's python3, sent by its input; what it printed, or None."""
-    done = run_there(host, ['python3', '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout)
-    return done.stdout.decode('utf-8', 'replace') if done is not None and done.returncode == 0 else None
+    """Runs a script on the machine's Python, sent by its input; the bytes it printed, or None."""
+    for anew in (False, True):
+        found = way(host, anew)
+        if not found:
+            continue
+        try:
+            done = subprocess.run([found[0]] + OPTIONS + [host, found[1], '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout, **HIDDEN)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode == 0:
+            return done.stdout
+        # A way that no longer connects is found anew, once; a script that failed there has its answer: none.
+        if done.returncode != 255:
+            return None
+    return None
 
 
 def ask(host, script, path):
     """A script's JSON answer about a path there."""
-    script = f'PATH = {ascii(path)}\n{script}'
-    # A connection refused or dropped once is tried again: a folder would stay unread until opened anew.
-    out = python_there(host, script) or python_there(host, script)
+    out = python_there(host, f'PATH = {ascii(path)}\n{script}')
+    text = out.decode('utf-8', 'replace').strip() if out else ''
     try:
-        return json.loads(out.strip().splitlines()[-1]) if out and out.strip() else None
+        return json.loads(text.splitlines()[-1]) if text else None
     except ValueError:
         return None
 
 
 def fetch(host, path):
     """The file there copied here; its path here, or None."""
-    base = os.path.join(tempfile.gettempdir(), 'speedy-remote')
-    os.makedirs(base, exist_ok=True)
-    for old in os.listdir(base):
-        one = os.path.join(base, old)
+    for old in os.listdir(base()):
+        one = os.path.join(base(), old)
         try:
-            if time.time() - os.path.getmtime(one) > KEPT_SECONDS:
+            if os.path.isdir(one) and time.time() - os.path.getmtime(one) > KEPT_SECONDS:
                 shutil.rmtree(one, ignore_errors=True)
         except OSError:
             pass
-    folder = os.path.join(base, hashlib.sha1(f'{host}:{path}'.encode('utf-8')).hexdigest()[:12])
-    os.makedirs(folder, exist_ok=True)
-    os.utime(folder, None)
+    folder = os.path.join(base(), hashlib.sha1(f'{host}:{path}'.encode('utf-8')).hexdigest()[:12])
     target = os.path.join(folder, re.sub(r'[\\/:*?"<>|]', '_', path.rsplit('/', 1)[-1]) or 'file')
+    out = python_there(host, f'PATH = {ascii(path)}\n{FETCH}', timeout=300)
+    if out is None:
+        return None
     try:
-        done = run_there(host, ['cat -- ' + shlex.quote(path)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-        if done is not None and done.returncode == 0:
-            with open(target, 'wb') as file:
-                file.write(done.stdout)
+        os.makedirs(folder, exist_ok=True)
+        os.utime(folder, None)
+        with open(target, 'wb') as file:
+            file.write(out)
     except OSError:
-        done = None
-    if done is None or done.returncode != 0:
-        shutil.rmtree(folder, ignore_errors=True)
         return None
     return target
 
@@ -162,13 +228,13 @@ def find(host):
     """find_files.py run there over the whole disk; its lines said again, each path with the machine before it."""
     with open(os.path.join(HERE, 'find_files.py'), encoding='utf-8') as file:
         source = file.read()
-    settings = {'SPEEDY_ROOT': '/', 'SPEEDY_FIRST': '', 'SPEEDY_PATTERN': os.environ.get('SPEEDY_PATTERN', ''), 'SPEEDY_MOST': os.environ.get('SPEEDY_MOST', '')}
-    script = f'import os\nos.environ.update({ascii(settings)})\n{source}'
-    # The search goes by the ssh program that connects.
-    programs = ssh_programs()
-    program = next((one for one in programs if connects(one, host)), programs[0])
+    settings = {'SPEEDY_FIRST': '', 'SPEEDY_PATTERN': os.environ.get('SPEEDY_PATTERN', ''), 'SPEEDY_MOST': os.environ.get('SPEEDY_MOST', '')}
+    script = f'SETTINGS = {ascii(settings)}\n{FIND}\n{source}'
+    found = way(host)
     try:
-        search = subprocess.Popen([program] + OPTIONS + [host, 'python3', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
+        if not found:
+            raise OSError('not reached')
+        search = subprocess.Popen([found[0]] + OPTIONS + [host, found[1], '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
     except OSError:
         say({'paths': [], 'seen': 0, 'done': True, 'cut': False})
         return
@@ -181,7 +247,8 @@ def find(host):
                 said = json.loads(line)
             except ValueError:
                 continue
-            said['paths'] = [f'{host}:{path}' for path in said.get('paths', [])]
+            # A path of Windows, `C:/Users/ana`, is under the machine's root as a Mac's is: `/C:/Users/ana`.
+            said['paths'] = [f'{host}:{path}' if path.startswith('/') else f'{host}:/{path}' for path in said.get('paths', [])]
             ended = ended or said.get('done') is True
             say(said)
         if not ended:

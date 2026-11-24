@@ -2338,6 +2338,12 @@ export function remoteOf (path: string) {
   return found ? { host: found[1] as string, path: found[2] as string } : undefined
 }
 
+/**
+ * A path of another machine as that machine writes it: a Mac's as it is; one of Windows, under the machine's
+ * root as `/C:/Users/ana`, is `C:\Users\ana`.
+ */
+export const thereOf = (path: string) => /^\/[A-Za-z]:/.test(path) ? (path.length === 3 ? `${path.slice(1)}\\` : path.slice(1).replace(/\//g, '\\')) : path
+
 /** The disk a path is on: the longest of `drives` it lies under, or the first disk when none holds it. */
 export function driveOf (path: string, drives: readonly string[], caseless: boolean) {
   const key = pathKey(path, caseless)
@@ -2550,7 +2556,8 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
 /** A file's path to the clipboard, as the system writes it. */
 async function copyPathToClipboard ($: EngineInterface, path: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
   // A path of another machine is copied as that machine writes it.
-  const native = remoteOf(path)?.path ?? await nativePath($, path)
+  const remote = remoteOf(path)
+  const native = remote ? thereOf(remote.path) : await nativePath($, path)
   const copied = await $.ui.copy({ text: native, surface }).catch(() => ({ isCopied: false }))
   // The path goes into the prompt as well, so it need not be pasted; the clipboard keeps it for elsewhere.
   await insertInPrompt($, native, ' ')
