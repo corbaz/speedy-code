@@ -341,6 +341,9 @@
         // The default too: a sound that ended and plays again keeps the speed chosen.
         player.defaultPlaybackRate = speed
         player.playbackRate = speed
+        // A sound put again where it stands drops what it had made at the speed before, and goes on from
+        // there at the new one.
+        if (!view.video && Number.isFinite(player.currentTime)) player.currentTime = player.currentTime
         for (const other of speeds.children) other.className = other === one ? 'on' : 'off'
       })
       speeds.append(one)

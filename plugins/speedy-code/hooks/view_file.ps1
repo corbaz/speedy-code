@@ -2346,6 +2346,9 @@ try {
     function Set-Speed([double]$speed) {
       $mediaParts.Media.Speed = $speed
       $player.SpeedRatio = $speed
+      # A sound already has two or three seconds made at the speed before, and would play them first: put
+      # again where it stands, it drops them and goes on from there at the new speed. A video needs none of it.
+      if ($kind -ne 'video' -and $mediaParts.Media.Ready) { $player.Position = $player.Position }
       foreach ($one in $speedButtons) {
         $isOn = [Math]::Abs([double]$one.Tag - $speed) -lt 0.001
         $one.BackColor = $(if ($isOn) { $blue } else { $speedOff })
