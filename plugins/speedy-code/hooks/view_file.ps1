@@ -249,7 +249,7 @@ function New-SoundPlayer {
     if (-not $sound.IsOpen) {
       # Open once it knows how long the sound is; one it cannot read never does, and is given up after a while.
       if ($session.NaturalDuration.Ticks -gt 0) { $sound.IsOpen = $true; if ($sound.Opened) { & $sound.Opened } }
-      elseif (-not $sound.IsOver -and ([DateTime]::Now - $sound.Since).TotalSeconds -gt 8) { $sound.IsOver = $true; if ($sound.Failed) { & $sound.Failed } }
+      elseif (-not $sound.IsOver -and ([DateTime]::Now - $sound.Since).TotalSeconds -gt 3) { $sound.IsOver = $true; if ($sound.Failed) { & $sound.Failed } }
       return
     }
     # Ended: it stands at its end, and plays no more.
@@ -884,8 +884,11 @@ try { $path = [IO.Path]::GetFullPath($path) } catch { }
 $fileName = [IO.Path]::GetFileName($path)
 $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
 $imageTypes = @('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.tif', '.tiff')
-$audioTypes = @('.mp3', '.mpa', '.mp2', '.wav', '.m4a', '.aac', '.wma', '.ogg', '.oga', '.opus', '.flac', '.aif', '.aiff', '.mid', '.midi')
-$videoTypes = @('.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg', '.mpeg', '.3gp')
+$audioTypes = @('.mp3', '.mpa', '.mp2', '.wav', '.m4a', '.aac', '.wma', '.ogg', '.oga', '.opus', '.flac', '.aif', '.aiff', '.mid', '.midi',
+  # Those Windows does not play by itself: ffmpeg makes them again as one it does.
+  '.m4b', '.mka', '.weba', '.ac3', '.eac3', '.dts', '.amr', '.ape', '.wv', '.tta', '.mpc', '.spx', '.caf', '.au', '.aifc', '.ra')
+$videoTypes = @('.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg', '.mpeg', '.3gp',
+  '.flv', '.f4v', '.ogv', '.ogm', '.m2ts', '.mts', '.m2v', '.mpe', '.vob', '.divx', '.xvid', '.asf', '.rm', '.rmvb', '.3g2', '.mxf', '.dv', '.wtv')
 $kinds = @{
   '.pdf' = 'pdf'; '.md' = 'markdown'; '.markdown' = 'markdown'; '.html' = 'html'; '.htm' = 'html'; '.xhtml' = 'html'; '.svg' = 'svg'
   '.xlsx' = 'xlsx'; '.xlsm' = 'xlsx'; '.xls' = 'xls'; '.docx' = 'docx'; '.docm' = 'docx'; '.doc' = 'doc'; '.crx' = 'binary'; '.ds_store' = 'binary'

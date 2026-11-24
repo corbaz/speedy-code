@@ -14,8 +14,11 @@ import zipfile
 from xml.etree import ElementTree
 
 IMAGE_TYPES = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.tif', '.tiff', '.webp'}
-AUDIO_TYPES = {'.mp3', '.mpa', '.mp2', '.wav', '.m4a', '.aac', '.wma', '.ogg', '.oga', '.opus', '.flac', '.aif', '.aiff', '.mid', '.midi'}
-VIDEO_TYPES = {'.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg', '.mpeg', '.3gp'}
+AUDIO_TYPES = {'.mp3', '.mpa', '.mp2', '.wav', '.m4a', '.aac', '.wma', '.ogg', '.oga', '.opus', '.flac', '.aif', '.aiff', '.mid', '.midi',
+               # Those macOS does not play by itself: ffmpeg makes them again as one it does.
+               '.m4b', '.mka', '.weba', '.ac3', '.eac3', '.dts', '.amr', '.ape', '.wv', '.tta', '.mpc', '.spx', '.caf', '.au', '.aifc', '.ra'}
+VIDEO_TYPES = {'.mp4', '.m4v', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mpg', '.mpeg', '.3gp',
+               '.flv', '.f4v', '.ogv', '.ogm', '.m2ts', '.mts', '.m2v', '.mpe', '.vob', '.divx', '.xvid', '.asf', '.rm', '.rmvb', '.3g2', '.mxf', '.dv', '.wtv'}
 KINDS = {
     '.pdf': 'pdf', '.md': 'markdown', '.markdown': 'markdown', '.html': 'html', '.htm': 'html', '.xhtml': 'html', '.svg': 'svg',
     '.xlsx': 'xlsx', '.xlsm': 'xlsx', '.xls': 'xls', '.docx': 'docx', '.docm': 'docx', '.doc': 'doc', '.crx': 'binary', '.ds_store': 'binary',
