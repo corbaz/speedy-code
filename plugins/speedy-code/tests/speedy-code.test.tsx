@@ -2439,10 +2439,15 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await short.pointer({ type: 'move', x: 0, y: 3, button: 'left', in: 'speedy:explorer-bar' })
   expect(await explorerBar(short)).toBe('││██')
   expect(await shortRows()).toEqual(['        ▸ facturas', '          notas.txt', '  ▸ Windows', '    setup.exe'])
+  // The tree moves so many times a second: rows asked for within the pace wait for it, and only the last is set.
+  await short.pointer({ type: 'move', x: 0, y: 2, button: 'left', in: 'speedy:explorer-bar' })
   await short.pointer({ type: 'move', x: 0, y: -5, button: 'left', in: 'speedy:explorer-bar' })
+  expect(await explorerBar(short)).toBe('││██')
+  await w.clock.advance(50)
   expect(await explorerBar(short)).toBe('██││')
   expect((await shortRows())[0]).toBe('▾ C:\\')
   await short.pointer({ type: 'up', x: 0, y: -5, button: 'left', in: 'speedy:explorer-bar' })
+  await w.clock.advance(50)
   await short.pointer({ type: 'move', x: 0, y: 3, in: 'speedy:explorer-bar' })
   expect(await explorerBar(short)).toBe('██││')
   // A press on the track brings the thumb's middle there.

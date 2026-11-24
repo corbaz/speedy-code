@@ -2311,6 +2311,8 @@ const EXPLORER_BAR_WIDTH = 2
 const EXPLORER_TRACK_COLOR = '#3a3a3a'
 /** The tree's first row the bar asked for last, while an earlier one is still being set: only the last is set. */
 let barAsked: number | undefined
+/** The least time between two moves of the tree by its bar. */
+const BAR_PACE_MS = 50
 let isBarMoving = false
 /** The most files a filter shows: more would bury the tree, and the pattern can be made narrower. */
 const FILTER_MOST = 1000
@@ -4567,6 +4569,8 @@ export const register: Register = on => {
           const top = barAsked
           barAsked = undefined
           await update($, explorer, now => now.top === top ? now : { ...now, top })
+          // A terminal that reports pixels asks for a row at each one: the tree is drawn so many times a second, no more.
+          await $.clock.sleep(BAR_PACE_MS)
         }
       } finally {
         isBarMoving = false

@@ -9,10 +9,16 @@ import type { ClientModule } from 'claude-code'
 /** The tree's rows, the first one shown, the rows of room, and the thumb's color. */
 type Props = { total: number; top: number; room: number; color: string }
 /**
- * While the thumb is held: where on it the pointer took it, in rows from the thumb's top; the row its top is
- * drawn at; and the tree's first row last asked for. Empty while it is not held.
+ * While the thumb is held: where on it the pointer took it, in rows from the thumb's top; and the row its top
+ * is drawn at. Empty while it is not held.
  */
-type State = { grab?: number; start?: number; sent?: number }
+type State = { grab?: number; start?: number }
+
+/**
+ * The tree's first row last asked for while the thumb is held: kept here, not in the state, so that asking for
+ * a row does not draw the bar again. A terminal that reports pixels says many moves within a cell.
+ */
+let asked: number | undefined
 
 /** The track's color: dark, under a thumb in the folders' color. */
 const TRACK_COLOR = '#3a3a3a'
@@ -28,7 +34,7 @@ function thumbOf (total: number, top: number, room: number) {
 const ScrollBar: ClientModule<Props, State> = (props, surface) => {
   const thumb = thumbOf(props.total, props.top, props.room)
   surface.onPointer(event => {
-    if (event.type === 'up') { surface.setState({}); return }
+    if (event.type === 'up') { asked = undefined; surface.setState({}); return }
     if (event.button !== 'left' || (event.type !== 'down' && event.type !== 'move')) return
     // The row under the pointer, with its fraction where the terminal reports it, else the row's middle.
     const y = event.fine?.y ?? event.y + 0.5
@@ -40,8 +46,9 @@ const ScrollBar: ClientModule<Props, State> = (props, surface) => {
     const start = Math.max(0, Math.min(span, y - grab))
     const top = span > 0 ? Math.round(start / span * (props.total - props.room)) : 0
     const drawn = Math.round(start)
-    const sent = isDown ? props.top : held.sent ?? props.top
-    if (isDown || drawn !== held.start || top !== sent) surface.setState({ grab, start: drawn, sent: top })
+    const sent = isDown ? props.top : asked ?? props.top
+    if (isDown || drawn !== held.start) surface.setState({ grab, start: drawn })
+    asked = top
     if (top !== sent) surface.post({ scrollTo: top })
   })
   const { Box, Text } = surface.elements
