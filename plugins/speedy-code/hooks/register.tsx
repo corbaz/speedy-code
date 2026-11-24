@@ -59,8 +59,6 @@ export const MAC = {
   copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
   /** 📥's dialog, by AppleScript: whether the file is copied or moved into a folder, then whether for sure. */
   pasteDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set verb to button returned of (display dialog ("¿Copiar o mover " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"Cancelar", "Mover", "Copiar"} default button "Copiar" cancel button "Cancelar")', '-e', 'display dialog ("¿Seguro? " & verb & " " & (item 1 of argv) & " a " & (item 2 of argv)) with title "Pegar" buttons {"No", "Sí"} default button "No" cancel button "No"', '-e', 'if verb is "Mover" then return "move"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
-  /** The same for a file of another machine, which is copied and never moved: only whether for sure. */
-  copyDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'display dialog ("¿Copiar " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"No", "Sí, copiar"} default button "No" cancel button "No"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
   /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), or whether the file goes to the Trash. */
   dialog: (mode: 'rename' | 'delete', name: string) => mode === 'rename'
     ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog "Nombre nuevo:" default answer (item 1 of argv) with title "Renombrar" buttons {"Cancelar", "Aceptar"} default button "Aceptar" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
@@ -1544,7 +1542,7 @@ let popupPlay: AbortController | undefined
  * Shows a file in the viewer's popup. With `control`, it is a narration sounding there: the popup obeys
  * that file's `pause` and `play`, and the speech state follows what the popup says of its sound.
  */
-async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string, control = '') {
+async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string, control = '', onShown?: () => void) {
   // Windows PowerShell by its path: `powershell` on the PATH can be a shim to PowerShell 7, whose popup
   // never shows, and only Windows PowerShell reads a PDF through Windows' own reader.
   viewing?.abort()
@@ -1573,6 +1571,8 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
       const lines = pending.split(/\r?\n/)
       pending = lines.pop() ?? ''
       for (const line of lines) {
+        // `shown`: the popup is up.
+        if (line.trim() === 'shown') onShown?.()
         // `media playing`, `media paused`, `media ended`: the popup's own button, or its sound's end. The
         // control file is set to match, so the next pause or play asked from here is a change the popup sees.
         if (control && popupPlay === controller && line.startsWith('media ')) {
@@ -2325,7 +2325,7 @@ let barAsked: number | undefined
 const BAR_PACE_MS = 50
 let isBarMoving = false
 /** The most files a filter shows: more would bury the tree, and the pattern can be made narrower. */
-const FILTER_MOST = 1000
+const FILTER_MOST = 50000
 
 /** A path with `/` alone, as the explorer keeps every path. */
 const slashed = (path: string) => path.replace(/\\/g, '/')
@@ -2545,6 +2545,12 @@ export function isViewable (name: string) {
 async function copyFileToClipboard ($: EngineInterface, path: string) {
   // A file of another machine: its copy here goes to the clipboard, and its path there into the prompt.
   const remote = remoteOf(path)
+  // A folder of another machine is not brought here to be taken: 📥 brings it where it is pasted.
+  if (remote && (await kindAt($, path)) === 'dir') {
+    await update($, explorer, now => ({ ...now, clip: path }))
+    $.ui.toast(`speedy-code: la carpeta ${path.split('/').pop() || remote.host} de ${remote.host} está lista para pegar con 📥.`)
+    return
+  }
   const file = await localFile($, path)
   if (!file) return
   const native = await nativePath($, file)
@@ -2615,15 +2621,14 @@ export function badFileName (name: string) {
  * rename with a field for the name and one for the extension), dialog.py's popup on macOS, drawn the same
  * (a dialog of macOS's own where pywebview is not installed). It answers `rename <base64 name>` (macOS's
  * own dialog: `name <name>`), `delete` or `cancel`. 📥's (`paste`) asks whether the file is copied or moved
- * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`; `isOnlyCopy`, for a
- * file of another machine, which stays there: it only asks whether for sure.
+ * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '', isOnlyCopy = false) {
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '') {
   const native = await nativePath($, path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
   const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
-  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '', SPEEDY_ONLY: isOnlyCopy ? 'copy' : '' }
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
   // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
   if (!isWindows) {
@@ -2633,7 +2638,7 @@ async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste
   }
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
-    : mode === 'paste' ? (isOnlyCopy ? MAC.copyDialog : MAC.pasteDialog)(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
+    : mode === 'paste' ? MAC.pasteDialog(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
   const result = await $.process.run(argv, { env }).catch(() => undefined)
   return said(result?.stdout) ?? 'cancel'
 }
@@ -2647,20 +2652,15 @@ const folderOf = (path: string) => {
 
 /**
  * 📥: what 📋 took last is copied or moved into a row's folder (a file's row: the folder it is in), once the
- * dialog asked which, and whether for sure. Nothing is written over, a folder does not go into itself, and
- * another machine's folders take nothing. Moved, nothing is taken any more. A file taken on another machine
- * is fetched and its copy pasted: it is copied, never moved, and a folder of it is not pasted.
+ * dialog asked which, and whether for sure. Nothing is written over and a folder does not go into itself.
+ * Moved, nothing is taken any more. It goes across machines too, by remote.py: from another machine here,
+ * from here to it, or within it; not from one machine to another one.
  */
 async function pasteInto ($: EngineInterface, path: string) {
   const state = await read($, explorer)
   const clip = state.clip
   if (!clip) {
     $.ui.toast('speedy-code: primero copiá un archivo o una carpeta con 📋.')
-    return
-  }
-  const remote = remoteOf(path)
-  if (remote) {
-    $.ui.toast(`speedy-code: pegar no está disponible en ${remote.host}: sus archivos se leen por ssh.`)
     return
   }
   const name = clip.split('/').pop() ?? clip
@@ -2670,12 +2670,13 @@ async function pasteInto ($: EngineInterface, path: string) {
     await update($, explorer, now => ({ ...now, clip: undefined }))
     return
   }
+  const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
   const from = remoteOf(clip)
-  if (from && kind === 'dir') {
-    $.ui.toast(`speedy-code: de ${from.host} se pegan archivos, no carpetas.`)
+  const to = remoteOf(folder)
+  if (from && to && from.host !== to.host) {
+    $.ui.toast(`speedy-code: de ${from.host} a ${to.host} no se pega: traelo primero a esta máquina.`)
     return
   }
-  const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
   const target = joinPath(folder, name)
   const key = (one: string) => pathKey(one, state.caseless)
   if (key(folderOf(clip)) === key(folder)) {
@@ -2690,24 +2691,44 @@ async function pasteInto ($: EngineInterface, path: string) {
     $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
     return
   }
-  const verb = await askDialog($, 'paste', clip, folder, from !== undefined)
+  const verb = await askDialog($, 'paste', clip, folder)
   if (verb !== 'copy' && verb !== 'move') return
-  const isMove = verb === 'move' && !from
-  // A file of another machine: what is pasted is its copy here.
-  const source = await localFile($, clip)
-  if (!source) return
-  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/paste.py`], { env: { SPEEDY_FILE: await nativePath($, source), SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: isMove ? 'move' : 'copy', PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
-  if (result?.stdout.trim() !== 'done') {
+  const isMove = verb === 'move'
+  const there = remoteOf(target)
+  // Across machines it takes a while: it says it started.
+  if (from || there) $.ui.toast(`speedy-code: ${isMove ? 'moviendo' : 'copiando'} ${name}…`)
+  const remote = `${$.plugin.root}/hooks/remote.py`
+  const run = from && there
+    ? { argv: [await python($), remote, 'paste'], env: { SPEEDY_HOST: from.host, SPEEDY_PATH: from.path, SPEEDY_TARGET: there.path, SPEEDY_VERB: verb } }
+    : from
+      ? { argv: [await python($), remote, 'pull'], env: { SPEEDY_HOST: from.host, SPEEDY_PATH: from.path, SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: verb } }
+      : there
+        ? { argv: [await python($), remote, 'push'], env: { SPEEDY_HOST: there.host, SPEEDY_FILE: await nativePath($, clip), SPEEDY_PATH: there.path, SPEEDY_VERB: verb } }
+        : { argv: [await python($), `${$.plugin.root}/hooks/paste.py`], env: { SPEEDY_FILE: await nativePath($, clip), SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: verb } }
+  const result = await $.process.run(run.argv, { env: { ...run.env, PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  const last = (result?.stdout ?? '').trim().split(/\r?\n/).pop() ?? ''
+  // paste.py says the word itself; remote.py says it in JSON.
+  let said = last
+  try {
+    said = String(saidField(JSON.parse(last), 'said') ?? last)
+  } catch {
+    // The word itself.
+  }
+  if (said !== 'done' && said !== 'kept') {
     $.ui.toast(`speedy-code: no pude ${isMove ? 'mover' : 'copiar'} ${name}.`)
     return
   }
-  $.ui.toast(`speedy-code: ${name} se ${isMove ? 'movió' : 'copió'} a ${driveLabel(folder)}.`)
+  // Copied, but what was to move could not be removed where it was.
+  const isMoved = isMove && said === 'done'
+  $.ui.toast(said === 'kept'
+    ? `speedy-code: ${name} se copió a ${driveLabel(folder)}, pero no pude quitarlo de donde estaba.`
+    : `speedy-code: ${name} se ${isMove ? 'movió' : 'copió'} a ${driveLabel(folder)}.`)
   // The folder it went into is read again, and opened to show it; moved, the one it left too.
-  const folders = isMove ? [folder, folderOf(clip)] : [folder]
+  const folders = isMoved ? [folder, folderOf(clip)] : [folder]
   const reread = await Promise.all(folders.map(async one => [key(one), await readFolder($, one)] as const))
   await update($, explorer, now => {
     const next = { ...now, listed: { ...now.listed, ...Object.fromEntries(reread) }, open: now.open.includes(key(folder)) ? now.open : [...now.open, key(folder)] }
-    return isMove ? filterMoved({ ...next, clip: undefined }, clip, target) : next
+    return isMoved ? filterMoved({ ...next, clip: undefined }, clip, target) : next
   })
 }
 
@@ -2829,10 +2850,29 @@ async function localFile ($: EngineInterface, path: string) {
   return ''
 }
 
-/** A file of the tree pressed: the viewer shows it, a file of another machine once its copy is here. */
+/** How long a file pressed stays green when its popup never says it is up. */
+const OPENING_MOST_MS = 20000
+
+/**
+ * A file of the tree pressed: the viewer shows it, a file of another machine once its copy is here. Its name
+ * is green from the press until the popup is up, however long that takes; then the file stays marked yellow,
+ * as the one being looked at, until another press.
+ */
 async function viewTreeFile ($: EngineInterface, path: string) {
-  const file = await localFile($, path)
-  if (file) await runViewer($, 'view_file.ps1', file)
+  const key = `speedy:explorer-view:${path}`
+  await update($, explorerFlash, () => key)
+  const isOver = async (isShown: boolean) => {
+    if ((await read($, explorerFlash)) !== key) return
+    await update($, explorerFlash, () => '')
+    if (isShown) await update($, explorer, now => ({ ...now, viewed: pathKey(path, now.caseless) }))
+  }
+  void $.clock.sleep(OPENING_MOST_MS).then(() => isOver(false), () => undefined)
+  try {
+    const file = await localFile($, path)
+    if (file) await runViewer($, 'view_file.ps1', file, '', () => { void isOver(true) })
+  } finally {
+    await isOver(false).catch(() => undefined)
+  }
 }
 
 /** A folder read for the tree; `denied` when it cannot be read. */
@@ -2894,6 +2934,8 @@ export const FILTER_HINT = 'filtro: *.pdf, a*.docx'
 
 /** The search a filter runs, while it does: aborted, it ends at its next line. */
 let filtering: AbortController | undefined
+/** What that search is held by: a file here, or a token on another machine. */
+let filterHold: { file?: string; host?: string; token?: string } | undefined
 
 /**
  * The filter's field, Enter: the disk shown is searched for the files whose names match (find_files.py, the
@@ -2909,17 +2951,21 @@ async function filterExplorer ($: EngineInterface, text: string) {
   if (!drive) return
   await update($, explorer, now => ({ ...now, top: 0, found: undefined, filter: { pattern, paths: [], seen: 0, isBusy: true, isCut: false, closed: [] } }))
   // What a line of the search adds, unless another filter took its place meanwhile.
+  // A search held says nothing new, only that it is still there: it stays held until let go, or until it ends.
   const add = (paths: string[], seen: number, isBusy: boolean, isCut: boolean) => update($, explorer, now => now.filter && filtering === controller
-    ? { ...now, filter: { ...now.filter, paths: paths.length > 0 ? [...now.filter.paths, ...paths] : now.filter.paths, seen: Math.max(seen, now.filter.seen), isBusy, isCut } }
+    ? { ...now, filter: { ...now.filter, paths: paths.length > 0 ? [...now.filter.paths, ...paths] : now.filter.paths, seen: Math.max(seen, now.filter.seen), isBusy: isBusy && !now.filter.isPaused, isPaused: isBusy && now.filter.isPaused === true, isCut } }
     : now)
   try {
     // Another machine's disk is searched there: remote.py runs find_files.py on it, by ssh.
     const remote = remoteOf(drive)
+    const token = crypto.randomUUID()
+    const hold = remote ? { host: remote.host, token } : { file: await homeFile($, `${CONTROL_DIR}/find-${token}.txt`) }
+    filterHold = hold
     const search = $.process.spawn(remote
-      ? { argv: [await python($), `${$.plugin.root}/hooks/remote.py`, 'find'], env: { SPEEDY_HOST: remote.host, SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) } }
+      ? { argv: [await python($), `${$.plugin.root}/hooks/remote.py`, 'find'], env: { SPEEDY_HOST: remote.host, SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST), SPEEDY_TOKEN: token } }
       : {
           argv: [await python($), `${$.plugin.root}/hooks/find_files.py`],
-          env: { SPEEDY_ROOT: await nativePath($, drive), SPEEDY_FIRST: await nativePath($, here), SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) }
+          env: { SPEEDY_ROOT: await nativePath($, drive), SPEEDY_FIRST: await nativePath($, here), SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST), SPEEDY_PAUSE: await nativePath($, hold.file ?? '') }
         })
     let pending = ''
     for await (const { stream, text: piece } of search) {
@@ -2937,8 +2983,9 @@ async function filterExplorer ($: EngineInterface, text: string) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
     if (filtering === controller) {
-      await update($, explorer, now => now.filter?.isBusy ? { ...now, filter: { ...now.filter, isBusy: false } } : now)
+      await update($, explorer, now => now.filter?.isBusy || now.filter?.isPaused ? { ...now, filter: { ...now.filter, isBusy: false, isPaused: false } } : now)
       filtering = undefined
+      filterHold = undefined
     }
   }
 }
@@ -2962,12 +3009,19 @@ async function clearFilter ($: EngineInterface) {
   await update($, explorer, now => ({ ...now, filter: undefined, cleared: (now.cleared ?? 0) + 1, top: -1 }))
 }
 
-/** ‖ pausar, beside the filter's ×: the search stops where it is, and the tree keeps the files found so far. */
+/**
+ * ‖ pausar, beside the filter's ×: the search waits where it is, and the tree keeps the files found so far.
+ * Pressed again, as ▶ seguir, the search goes on from there. It is held by the file it was started with, or,
+ * on another machine, by remote.py.
+ */
 async function pauseFilter ($: EngineInterface) {
-  if (!(await read($, explorer)).filter?.isBusy) return
-  filtering?.abort()
-  filtering = undefined
-  await update($, explorer, now => now.filter ? { ...now, filter: { ...now.filter, isBusy: false, isPaused: true } } : now)
+  const { filter } = await read($, explorer)
+  const hold = filterHold
+  if (!filter || !hold || !filtering || !(filter.isBusy || filter.isPaused)) return
+  const isHeld = !filter.isPaused
+  await update($, explorer, now => now.filter ? { ...now, filter: { ...now.filter, isBusy: !isHeld, isPaused: isHeld } } : now)
+  if (hold.file) await $.fs.write(hold.file, isHeld ? '1' : '0').catch(() => undefined)
+  else await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, 'pause'], { env: { SPEEDY_HOST: hold.host ?? '', SPEEDY_TOKEN: hold.token ?? '', SPEEDY_PAUSED: isHeld ? '1' : '0' } }).catch(() => undefined)
 }
 
 /** What the explorer's field says while empty: a path as the system writes one. */
@@ -2993,7 +3047,8 @@ export function hoverScope (path: string) {
  * the pointer's alone, and follows it.
  */
 async function forgetFound ($: EngineInterface) {
-  if ((await read($, explorer)).found !== undefined) await update($, explorer, now => ({ ...now, found: undefined }))
+  const { found, viewed } = await read($, explorer)
+  if (found !== undefined || viewed !== undefined) await update($, explorer, now => ({ ...now, found: undefined, viewed: undefined }))
 }
 
 /** A folder of the tree pressed: open, it closes; closed, it opens and is read afresh. */
@@ -3132,8 +3187,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   const unfilterLabel = ' × limpiar '
   // Beside it: stops a search that still runs. Lit only while one does.
-  const pauseLabel = ' ‖ pausar '
-  const pauseColor = state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
+  // Held, it is the one that lets it go on from where it was.
+  const pauseLabel = state.filter?.isPaused ? ' ▸ seguir ' : ' ‖ pausar '
+  const pauseColor = state.filter?.isPaused ? FLASH_COLOR : state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
@@ -3179,7 +3235,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               ? <Client key="speedy:explorer-unfilter:" module="./control.tsx" width={cells(unfilterLabel)} props={{ label: unfilterLabel, color: state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR, bold: Boolean(state.filter) }} />
               : <Button key="explorer-unfilter" plain onPress={() => { void clearFilter($) }}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
             {Client
-              ? <Client key="speedy:explorer-pause:" module="./control.tsx" width={cells(pauseLabel)} props={{ label: pauseLabel, color: pauseColor, bold: Boolean(state.filter?.isBusy) }} />
+              ? <Client key="speedy:explorer-pause:" module="./control.tsx" width={cells(pauseLabel)} props={{ label: pauseLabel, color: pauseColor, bold: Boolean(state.filter?.isBusy || state.filter?.isPaused) }} />
               : <Button key="explorer-pause" plain onPress={() => { void pauseFilter($) }}><Text color={pauseColor}>{pauseLabel}</Text></Button>}
           </Box>
           )
@@ -3222,7 +3278,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
                 // A file just pressed is green for a second, in place of the pointer's yellow: the press was taken.
                 props={flashed === `speedy:explorer-view:${row.path}`
                   ? { label, color: '#1a1a1a', bold: true, backgroundColor: FLASH_COLOR }
-                  : row.isFound
+                  : row.isFound || (state.viewed !== undefined && state.viewed === pathKey(row.path, state.caseless))
                   ? { label, color: '#1a1a1a', bold: true, backgroundColor: EXPLORER_VIEWABLE_COLOR }
                   : { label, color: tint, bold: isFolder && row.isHere, hover: { scope, backgroundColor: fill, color: '#1a1a1a' } }}
               />
@@ -4737,7 +4793,7 @@ export const register: Register = on => {
       }
       if (kind === 'view') void viewTreeFile($, path)
       if (kind === 'folder') await toggleTreeFolder($, path)
-      if (kind === 'copy' || kind === 'path' || kind === 'view') void flashTool($, e.element)
+      if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
       else if (kind === 'trash') void askTrash($, path)

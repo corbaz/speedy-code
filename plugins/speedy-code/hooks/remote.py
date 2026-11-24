@@ -11,7 +11,16 @@ those of Windows in the explorer of a Mac.
                       and the clipboard: {"file": its path here}.
     remote.py find    the explorer's filter there: find_files.py itself runs on the machine, over its whole
                       disk (the system's, on Windows), and its lines are said again with each path as the
-                      explorer writes it, `mac:/...`.
+                      explorer writes it, `mac:/...`. With SPEEDY_TOKEN it can be held: see `pause`.
+    remote.py pause   holds the search of that SPEEDY_TOKEN there (SPEEDY_PAUSED `1`), or lets it go on (`0`).
+    remote.py pull    a file or a folder of the machine (SPEEDY_PATH) copied or moved (SPEEDY_VERB) here, to
+                      SPEEDY_TARGET, its own name included.
+    remote.py push    a file or a folder of this machine (SPEEDY_FILE) copied or moved to the machine, to
+                      SPEEDY_PATH, its own name included.
+    remote.py paste   the same within the machine: SPEEDY_PATH copied or moved to SPEEDY_TARGET, both there.
+                      These three answer {"said": "done"}; "exists" when something is there already, which
+                      is never written over; "kept" when it was copied but what was to move could not be
+                      removed; "error". A folder goes with its files and folders, by tar; links are left out.
 
 SPEEDY_HOST is the machine, as ssh knows it; SPEEDY_PATH the path on it, with `/`; SPEEDY_PATTERN and
 SPEEDY_MOST are find_files.py's. A machine with Windows has its disks under its root: `/` holds `C:`, `D:`,
@@ -21,13 +30,16 @@ for anything (BatchMode): a machine that would ask a password is not reached, an
 {"error": why} with the exit code 1.
 """
 import hashlib
+import inspect
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,11 +93,71 @@ with open(PATH, 'rb') as file:
     shutil.copyfileobj(file, sys.stdout.buffer)
 '''
 
-# Before find_files.py: the disk it searches there, the system's on Windows.
+# Before find_files.py: the disk it searches there, the system's on Windows, and the file it is held by.
 FIND = '''
-import os
+import os, tempfile
 SETTINGS['SPEEDY_ROOT'] = os.environ.get('SystemDrive', 'C:') + '/' if os.name == 'nt' else '/'
+if TOKEN:
+    SETTINGS['SPEEDY_PAUSE'] = os.path.join(tempfile.gettempdir(), 'speedy-find-' + TOKEN + '.pause')
 os.environ.update(SETTINGS)
+'''
+
+# The file a search there is held by, written: `1` holds it.
+PAUSE = '''
+import json, os, tempfile
+with open(os.path.join(tempfile.gettempdir(), 'speedy-find-' + TOKEN + '.pause'), 'w') as file:
+    file.write(PAUSED)
+print(json.dumps({'held': PAUSED == '1'}))
+'''
+
+# What was moved from there, removed once its copy is here.
+REMOVE = THERE + '''
+import json, shutil
+if os.path.isdir(PATH) and not os.path.islink(PATH):
+    shutil.rmtree(PATH)
+else:
+    os.remove(PATH)
+print(json.dumps({'removed': True}))
+'''
+
+# Before paste.py, run there: a path of Windows as Windows writes it, and what paste.py reads.
+PASTE = '''
+import os
+def there(path):
+    return path[1:] + ('/' if len(path) == 3 else '') if os.name == 'nt' and path != '/' else path
+os.environ.update({'SPEEDY_FILE': there(FROM), 'SPEEDY_TARGET': there(TO), 'SPEEDY_VERB': VERB})
+'''
+
+
+def plain(info):
+    """A tar's entry when it is a file or a folder; a link, or anything else, is left out."""
+    return info if info.isdir() or info.isreg() else None
+
+
+def extract(tar, parent, name):
+    """Writes under `parent` what a tar holds: only `name` and what lies under it, files and folders alone."""
+    more = {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}
+    for member in tar:
+        inside = member.name == name or member.name.startswith(name + '/')
+        if inside and '..' not in member.name.split('/') and (member.isdir() or member.isreg()):
+            tar.extract(member, parent, **more)
+
+
+# Run there: PATH, a file or a folder, as a tar on its output, named NAME in it.
+TAR_OUT = THERE + 'import sys, tarfile\n' + inspect.getsource(plain) + '''
+with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as tar:
+    tar.add(PATH, arcname=NAME, filter=plain)
+'''
+
+# Run there: the tar on its input written as PATH, unless something is there already.
+TAR_IN = THERE + 'import sys, tarfile\n' + inspect.getsource(extract) + '''
+if os.path.lexists(PATH):
+    print('exists')
+    sys.exit(0)
+parent, name = os.path.split(PATH.rstrip('/'))
+with tarfile.open(fileobj=sys.stdin.buffer, mode='r|') as tar:
+    extract(tar, parent, name)
+print('done' if os.path.lexists(PATH) else 'error')
 '''
 
 
@@ -231,12 +303,107 @@ def fetch(host, path):
     return target
 
 
+def remove(path):
+    """Removes a file, or a folder with what it holds; whether it did."""
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        elif os.path.lexists(path):
+            os.remove(path)
+    except OSError:
+        return False
+    return True
+
+
+def pull(host, path, target, verb):
+    """A file or a folder there copied here as `target`, by tar; moved, it is removed there after."""
+    if not target or verb not in ('copy', 'move'):
+        return 'error'
+    if os.path.lexists(target):
+        return 'exists'
+    found = way(host)
+    if not found:
+        return 'error'
+    parent, name = os.path.split(os.path.abspath(target))
+    script = f'PATH = {ascii(path)}\nNAME = {ascii(name)}\n{TAR_OUT}'
+    try:
+        ssh = subprocess.Popen([found[0]] + OPTIONS + [host, found[1], '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
+        ssh.stdin.write(script.encode('utf-8'))
+        ssh.stdin.close()
+        with tarfile.open(fileobj=ssh.stdout, mode='r|') as tar:
+            extract(tar, parent, name)
+        # What a tar is filled with after its end is read too: unread, the machine would wait to write it.
+        while ssh.stdout.read(65536):
+            pass
+        whole = ssh.wait() == 0 and os.path.lexists(target)
+    except (OSError, tarfile.TarError):
+        whole = False
+    if not whole:
+        # What was written of it is not left half done: nothing was there before.
+        remove(target)
+        return 'error'
+    if verb == 'move':
+        return 'done' if ask(host, REMOVE, path) == {'removed': True} else 'kept'
+    return 'done'
+
+
+def push(host, source, path, verb):
+    """A file or a folder of this machine copied there as `path`, by tar; moved, it is removed here after."""
+    if verb not in ('copy', 'move') or not source or not os.path.lexists(source):
+        return 'error'
+    found = way(host)
+    if not found:
+        return 'error'
+    name = path.rstrip('/').rsplit('/', 1)[-1]
+    script = f'PATH = {ascii(path)}\n{TAR_IN}'.encode('utf-8')
+    # The script goes first on the input, then the tar: the machine's Python reads its own length of it.
+    start = f'{found[1]} -c "import sys;exec(sys.stdin.buffer.read({len(script)}).decode())"'
+    try:
+        ssh = subprocess.Popen([found[0]] + OPTIONS + [host, start], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **HIDDEN)
+    except OSError:
+        return 'error'
+
+    def send():
+        try:
+            ssh.stdin.write(script)
+            with tarfile.open(fileobj=ssh.stdin, mode='w|') as tar:
+                tar.add(source, arcname=name, filter=plain)
+        except (OSError, tarfile.TarError):
+            pass
+        finally:
+            try:
+                ssh.stdin.close()
+            except OSError:
+                pass
+
+    sending = threading.Thread(target=send, daemon=True)
+    sending.start()
+    out = ssh.stdout.read().decode('utf-8', 'replace').strip()
+    sending.join()
+    said = out.splitlines()[-1].strip() if ssh.wait() == 0 and out else 'error'
+    if said != 'done':
+        return 'exists' if said == 'exists' else 'error'
+    if verb == 'move':
+        return 'done' if remove(source) else 'kept'
+    return 'done'
+
+
+def paste_there(host, path, target, verb):
+    """A file or a folder of the machine copied or moved within it: paste.py itself runs there."""
+    with open(os.path.join(HERE, 'paste.py'), encoding='utf-8') as file:
+        source = file.read()
+    out = python_there(host, f'FROM = {ascii(path)}\nTO = {ascii(target)}\nVERB = {ascii(verb)}\n{PASTE}\n{source}', timeout=None)
+    text = out.decode('utf-8', 'replace').strip() if out else ''
+    return text.splitlines()[-1].strip() if text else 'error'
+
+
 def find(host):
     """find_files.py run there over the whole disk; its lines said again, each path with the machine before it."""
     with open(os.path.join(HERE, 'find_files.py'), encoding='utf-8') as file:
         source = file.read()
     settings = {'SPEEDY_FIRST': '', 'SPEEDY_PATTERN': os.environ.get('SPEEDY_PATTERN', ''), 'SPEEDY_MOST': os.environ.get('SPEEDY_MOST', '')}
-    script = f'SETTINGS = {ascii(settings)}\n{FIND}\n{source}'
+    token = os.environ.get('SPEEDY_TOKEN', '')
+    script = f'SETTINGS = {ascii(settings)}\nTOKEN = {ascii(token if re.fullmatch(r"[A-Za-z0-9-]+", token) else "")}\n{FIND}\n{source}'
     found = way(host)
     try:
         if not found:
@@ -283,6 +450,14 @@ def main():
     if mode == 'find':
         find(host)
         return 0
+    if mode == 'pause':
+        token = os.environ.get('SPEEDY_TOKEN', '')
+        if not re.fullmatch(r'[A-Za-z0-9-]+', token):
+            say({'error': 'no token'})
+            return 1
+        out = python_there(host, f'TOKEN = {ascii(token)}\nPAUSED = {ascii("1" if os.environ.get("SPEEDY_PAUSED") == "1" else "0")}\n{PAUSE}')
+        say({'held': os.environ.get('SPEEDY_PAUSED') == '1'} if out is not None else {'error': 'not reached'})
+        return 0 if out is not None else 1
     if mode == 'home':
         answer = ask(host, HOME, '/')
         say(answer if answer is not None else {'error': 'not reached'})
@@ -290,6 +465,17 @@ def main():
     if not path.startswith('/'):
         say({'error': 'no path'})
         return 1
+    if mode in ('pull', 'push', 'paste'):
+        verb = os.environ.get('SPEEDY_VERB', '')
+        target = os.environ.get('SPEEDY_TARGET', '')
+        if mode == 'pull':
+            said = pull(host, path, target, verb)
+        elif mode == 'push':
+            said = push(host, os.environ.get('SPEEDY_FILE', ''), path, verb)
+        else:
+            said = paste_there(host, path, target, verb) if target.startswith('/') and verb in ('copy', 'move') else 'error'
+        say({'said': said})
+        return 0 if said in ('done', 'kept') else 1
     if mode in ('list', 'stat'):
         answer = ask(host, LIST if mode == 'list' else STAT, path)
         say(answer if answer is not None else {'error': 'not reached'})

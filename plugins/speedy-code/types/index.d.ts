@@ -54,8 +54,9 @@ export type ExplorerListing = { entries: ExplorerEntry[]; left: number }
  * path key; `denied` for a folder that could not be read), the session's folder, whether paths ignore case,
  * the first tree row shown (-1: the path found, else the session's folder, in the middle), and the key of the
  * path pasted in the explorer's field and found, marked in the tree. `clip` is the file or the folder 📋 took
- * last, which 📥 copies or moves into another folder; absent: none, and 📥 is grey. */
-export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string; filter?: ExplorerFilter; cleared?: number; clip?: string }
+ * last, which 📥 copies or moves into another folder; absent: none, and 📥 is grey. `viewed` is the key of
+ * the file the viewer was last opened on, marked yellow until another press. */
+export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string; filter?: ExplorerFilter; cleared?: number; clip?: string; viewed?: string }
 
 /** The explorer's filter, while one is on: the pattern typed (`*.pdf`), the files of the disk shown found
  * so far, the entries looked at, whether the search still runs, whether it stopped at the most files it

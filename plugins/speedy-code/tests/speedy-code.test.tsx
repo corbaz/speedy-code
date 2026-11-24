@@ -22,14 +22,19 @@ const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
 const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
-const VIEWER = { says: '', stays: false, next: [] as string[] }
+const VIEWER = { says: '', stays: false, next: [] as string[], isLate: false }
 /** What find_files.py says, a line each, and what each search was asked. */
-const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>> }
+const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>>, isLong: false }
+/** The files written by the mod: each its path and its text. */
+const WRITTEN: Array<[string, string]> = []
 /** Another machine's disk, as remote.py answers for it: the machines there are, what was asked, and its folders. */
 const REMOTE = {
   hosts: [] as string[],
   /** Where the machine's disk opens: its person's folder; `/` on one with Windows. */
   home: '/',
+  /** What went across, and what remote.py says of it. */
+  moved: [] as string[],
+  says: 'done',
   asked: [] as Array<Record<string, string>>,
   tree: {
     '/': [{ name: 'Users', kind: 'dir', isLink: false }, { name: 'nota.md', kind: 'file', isLink: false }],
@@ -169,6 +174,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   on('fs.write', (_, e) => {
     if (e.path.endsWith('levels.json')) files.push(e.text)
     else written.push({ path: e.path.split('\\').join('/'), text: e.text })
+    WRITTEN.push([e.path.split('\\').join('/'), e.text])
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
@@ -230,6 +236,12 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     if (e.argv.some(arg => arg.endsWith('remote.py'))) {
       const mode = e.argv.at(-1) ?? ''
       const path = e.init?.env?.SPEEDY_PATH ?? ''
+      // A file or a folder across: from the machine, to it, or within it.
+      if (mode === 'pull' || mode === 'push' || mode === 'paste') {
+        const env = e.init?.env ?? {}
+        REMOTE.moved.push(`${mode} ${env.SPEEDY_VERB ?? ''} ${env.SPEEDY_HOST ?? ''} ${mode === 'push' ? env.SPEEDY_FILE ?? '' : path} -> ${mode === 'push' ? path : env.SPEEDY_TARGET ?? ''}`)
+        return { value: { exitCode: 0, stdout: `${JSON.stringify({ said: REMOTE.says })}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       if (mode !== 'hosts') REMOTE.asked.push({ mode, host: e.init?.env?.SPEEDY_HOST ?? '', path })
       const folder = REMOTE.tree[path]
       const isFile = Object.entries(REMOTE.tree).some(([parent, entries]) => entries.some(entry => `${parent === '/' ? '' : parent}/${entry.name}` === path))
@@ -316,6 +328,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     // a phrase's first piece starts with a space, and a word can come in two pieces ("end", "point.").
     if (e.argv.some(arg => arg.endsWith('view_file.ps1'))) {
       spoken.push(e.env ?? {})
+      // A popup that is slow to come up says nothing until the test lets it.
+      while (VIEWER.isLate) await clock.sleep(100)
       yield { stream: 'stdout' as const, text: `shown\r\n${VIEWER.says}` }
       // A popup left open says what a test hands it, a line at a time, until the test closes it.
       while (VIEWER.stays) {
@@ -333,6 +347,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
     // The explorer's filter: find_files.py says the files found, a line at a time.
     if (e.argv.some(arg => arg.endsWith('find_files.py'))) {
       FINDER.asked.push({ ...e.env })
+      // A search that takes long says it is still there until the test lets it end.
+      while (FINDER.isLong) {
+        await clock.sleep(100)
+        yield { stream: 'stdout' as const, text: `${JSON.stringify({ paths: [], seen: 5 })}\n` }
+      }
       for (const line of FINDER.lines) yield { stream: 'stdout' as const, text: `${line}\n` }
       return { value: { code: 0, signal: null } }
     }
@@ -2506,17 +2525,28 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // Its Copiar says what it took: the text goes into the prompt too, on a line of its own.
   VIEWER.says = 'copied aG9sYSDDsQ==\r\n'
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-view:C:/Users/test/proyectos/notas.txt' })
-  // The name pressed is green for a second, in place of the pointer's yellow: the press was taken.
+  // The name pressed is green until the popup is up, however long it takes; then the file stays marked
+  // yellow, as the one being looked at, until another press.
   const viewLook = async () => (await pane.find({ key: 'speedy:explorer-view:C:/Users/test/proyectos/notas.txt' }))?.props?.props
+  await w.clock.advance(100)
+  expect(await viewLook()).toMatchObject({ backgroundColor: '#ffd43b', color: '#1a1a1a' })
+  VIEWER.isLate = true
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-view:C:/Users/test/proyectos/notas.txt' })
   expect(await viewLook()).toMatchObject({ backgroundColor: '#51cf66', color: '#1a1a1a' })
-  await w.clock.advance(1000)
+  await w.clock.advance(3000)
+  expect(await viewLook()).toMatchObject({ backgroundColor: '#51cf66' })
+  VIEWER.isLate = false
+  await w.clock.advance(200)
+  expect(await viewLook()).toMatchObject({ backgroundColor: '#ffd43b', color: '#1a1a1a' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   expect((await viewLook())?.backgroundColor).toBeUndefined()
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   await w.clock.advance(100)
   expect(prompt.fills.at(-1)).toBe('\nhola ñ\n')
   VIEWER.says = ''
   await w.clock.advance(100)
   const viewer = w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1')))
-  expect(viewer.length).toBe(1)
+  expect(viewer.length).toBe(2)
   // Windows PowerShell by its path: `powershell` on the PATH may be a shim to PowerShell 7.
   expect(viewer[0]?.[0]?.endsWith('\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe(true)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Users\\test\\proyectos\\notas.txt')
@@ -2720,7 +2750,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props).toMatchObject({ label: ' ‖ pausar ', color: '#868e96' })
   await tree.input({ key: 'explorer-filter:0', text: ' *.pdf ', kind: 'submit' })
   await w.clock.advance(100)
-  expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'C:\\', SPEEDY_FIRST: 'C:\\Users\\test\\proyectos', SPEEDY_PATTERN: '*.pdf', SPEEDY_MOST: '1000' })
+  expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'C:\\', SPEEDY_FIRST: 'C:\\Users\\test\\proyectos', SPEEDY_PATTERN: '*.pdf', SPEEDY_MOST: '50000' })
   expect(await filtered()).toEqual([
     '─ *.pdf: 3 archivos ────────────────────────',
     '▾ C:\\',
@@ -2746,6 +2776,27 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'D:\\', SPEEDY_PATTERN: '*.pdf' })
   expect(await filtered()).toEqual(['─ *.pdf: 0 archivos ────────────────────────', '▾ D:\\', '  (ningún archivo coincide)'])
+  // ‖ pausar holds a search that runs, by the file it was started with, and ▶ seguir lets it go on from there.
+  FINDER.isLong = true
+  await tree.input({ key: 'explorer-filter:0', text: '*.pdf', kind: 'submit' })
+  await w.clock.advance(100)
+  const pause = async () => (await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props
+  const held = FINDER.asked.at(-1)?.SPEEDY_PAUSE ?? ''
+  expect(held).toContain('find-')
+  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#ffd43b' })
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-pause:' })
+  expect(WRITTEN.at(-1)).toEqual([held.split('\\').join('/'), '1'])
+  expect(await pause()).toMatchObject({ label: ' ▸ seguir ', color: '#51cf66' })
+  expect((await filtered())[0]).toContain('en pausa')
+  await w.clock.advance(300)
+  expect((await filtered())[0]).toContain('en pausa')
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-pause:' })
+  expect(WRITTEN.at(-1)).toEqual([held.split('\\').join('/'), '0'])
+  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#ffd43b' })
+  expect((await filtered())[0]).toContain('buscando…')
+  FINDER.isLong = false
+  await w.clock.advance(300)
+  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#868e96' })
   // × clears the filter: the field empties and the whole tree is back.
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-unfilter:' })
   expect((await tree.find({ key: 'explorer-filter:1' }))?.props).toMatchObject({ value: '' })
@@ -2785,23 +2836,55 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/nota.md' })
   expect(FILES.copied.at(-1)).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
   expect(prompt.fills.at(-1)).toContain('mac:/nota.md')
-  // 📥 is not for another machine's folders. But a file 📋 took there is pasted here: it is copied, never
-  // moved, so the dialog only asks whether for sure, and what goes is the copy fetched.
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/Users' })
-  await w.clock.advance(100)
-  expect(TOASTS.at(-1)).toBe('speedy-code: pegar no está disponible en mac: sus archivos se leen por ssh.')
+  // 📥 goes across machines, copied or moved as the dialog said. What 📋 took there comes here by remote.py
+  // (`pull`), a folder too, which 📋 takes without the clipboard.
   await far.press({ key: 'explorer-drive:C:/' })
   await w.clock.advance(100)
   DIALOG.asked = []
-  DIALOG.answer = 'copy'
+  DIALOG.answer = 'move'
   PASTE.ran = []
+  REMOTE.moved = []
   await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
   await w.clock.advance(100)
-  expect(DIALOG.asked).toEqual(['paste only copy'])
-  expect(PASTE.ran).toEqual(['copy C:\\Temp\\speedy-remote\\ab12\\nota.md -> C:\\Windows\\nota.md'])
-  expect(TOASTS.at(-1)).toBe('speedy-code: nota.md se copió a Windows.')
-  DIALOG.answer = 'cancel'
+  expect(DIALOG.asked).toEqual(['paste'])
+  expect(REMOTE.moved).toEqual(['pull move mac /nota.md -> C:\\Windows\\nota.md'])
+  expect(PASTE.ran).toEqual([])
+  expect(TOASTS.at(-1)).toBe('speedy-code: nota.md se movió a Windows.')
   await far.press({ key: 'explorer-drive:mac:/' })
+  await w.clock.advance(100)
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/Users' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: la carpeta Users de mac está lista para pegar con 📥.')
+  // Within the machine (`paste`): into another folder of it.
+  DIALOG.answer = 'copy'
+  REMOTE.tree['/tmp'] = []
+  REMOTE.tree['/'].push({ name: 'tmp', kind: 'dir', isLink: false })
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
+  await w.clock.advance(100)
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/tmp' })
+  await w.clock.advance(100)
+  expect(REMOTE.moved.at(-1)).toBe('paste copy mac /Users -> /tmp/Users')
+  // What this machine holds goes there (`push`). What remote.py could not do is said.
+  await far.press({ key: 'explorer-drive:C:/' })
+  await w.clock.advance(100)
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/setup.exe' })
+  await far.press({ key: 'explorer-drive:mac:/' })
+  await w.clock.advance(100)
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/tmp' })
+  await w.clock.advance(100)
+  expect(REMOTE.moved.at(-1)).toBe('push copy mac C:\\setup.exe -> /tmp/setup.exe')
+  expect(TOASTS.at(-1)).toBe('speedy-code: setup.exe se copió a tmp.')
+  REMOTE.says = 'error'
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/Users' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: no pude copiar setup.exe.')
+  REMOTE.says = 'done'
+  DIALOG.answer = 'cancel'
+  REMOTE.tree['/'].pop()
+  delete REMOTE.tree['/tmp']
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
   await w.clock.advance(100)
   // ✏ and 🗑 are not for another machine's files: no dialog asks.
   const dialogs = DIALOG.asked.length
