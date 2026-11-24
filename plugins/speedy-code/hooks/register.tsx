@@ -59,6 +59,8 @@ export const MAC = {
   copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
   /** 📥's dialog, by AppleScript: whether the file is copied or moved into a folder, then whether for sure. */
   pasteDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set verb to button returned of (display dialog ("¿Copiar o mover " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"Cancelar", "Mover", "Copiar"} default button "Copiar" cancel button "Cancelar")', '-e', 'display dialog ("¿Seguro? " & verb & " " & (item 1 of argv) & " a " & (item 2 of argv)) with title "Pegar" buttons {"No", "Sí"} default button "No" cancel button "No"', '-e', 'if verb is "Mover" then return "move"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
+  /** The same for a file of another machine, which is copied and never moved: only whether for sure. */
+  copyDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'display dialog ("¿Copiar " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"No", "Sí, copiar"} default button "No" cancel button "No"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
   /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), or whether the file goes to the Trash. */
   dialog: (mode: 'rename' | 'delete', name: string) => mode === 'rename'
     ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog "Nombre nuevo:" default answer (item 1 of argv) with title "Renombrar" buttons {"Cancelar", "Aceptar"} default button "Aceptar" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
@@ -2266,6 +2268,8 @@ const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> =
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
 const PASTE_IDLE_MARK = '↧'
 const PASTE_IDLE_COLOR = '#495057'
+/** The tools that are grey on a disk's root, and do nothing there: a disk is not copied, renamed or trashed. */
+const DISK_IDLE_TOOLS = ['copy', 'rename', 'trash']
 
 /** The file tool just pressed, green for a second as a sign the press was taken; empty: none. */
 const explorerFlash = atom({ plugin: 'speedy-code', key: 'explorerFlash' } as const, '')
@@ -2433,7 +2437,8 @@ export function filterRows (state: Explorer, filter: ExplorerFilter): TreeRow[] 
 export function filterNote (filter: ExplorerFilter) {
   const count = filter.paths.length
   const found = `${count} ${count === 1 ? 'archivo' : 'archivos'}`
-  return filter.isBusy ? ` ${filter.pattern}: ${found}, buscando… (${filter.seen.toLocaleString('es-AR')} vistos) ` : ` ${filter.pattern}: ${found} `
+  if (filter.isBusy) return ` ${filter.pattern}: ${found}, buscando… (${filter.seen.toLocaleString('es-AR')} vistos) `
+  return filter.isPaused ? ` ${filter.pattern}: ${found}, en pausa ` : ` ${filter.pattern}: ${found} `
 }
 
 /** A pattern as typed in the filter's field: its spaces and quotes off. Empty: no filter. */
@@ -2549,8 +2554,8 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
     : MAC.copyFile(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
-  // 📥 pastes what was taken last, a file or a folder of this machine.
-  if (!remote && result?.stdout.trim() === 'copied') await update($, explorer, now => ({ ...now, clip: path }))
+  // 📥 pastes what was taken last: a file or a folder of this machine, or a file of another one.
+  if (result?.stdout.trim() === 'copied') await update($, explorer, now => ({ ...now, clip: path }))
   if (remote) {
     await insertInPrompt($, path, ' ')
     $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt y una copia suya en el portapapeles; pegala en una carpeta.` : `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt; no pude copiar el archivo al portapapeles.`)
@@ -2610,14 +2615,15 @@ export function badFileName (name: string) {
  * rename with a field for the name and one for the extension), dialog.py's popup on macOS, drawn the same
  * (a dialog of macOS's own where pywebview is not installed). It answers `rename <base64 name>` (macOS's
  * own dialog: `name <name>`), `delete` or `cancel`. 📥's (`paste`) asks whether the file is copied or moved
- * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`.
+ * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`; `isOnlyCopy`, for a
+ * file of another machine, which stays there: it only asks whether for sure.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '') {
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '', isOnlyCopy = false) {
   const native = await nativePath($, path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
   const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
-  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '' }
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '', SPEEDY_ONLY: isOnlyCopy ? 'copy' : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
   // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
   if (!isWindows) {
@@ -2627,7 +2633,7 @@ async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste
   }
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
-    : mode === 'paste' ? MAC.pasteDialog(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
+    : mode === 'paste' ? (isOnlyCopy ? MAC.copyDialog : MAC.pasteDialog)(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
   const result = await $.process.run(argv, { env }).catch(() => undefined)
   return said(result?.stdout) ?? 'cancel'
 }
@@ -2642,7 +2648,8 @@ const folderOf = (path: string) => {
 /**
  * 📥: what 📋 took last is copied or moved into a row's folder (a file's row: the folder it is in), once the
  * dialog asked which, and whether for sure. Nothing is written over, a folder does not go into itself, and
- * another machine's folders take nothing. Moved, nothing is taken any more.
+ * another machine's folders take nothing. Moved, nothing is taken any more. A file taken on another machine
+ * is fetched and its copy pasted: it is copied, never moved, and a folder of it is not pasted.
  */
 async function pasteInto ($: EngineInterface, path: string) {
   const state = await read($, explorer)
@@ -2663,6 +2670,11 @@ async function pasteInto ($: EngineInterface, path: string) {
     await update($, explorer, now => ({ ...now, clip: undefined }))
     return
   }
+  const from = remoteOf(clip)
+  if (from && kind === 'dir') {
+    $.ui.toast(`speedy-code: de ${from.host} se pegan archivos, no carpetas.`)
+    return
+  }
   const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
   const target = joinPath(folder, name)
   const key = (one: string) => pathKey(one, state.caseless)
@@ -2678,10 +2690,13 @@ async function pasteInto ($: EngineInterface, path: string) {
     $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
     return
   }
-  const verb = await askDialog($, 'paste', clip, folder)
+  const verb = await askDialog($, 'paste', clip, folder, from !== undefined)
   if (verb !== 'copy' && verb !== 'move') return
-  const isMove = verb === 'move'
-  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/paste.py`], { env: { SPEEDY_FILE: await nativePath($, clip), SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: verb, PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+  const isMove = verb === 'move' && !from
+  // A file of another machine: what is pasted is its copy here.
+  const source = await localFile($, clip)
+  if (!source) return
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/paste.py`], { env: { SPEEDY_FILE: await nativePath($, source), SPEEDY_TARGET: await nativePath($, target), SPEEDY_VERB: isMove ? 'move' : 'copy', PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
   if (result?.stdout.trim() !== 'done') {
     $.ui.toast(`speedy-code: no pude ${isMove ? 'mover' : 'copiar'} ${name}.`)
     return
@@ -2947,6 +2962,14 @@ async function clearFilter ($: EngineInterface) {
   await update($, explorer, now => ({ ...now, filter: undefined, cleared: (now.cleared ?? 0) + 1, top: -1 }))
 }
 
+/** ‖ pausar, beside the filter's ×: the search stops where it is, and the tree keeps the files found so far. */
+async function pauseFilter ($: EngineInterface) {
+  if (!(await read($, explorer)).filter?.isBusy) return
+  filtering?.abort()
+  filtering = undefined
+  await update($, explorer, now => now.filter ? { ...now, filter: { ...now.filter, isBusy: false, isPaused: true } } : now)
+}
+
 /** What the explorer's field says while empty: a path as the system writes one. */
 export function gotoHint (isWindows: boolean) {
   return `pegá una ruta y Enter: ${isWindows ? 'D:\\carpeta\\archivo' : '/Users/carpeta/archivo'}`
@@ -3108,6 +3131,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   const unfilterLabel = ' × limpiar '
+  // Beside it: stops a search that still runs. Lit only while one does.
+  const pauseLabel = ' ‖ pausar '
+  const pauseColor = state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
@@ -3146,12 +3172,15 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {Input
         ? (
           <Box flexDirection="row" width={width}>
-            <Box width={Math.max(4, width - cells(unfilterLabel))}>
+            <Box width={Math.max(4, width - cells(unfilterLabel) - cells(pauseLabel))}>
               <Input key={`explorer-filter:${state.cleared ?? 0}`} placeholder={FILTER_HINT} value={state.filter?.pattern ?? ''} submitLabel="filtrar" onSubmit={value => { void filterExplorer($, value) }} />
             </Box>
             {Client
               ? <Client key="speedy:explorer-unfilter:" module="./control.tsx" width={cells(unfilterLabel)} props={{ label: unfilterLabel, color: state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR, bold: Boolean(state.filter) }} />
               : <Button key="explorer-unfilter" plain onPress={() => { void clearFilter($) }}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
+            {Client
+              ? <Client key="speedy:explorer-pause:" module="./control.tsx" width={cells(pauseLabel)} props={{ label: pauseLabel, color: pauseColor, bold: Boolean(state.filter?.isBusy) }} />
+              : <Button key="explorer-pause" plain onPress={() => { void pauseFilter($) }}><Text color={pauseColor}>{pauseLabel}</Text></Button>}
           </Box>
           )
         : null}
@@ -3165,9 +3194,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
         // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it, 🗑 sends
         // it to the trash and 📥 pastes here what 📋 took, each of the last three after a dialog. A file's name
-        // is yellow and opens the viewer; a folder's is blue and opens or closes it. A disk's root has no tools.
+        // is yellow and opens the viewer; a folder's is blue and opens or closes it. A disk's root has them too,
+        // to paste into it and to copy its path: 📋, ✏ and 🗑 are grey there, as a disk is not copied, renamed or trashed.
         const isFolder = row.kind === 'dir'
-        if (row.kind === 'file' || (isFolder && row.depth > 0)) {
+        const isDisk = isFolder && row.depth === 0
+        if (row.kind === 'file' || isFolder) {
           const toolsWidth = EXPLORER_TOOLS_WIDTH
           // The name is cut to its room, then filled with spaces up to the tools: the fill under the pointer
           // runs to them, so it is plain which tools are the row's, and a long name keeps to its row.
@@ -3188,7 +3219,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
                 key={`speedy:explorer-${isFolder ? 'folder' : 'view'}:${row.path}`}
                 module="./control.tsx"
                 width={cells(label)}
-                props={row.isFound
+                // A file just pressed is green for a second, in place of the pointer's yellow: the press was taken.
+                props={flashed === `speedy:explorer-view:${row.path}`
+                  ? { label, color: '#1a1a1a', bold: true, backgroundColor: FLASH_COLOR }
+                  : row.isFound
                   ? { label, color: '#1a1a1a', bold: true, backgroundColor: EXPLORER_VIEWABLE_COLOR }
                   : { label, color: tint, bold: isFolder && row.isHere, hover: { scope, backgroundColor: fill, color: '#1a1a1a' } }}
               />
@@ -3210,10 +3244,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             : <Text key={kind} color={color}>{label}</Text>
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
-          const isIdle = (kind: string) => kind === 'paste' && !state.clip
+          const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            tool(kind, toolLabel(isGlyphs ? glyph : isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
+            tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
           ])
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>
@@ -3229,14 +3263,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             ? <Text key={`explorer-entry:${row.path}`} bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
             : <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
         }
-        // A disk's root: it opens and closes, and has no tools.
-        return (
-          <Button key={`explorer:${row.path}`} plain onPress={() => { void toggleTreeFolder($, row.path) }}>
-            {row.isFound
-              ? <Text bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>
-              : <Text bold={row.isHere} color={row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR} wrap="truncate-end">{`${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}`}</Text>}
-          </Button>
-        )
+        return null
       })}
       </Box>
       {/* The scroll bar, an empty cell away from the tools: its track dark, its thumb in the folders' color, a
@@ -4700,15 +4727,24 @@ export const register: Register = on => {
       const kind = rest.slice(0, rest.indexOf(':'))
       const path = rest.slice(rest.indexOf(':') + 1)
       await forgetFound($)
+      // A disk is not copied, renamed or trashed: those three do nothing on its root but say so.
+      if (DISK_IDLE_TOOLS.includes(kind)) {
+        const { drives, caseless } = await read($, explorer)
+        if (drives.some(drive => pathKey(drive, caseless) === pathKey(path, caseless))) {
+          $.ui.toast('speedy-code: un disco no se copia, no se renombra ni se borra.')
+          return result
+        }
+      }
       if (kind === 'view') void viewTreeFile($, path)
       if (kind === 'folder') await toggleTreeFolder($, path)
-      if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
+      if (kind === 'copy' || kind === 'path' || kind === 'view') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)
       else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
       else if (kind === 'trash') void askTrash($, path)
       else if (kind === 'rename') void askRename($, path)
       else if (kind === 'paste') void pasteInto($, path)
       else if (kind === 'unfilter') await clearFilter($)
+      else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
         await collapseExplorer($)

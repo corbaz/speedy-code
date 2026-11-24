@@ -4,7 +4,8 @@
   SPEEDY_KIND=dir: a folder; one field for its name, and Borrar says it goes with what it holds.
   SPEEDY_MODE=delete: asks whether SPEEDY_FILE goes to the Trash. Prints `delete` or `cancel`.
   SPEEDY_MODE=paste: asks whether SPEEDY_FILE is copied or moved into the folder SPEEDY_TARGET, then whether
-    for sure. Prints `copy`, `move` or `cancel`.
+    for sure. Prints `copy`, `move` or `cancel`. With SPEEDY_ONLY=copy (a file of another machine, which stays
+    there) it only asks whether for sure.
 
 Exits 3 with nothing printed when pywebview is missing: the mod then asks with the system's dialog.
 """
@@ -28,7 +29,7 @@ class Api:
         self._target = target
 
     def asked(self):
-        return {'name': os.path.basename(self._path), 'mode': self._mode, 'kind': self._kind, 'target': self._target}
+        return {'name': os.path.basename(self._path), 'mode': self._mode, 'kind': self._kind, 'target': self._target, 'only': os.environ.get('SPEEDY_ONLY', '')}
 
     def exists(self, name):
         return os.path.lexists(os.path.join(os.path.dirname(self._path), name))

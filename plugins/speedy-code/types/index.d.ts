@@ -60,8 +60,8 @@ export type Explorer = { drives: string[]; drive: string; open: string[]; listed
 /** The explorer's filter, while one is on: the pattern typed (`*.pdf`), the files of the disk shown found
  * so far, the entries looked at, whether the search still runs, whether it stopped at the most files it
  * shows, and the keys of the folders closed by hand in the tree it draws. `cleared` on the explorer counts
- * the times the filter was cleared: each one empties the field. */
-export type ExplorerFilter = { pattern: string; paths: string[]; seen: number; isBusy: boolean; isCut: boolean; closed: string[] }
+ * the times the filter was cleared: each one empties the field. `isPaused`: its search was stopped by hand. */
+export type ExplorerFilter = { pattern: string; paths: string[]; seen: number; isBusy: boolean; isCut: boolean; closed: string[]; isPaused?: boolean }
 
 declare module 'claude-code' {
   interface PluginState {

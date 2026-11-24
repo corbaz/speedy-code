@@ -9,6 +9,7 @@
 #   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si, borrar / Cancelar. Prints `delete` or `cancel`.
 #   SPEEDY_MODE=paste: asks whether $env:SPEEDY_FILE is copied or moved into the folder $env:SPEEDY_TARGET,
 #     Copiar / Mover / Cancelar, and then whether for sure, Si, copiar / Cancelar. Prints `copy`, `move` or `cancel`.
+#     With SPEEDY_ONLY=copy (a file of another machine, which stays there) it only asks whether for sure.
 # Enter accepts a rename (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
 $ErrorActionPreference = 'Stop'
@@ -239,6 +240,7 @@ if ($mode -eq 'rename') {
     elseif (([DateTime]::Now - $chosen.Since).TotalMilliseconds -gt 500) { Finish $chosen.Verb }
   })
   $cancel.Add_Click({ Finish 'cancel' })
+  if ($env:SPEEDY_ONLY -eq 'copy') { Choose 'copy'; $chosen.Since = [DateTime]::MinValue }
   $form.Add_Shown({ $form.Activate(); [void]$cancel.Focus() })
 } else {
   [void](New-Text (T '\u00bfMandar a la papelera?') $gap $gap $ink $bold)

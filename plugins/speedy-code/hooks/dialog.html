@@ -100,6 +100,8 @@
       $('accept').textContent = 'Mover'
       $('other').onclick = () => choose('copy')
       $('accept').onclick = () => { if (!verb) choose('move'); else if (Date.now() - since > 500) finish(verb) }
+      // A file of another machine is copied, never moved: only whether for sure is asked.
+      if (asked.only === 'copy') { choose('copy'); since = 0 }
     } else if (mode === 'delete') {
       $('doomed').textContent = fileName
       $('note').textContent = isFolder ? 'Con todo lo que tiene. Se puede recuperar desde la Papelera.' : 'Se puede recuperar desde la Papelera.'
