@@ -10,7 +10,9 @@
 #   a spreadsheet (xlsx, xlsm; xls through Excel) or a Word document (docx; doc through Word): drawn as a page;
 #   a Word document, a Markdown or an HTML Preview also gets the bar's zoom;
 #   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume,
-#     and a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar;
+#     and a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar; one
+#     Windows does not play as it is (AV1 with no decoder for it) is made again as H.264 by ffmpeg, when
+#     there is one, and plays;
 #   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
 #   each, with their columns and first rows, read by db_view.py;
 #   a Windows shortcut (.lnk) or an Internet shortcut (.url): where it leads, as selectable text;
@@ -230,7 +232,7 @@ function New-SoundPlayer {
   Add-Member -InputObject $sound -MemberType ScriptMethod -Name Pause -Value { $this.Inner.Pause() }
   Add-Member -InputObject $sound -MemberType ScriptMethod -Name Stop -Value { $this.Inner.Pause() }
   Add-Member -InputObject $sound -MemberType ScriptMethod -Name Close -Value { if ($this.Watch) { $this.Watch.Stop() }; $this.Inner.Dispose() }
-  Add-Member -InputObject $sound -MemberType ScriptProperty -Name Source -Value { $null } -SecondValue { param($uri) $this.Since = [DateTime]::Now; $this.Inner.Source = [Windows.Media.Core.MediaSource]::CreateFromUri($uri) }
+  Add-Member -InputObject $sound -MemberType ScriptProperty -Name Source -Value { $null } -SecondValue { param($uri) $this.Since = [DateTime]::Now; $this.IsOpen = $false; $this.IsOver = $false; $this.Inner.Source = [Windows.Media.Core.MediaSource]::CreateFromUri($uri) }
   Add-Member -InputObject $sound -MemberType ScriptProperty -Name Position -Value { $this.Inner.PlaybackSession.Position } -SecondValue { param($at) $this.Inner.PlaybackSession.Position = $at }
   Add-Member -InputObject $sound -MemberType ScriptProperty -Name Volume -Value { $this.Inner.Volume } -SecondValue { param($volume) $this.Inner.Volume = [double]$volume }
   Add-Member -InputObject $sound -MemberType ScriptProperty -Name SpeedRatio -Value { $this.Inner.PlaybackSession.PlaybackRate } -SecondValue { param($speed) $this.Inner.PlaybackSession.PlaybackRate = [double]$speed }
@@ -2439,14 +2441,51 @@ try {
         Set-PopupSize (([int][Math]::Max(640, $width * $scale)) + $extraWidth) (([int]($height * $scale)) + $mediaParts.Bar + $extraHeight)
       }
     })
-    $player.Add_MediaFailed({
-      $why = if ($_.ErrorException) { $_.ErrorException.Message } else { '' }
+    # What Windows does not play as it is (AV1 with no decoder for it, VP9) is made again as H.264 by ffmpeg,
+    # once, when there is one, and that plays in its place. With no ffmpeg, or when it could not, it says so.
+    $remade = @{ IsTried = $false; Maker = $null; File = '' }
+    function Show-MediaRefusal([string]$why) {
       $gap = if ($kind -eq 'audio') { "`r`n" } else { "`r`n`r`n" }
+      $mediaParts.Message.ForeColor = $red
       $mediaParts.Message.Text = (T 'No se puede reproducir este formato en Windows') + $gap + $why
       $mediaParts.Message.Visible = $true
       $mediaParts.Stage.Visible = $false
       $mediaParts.Media.Playing = $false
       $mediaParts.Play.Text = [string][char]0xE768
+    }
+    $remaking = New-Object System.Windows.Forms.Timer
+    $remaking.Interval = 200
+    $remaking.Add_Tick({
+      if (-not $remade.Maker.HasExited) { return }
+      $remaking.Stop()
+      $isMade = $remade.Maker.ExitCode -eq 0 -and (Test-Path -LiteralPath $remade.File) -and (Get-Item -LiteralPath $remade.File).Length -gt 0
+      if (-not $isMade) { Show-MediaRefusal (T 'ffmpeg no pudo convertirlo.'); return }
+      $mediaParts.Message.Visible = $false
+      $mediaParts.Stage.Visible = $true
+      $player.Source = New-Object System.Uri($remade.File)
+      $mediaParts.Media.Playing = $true
+      $mediaParts.Play.Text = [string][char]0xE769
+      $player.Play()
+      $player.SpeedRatio = $mediaParts.Media.Speed
+    })
+    $player.Add_MediaFailed({
+      $why = if ($_.ErrorException) { $_.ErrorException.Message } else { '' }
+      if ($remade.IsTried) { Show-MediaRefusal $why; return }
+      $remade.IsTried = $true
+      $ffmpeg = (Get-Command ffmpeg -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+      if (-not $ffmpeg) { Show-MediaRefusal (T 'Para verlo hace falta ffmpeg.'); return }
+      $remade.File = Join-Path ([IO.Path]::GetTempPath()) ("speedy-code-played-$PID" + $(if ($kind -eq 'video') { '.mp4' } else { '.m4a' }))
+      Remove-Item -LiteralPath $remade.File -Force -ErrorAction SilentlyContinue
+      $picture = if ($kind -eq 'video') { '-c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p' } else { '-vn' }
+      $remade.Maker = Start-Process -FilePath $ffmpeg -ArgumentList "-y -v error -i `"$path`" $picture -c:a aac -b:a 160k -movflags +faststart `"$($remade.File)`"" -WindowStyle Hidden -PassThru
+      # Its handle is taken now: without it, how it ended is not known once it has.
+      $null = $remade.Maker.Handle
+      $gap = if ($kind -eq 'audio') { "`r`n" } else { "`r`n`r`n" }
+      $mediaParts.Message.ForeColor = $dim
+      $mediaParts.Message.Text = (T 'Windows no reproduce este formato tal cual.') + $gap + (T 'Convirti\u00e9ndolo para verlo\u2026')
+      $mediaParts.Message.Visible = $true
+      $mediaParts.Stage.Visible = $false
+      $remaking.Start()
     })
     $player.Add_MediaEnded({
       $player.Pause()
@@ -2877,6 +2916,11 @@ $form.Add_KeyDown({
 
 $form.Add_FormClosing({
   if ($player) { try { $player.Stop(); $player.Close() } catch { } }
+  # The file made again for Windows to play goes with the popup, and its maker if it still runs.
+  if ($remade -and $remade.Maker) {
+    try { if (-not $remade.Maker.HasExited) { $remade.Maker.Kill() } } catch { }
+    Remove-Item -LiteralPath $remade.File -Force -ErrorAction SilentlyContinue
+  }
   # Office left at work finishes on its own and quits; its folder goes if it can.
   if ($state.Office) { try { Remove-Item -LiteralPath $state.Office.Folder -Recurse -Force } catch { } }
   if ($state.Pages) { try { Remove-Item -LiteralPath $state.Pages -Recurse -Force } catch { } }
