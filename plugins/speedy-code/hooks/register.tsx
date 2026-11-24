@@ -2320,6 +2320,15 @@ const pathKey = (path: string, caseless: boolean) => caseless ? slashed(path).to
 /** Whether `path` is `folder` or lies under it, both keys. */
 const isUnder = (path: string, folder: string) => path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
 
+/**
+ * A path on another machine's disk, reached by ssh: `mac:/Users/ana` is the machine, as ssh knows it, and its
+ * own path. A disk of Windows has one letter before its `:`, a machine two at least.
+ */
+export function remoteOf (path: string) {
+  const found = /^([A-Za-z][\w.-]+):(\/.*)$/.exec(slashed(path))
+  return found ? { host: found[1] as string, path: found[2] as string } : undefined
+}
+
 /** The disk a path is on: the longest of `drives` it lies under, or the first disk when none holds it. */
 export function driveOf (path: string, drives: readonly string[], caseless: boolean) {
   const key = pathKey(path, caseless)
@@ -2339,6 +2348,9 @@ export function chainOf (path: string, drive: string) {
 /** A disk as its button names it: `C:` on Windows, `/` for the Mac's own and its name for another volume. */
 export function driveLabel (drive: string) {
   if (/^[A-Za-z]:\/?$/.test(drive)) return drive.slice(0, 2).toUpperCase()
+  // Another machine's disk is named as the machine.
+  const remote = remoteOf(drive)
+  if (remote?.path === '/') return remote.host
   return drive === '/' ? '/' : drive.split('/').filter(Boolean).pop() ?? drive
 }
 
@@ -2431,7 +2443,8 @@ export function treeRows (state: Explorer): TreeRow[] {
     if (!isOpen) return
     const listed = state.listed[key]
     if (listed === undefined) return note(path, 'leyendo…', depth + 1)
-    if (listed === 'denied') return note(path, '(sin acceso)', depth + 1)
+    // Another machine's disk that does not answer was not reached by ssh.
+    if (listed === 'denied') return note(path, depth === 0 && remoteOf(path) ? '(sin conexión por ssh)' : '(sin acceso)', depth + 1)
     if (listed.entries.length === 0) return note(path, '(vacía)', depth + 1)
     for (const entry of listed.entries) walk(joinPath(path, entry.name), entry.name, entry.kind, depth + 1)
     if (listed.left > 0) note(path, `… y ${listed.left} más`, depth + 1)
@@ -2504,13 +2517,22 @@ export function isViewable (name: string) {
 
 /** A file of the tree to the clipboard as a file, to paste in Explorer or Finder; it says whether it went. */
 async function copyFileToClipboard ($: EngineInterface, path: string) {
-  const native = await nativePath($, path)
+  // A file of another machine: its copy here goes to the clipboard, and its path there into the prompt.
+  const remote = remoteOf(path)
+  const file = await localFile($, path)
+  if (!file) return
+  const native = await nativePath($, file)
   const isWindows = (await osNow($)) === 'windows'
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-STA', '-Command', "Add-Type -AssemblyName System.Windows.Forms; $files = New-Object System.Collections.Specialized.StringCollection; [void]$files.Add($env:SPEEDY_FILE); [System.Windows.Forms.Clipboard]::SetFileDropList($files); 'copied'"]
     : MAC.copyFile(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
+  if (remote) {
+    await insertInPrompt($, path, ' ')
+    $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt y una copia suya en el portapapeles; pegala en una carpeta.` : `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt; no pude copiar el archivo al portapapeles.`)
+    return
+  }
   // The file is attached to the prompt too, as Claude Code mentions one: @path.
   await insertInPrompt($, fileMention(native), ' ')
   $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: ${name} está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.` : `speedy-code: ${name} está adjunto en el prompt; no pude copiarlo al portapapeles.`)
@@ -2518,7 +2540,8 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
 
 /** A file's path to the clipboard, as the system writes it. */
 async function copyPathToClipboard ($: EngineInterface, path: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
-  const native = await nativePath($, path)
+  // A path of another machine is copied as that machine writes it.
+  const native = remoteOf(path)?.path ?? await nativePath($, path)
   const copied = await $.ui.copy({ text: native, surface }).catch(() => ({ isCopied: false }))
   // The path goes into the prompt as well, so it need not be pasted; the clipboard keeps it for elsewhere.
   await insertInPrompt($, native, ' ')
@@ -2584,8 +2607,16 @@ async function askDialog ($: EngineInterface, mode: 'rename' | 'delete', path: s
   return said(result?.stdout) ?? 'cancel'
 }
 
+/** ✏ and 🗑 are not for another machine's files: a toast says so, and nothing is done. */
+function notOnRemote ($: EngineInterface, path: string) {
+  const remote = remoteOf(path)
+  if (remote) $.ui.toast(`speedy-code: renombrar y borrar no están disponibles en ${remote.host}: sus archivos se leen por ssh.`)
+  return remote !== undefined
+}
+
 /** ✏: the rename dialog, then the rename it asked for. */
 async function askRename ($: EngineInterface, path: string) {
+  if (notOnRemote($, path)) return
   const answer = await askDialog($, 'rename', path)
   const name = answer.startsWith('rename ') ? fromBase64Utf8(answer.slice('rename '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : ''
   if (name) await renameFile($, path, name)
@@ -2593,6 +2624,7 @@ async function askRename ($: EngineInterface, path: string) {
 
 /** 🗑: the dialog that asks, then the trash when it said yes. */
 async function askTrash ($: EngineInterface, path: string) {
+  if (notOnRemote($, path)) return
   if ((await askDialog($, 'delete', path)) === 'delete') await trashFile($, path)
 }
 
@@ -2630,8 +2662,66 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
   await update($, explorer, now => filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path, target))
 }
 
+/**
+ * What remote.py answers about a path on another machine: its folder's entries (`list`), what it is (`stat`),
+ * its copy here (`fetch`), or the machines there are (`hosts`). Nothing when the machine was not reached.
+ */
+async function askRemote ($: EngineInterface, mode: 'hosts' | 'list' | 'stat' | 'fetch', path = ''): Promise<unknown> {
+  const remote = remoteOf(path)
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, mode], { env: { SPEEDY_HOST: remote?.host ?? '', SPEEDY_PATH: remote?.path ?? '' } }).catch(() => undefined)
+  try {
+    return JSON.parse((result?.stdout ?? '').trim().split(/\r?\n/).pop() ?? '') as unknown
+  } catch {
+    return undefined
+  }
+}
+
+/** One field of what remote.py answered, when it is there. */
+const saidField = (said: unknown, field: string): unknown => said && typeof said === 'object' && !Array.isArray(said) ? (said as Record<string, unknown>)[field] : undefined
+
+/** The disks of the other machines, `mac:/`: those remote.py names. */
+async function remoteDrives ($: EngineInterface) {
+  const said = await askRemote($, 'hosts')
+  return Array.isArray(said) ? said.filter((one): one is string => typeof one === 'string' && /^[A-Za-z][\w.-]+$/.test(one)).map(host => `${host}:/`) : []
+}
+
+/** What is at a path, here or on another machine: a folder, a file, or nothing. */
+async function kindAt ($: EngineInterface, path: string): Promise<'dir' | 'file' | undefined> {
+  if (remoteOf(path)) {
+    const kind = saidField(await askRemote($, 'stat', path), 'kind')
+    return kind === 'dir' || kind === 'file' ? kind : undefined
+  }
+  const stat = await $.fs.stat(path).catch(() => undefined)
+  return stat ? (stat.kind === 'dir' ? 'dir' : 'file') : undefined
+}
+
+/**
+ * A file as the viewer and the clipboard read it: itself, or the copy of one on another machine, fetched
+ * into the temporary folder. Empty when it could not be fetched, and a toast says so.
+ */
+async function localFile ($: EngineInterface, path: string) {
+  const remote = remoteOf(path)
+  if (!remote) return path
+  const name = path.split('/').pop() ?? path
+  $.ui.toast(`speedy-code: trayendo ${name} de ${remote.host}…`)
+  const file = saidField(await askRemote($, 'fetch', path), 'file')
+  if (typeof file === 'string' && file) return file
+  $.ui.toast(`speedy-code: no pude traer ${name} de ${remote.host}.`)
+  return ''
+}
+
+/** A file of the tree pressed: the viewer shows it, a file of another machine once its copy is here. */
+async function viewTreeFile ($: EngineInterface, path: string) {
+  const file = await localFile($, path)
+  if (file) await runViewer($, 'view_file.ps1', file)
+}
+
 /** A folder read for the tree; `denied` when it cannot be read. */
 async function readFolder ($: EngineInterface, path: string): Promise<ExplorerListing | 'denied'> {
+  if (remoteOf(path)) {
+    const entries = saidField(await askRemote($, 'list', path), 'entries')
+    return Array.isArray(entries) ? listingOf(entries as FsEntry[]) : 'denied'
+  }
   try {
     return listingOf(await $.fs.list(path))
   } catch {
@@ -2639,8 +2729,14 @@ async function readFolder ($: EngineInterface, path: string): Promise<ExplorerLi
   }
 }
 
-/** The disks there are: each lettered root that answers on Windows; `/` and each volume mounted on a Mac. */
+/** The disks there are: this machine's, then those of the other machines reached by ssh. */
 async function readDrives ($: EngineInterface, os: Os) {
+  const [own, remote] = await Promise.all([ownDrives($, os), remoteDrives($)])
+  return [...own, ...remote]
+}
+
+/** This machine's disks: each lettered root that answers on Windows; `/` and each volume mounted on a Mac. */
+async function ownDrives ($: EngineInterface, os: Os) {
   if (os === 'windows') {
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
     const found = await Promise.all(letters.map(letter => $.fs.stat(`${letter}:/`).then(stat => stat.kind === 'dir' ? `${letter}:/` : '', () => '')))
@@ -2697,10 +2793,14 @@ async function filterExplorer ($: EngineInterface, text: string) {
     ? { ...now, filter: { ...now.filter, paths: paths.length > 0 ? [...now.filter.paths, ...paths] : now.filter.paths, seen: Math.max(seen, now.filter.seen), isBusy, isCut } }
     : now)
   try {
-    const search = $.process.spawn({
-      argv: [await python($), `${$.plugin.root}/hooks/find_files.py`],
-      env: { SPEEDY_ROOT: await nativePath($, drive), SPEEDY_FIRST: await nativePath($, here), SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) }
-    })
+    // Another machine's disk is searched there: remote.py runs find_files.py on it, by ssh.
+    const remote = remoteOf(drive)
+    const search = $.process.spawn(remote
+      ? { argv: [await python($), `${$.plugin.root}/hooks/remote.py`, 'find'], env: { SPEEDY_HOST: remote.host, SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) } }
+      : {
+          argv: [await python($), `${$.plugin.root}/hooks/find_files.py`],
+          env: { SPEEDY_ROOT: await nativePath($, drive), SPEEDY_FIRST: await nativePath($, here), SPEEDY_PATTERN: pattern, SPEEDY_MOST: String(FILTER_MOST) }
+        })
     let pending = ''
     for await (const { stream, text: piece } of search) {
       if (controller.signal.aborted) break
@@ -2812,6 +2912,8 @@ async function collapseExplorer ($: EngineInterface) {
 export function pastedPath (text: string) {
   const path = slashed(text.trim().replace(/^@/, '').replace(/^["']+|["']+$/g, '').trim())
   if (/^[A-Za-z]:\/?$/.test(path)) return `${path.slice(0, 2)}/`
+  // Another machine's disk, `mac:` or `mac:/`: its root too ends in `/`.
+  if (/^[A-Za-z][\w.-]+:\/*$/.test(path)) return `${path.slice(0, path.indexOf(':'))}:/`
   return path.length > 1 ? path.replace(/\/+$/, '') : path
 }
 
@@ -2823,10 +2925,10 @@ async function goToPath ($: EngineInterface, text: string) {
   const state = await read($, explorer)
   const pasted = pastedPath(text)
   if (!pasted) return
-  const isAbsolute = /^[A-Za-z]:\//.test(pasted) || pasted.startsWith('/')
+  const isAbsolute = /^[A-Za-z]:\//.test(pasted) || pasted.startsWith('/') || remoteOf(pasted) !== undefined
   const path = isAbsolute ? pasted : joinPath(state.here, pasted)
-  const stat = await $.fs.stat(path).catch(() => undefined)
-  if (!stat) {
+  const kind = await kindAt($, path)
+  if (!kind) {
     $.ui.toast(`speedy-code: no existe ${pasted}.`)
     return
   }
@@ -2838,7 +2940,7 @@ async function goToPath ($: EngineInterface, text: string) {
     $.ui.toast(`speedy-code: ${pasted} no está en ninguno de los discos del explorador.`)
     return
   }
-  const isFolder = stat.kind === 'dir' || key === pathKey(drive, state.caseless)
+  const isFolder = kind === 'dir' || key === pathKey(drive, state.caseless)
   const folder = isFolder ? path : path.slice(0, path.lastIndexOf('/')) || drive
   const chain = chainOf(folder, drive)
   // Each folder down to it read afresh: what was pasted may be new.
@@ -2984,7 +3086,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               <Button
                 key={`${isFolder ? 'explorer' : 'explorer-file'}:${row.path}`}
                 plain
-                onPress={() => { if (isFolder) void toggleTreeFolder($, row.path); else { void forgetFound($); void runViewer($, 'view_file.ps1', row.path) } }}
+                onPress={() => { if (isFolder) void toggleTreeFolder($, row.path); else { void forgetFound($); void viewTreeFile($, row.path) } }}
               >
                 <Text color={tint} wrap="truncate-end">{label}</Text>
               </Button>
@@ -4469,7 +4571,7 @@ export const register: Register = on => {
       const kind = rest.slice(0, rest.indexOf(':'))
       const path = rest.slice(rest.indexOf(':') + 1)
       await forgetFound($)
-      if (kind === 'view') void runViewer($, 'view_file.ps1', path)
+      if (kind === 'view') void viewTreeFile($, path)
       if (kind === 'folder') await toggleTreeFolder($, path)
       if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
       if (kind === 'copy') await copyFileToClipboard($, path)

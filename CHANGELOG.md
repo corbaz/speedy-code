@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Explorer: another machine reached by ssh has a disk after this machine's (`mac`, when `~/.ssh/config` has a `Host mac`, or the names in `SPEEDY_REMOTES`): its folders, its files in the viewer (fetched to the temporary folder) and the filter over its disk, by `remote.py`. Nothing is installed on that machine; ✏ and 🗑 are not for its files.
 - Viewer: a presentation's bar has `Run` (F5), on Windows and macOS: the slides played one at a time, each whole over the entire screen. The arrows, Space, Enter, the page keys or a click go on and back; Esc ends it.
 - Explorer: the filter leaves every `node_modules` and `.git` unread.
 - Explorer: a filter under the field for a path. A pattern (`*.pdf`, `a*.docx`), Enter, and the disk shown is searched (`find_files.py`, the session's folder first): the tree holds only the files found, under their folders. `× limpiar` brings the whole tree back.

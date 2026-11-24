@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -23,6 +23,15 @@ const DIALOG = { answer: 'cancel', asked: [] as string[] }
 const VIEWER = { says: '', stays: false, next: [] as string[] }
 /** What find_files.py says, a line each, and what each search was asked. */
 const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>> }
+/** Another machine's disk, as remote.py answers for it: the machines there are, what was asked, and its folders. */
+const REMOTE = {
+  hosts: [] as string[],
+  asked: [] as Array<Record<string, string>>,
+  tree: {
+    '/': [{ name: 'Users', kind: 'dir', isLink: false }, { name: 'nota.md', kind: 'file', isLink: false }],
+    '/Users': [{ name: 'ana', kind: 'dir', isLink: false }]
+  } as Record<string, Array<{ name: string, kind: string, isLink: boolean }>>
+}
 /** What sessions.py answers, once `gate` lets it: the conversations' menu reads them after it opens. */
 const SESSIONS = { rows: '', gate: Promise.resolve() }
 
@@ -213,6 +222,22 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       copied.push(e.argv.at(-1) ?? '')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    // Another machine's disk: remote.py answers by its mode, as the machine would by ssh.
+    if (e.argv.some(arg => arg.endsWith('remote.py'))) {
+      const mode = e.argv.at(-1) ?? ''
+      const path = e.init?.env?.SPEEDY_PATH ?? ''
+      if (mode !== 'hosts') REMOTE.asked.push({ mode, host: e.init?.env?.SPEEDY_HOST ?? '', path })
+      const folder = REMOTE.tree[path]
+      const isFile = Object.entries(REMOTE.tree).some(([parent, entries]) => entries.some(entry => `${parent === '/' ? '' : parent}/${entry.name}` === path))
+      const said = mode === 'hosts'
+        ? REMOTE.hosts
+        : mode === 'list'
+          ? (folder ? { entries: folder } : { error: 'not reached' })
+          : mode === 'stat'
+            ? { kind: folder ? 'dir' : isFile ? 'file' : '' }
+            : { file: `C:/Temp/speedy-remote/ab12/${path.split('/').pop() ?? ''}` }
+      return { value: { exitCode: 0, stdout: `${JSON.stringify(said)}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     // The explorer's 📋 and 🗑: a file to the clipboard, a file to the Recycle Bin.
     if (e.argv.some(arg => arg.includes('SetFileDropList'))) {
       FILES.copied.push(e.init?.env?.SPEEDY_FILE ?? '')
@@ -287,6 +312,12 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
         await clock.sleep(100)
         yield { stream: 'stdout' as const, text: `${VIEWER.next.shift() ?? '.'}\r\n` }
       }
+      return { value: { code: 0, signal: null } }
+    }
+    // The filter on another machine's disk: remote.py says what find_files.py found there.
+    if (e.argv.some(arg => arg.endsWith('remote.py'))) {
+      REMOTE.asked.push({ mode: e.argv.at(-1) ?? '', host: e.env?.SPEEDY_HOST ?? '', pattern: e.env?.SPEEDY_PATTERN ?? '' })
+      for (const line of FINDER.lines) yield { stream: 'stdout' as const, text: `${line}\n` }
       return { value: { code: 0, signal: null } }
     }
     // The explorer's filter: find_files.py says the files found, a line at a time.
@@ -2266,6 +2297,12 @@ test('driveOf, chainOf and driveLabel: the disk a folder is on, each folder from
   expect(chainOf('/Volumes/USB/fotos', '/Volumes/USB')).toEqual(['/Volumes/USB', '/Volumes/USB/fotos'])
   expect(chainOf('E:/x', 'C:/')).toEqual(['C:/'])
   expect([driveLabel('C:/'), driveLabel('/'), driveLabel('/Volumes/USB')]).toEqual(['C:', '/', 'USB'])
+  // Another machine's disk, reached by ssh: the machine, then its own path.
+  expect(driveLabel('mac:/')).toBe('mac')
+  expect(remoteOf('mac:/Users/ana')).toEqual({ host: 'mac', path: '/Users/ana' })
+  expect(remoteOf('mac:\\Users\\ana')).toEqual({ host: 'mac', path: '/Users/ana' })
+  expect([remoteOf('C:/Users'), remoteOf('/Users/ana'), remoteOf('notas.txt')]).toEqual([undefined, undefined, undefined])
+  expect(chainOf('mac:/Users/ana', 'mac:/')).toEqual(['mac:/', 'mac:/Users', 'mac:/Users/ana'])
 })
 
 test('listingOf: folders and links first, then files, each by name whatever its case; past the most, how many are left', () => {
@@ -2629,6 +2666,53 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
   expect(closed).toEqual(['speedy-code-explorer'])
+  // Another machine, reached by ssh: remote.py names it, and its disk stands after this machine's.
+  REMOTE.hosts = ['mac']
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  const far = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44 }, surface: 'terminal' })
+  const farRows = async () => (await explorerRows(far)).map(row => row.text.replace(/ {2,}$/, ''))
+  expect((await farRows()).slice(0, 3)).toEqual([' C: ', ' D: ', ' mac '])
+  // Its disk pressed: its root is read there, and a folder of it when opened.
+  await far.press({ key: 'explorer-drive:mac:/' })
+  await w.clock.advance(100)
+  expect((await farRows()).slice(5)).toEqual(['▾ mac:/', '  ▸ Users', '    nota.md'])
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/Users' })
+  expect((await farRows()).slice(5)).toEqual(['▾ mac:/', '  ▾ Users', '    ▸ ana', '    nota.md'])
+  expect(REMOTE.asked.slice(-2)).toEqual([{ mode: 'list', host: 'mac', path: '/' }, { mode: 'list', host: 'mac', path: '/Users' }])
+  // A folder that does not answer says so, as one of this machine's.
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/Users/ana' })
+  expect(await farRows()).toContain('      (sin acceso)')
+  // A file of it pressed is fetched, and the viewer shows the copy.
+  VIEWER.says = ''
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-view:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(REMOTE.asked.at(-1)).toEqual({ mode: 'fetch', host: 'mac', path: '/nota.md' })
+  expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
+  // 🔗 copies its path as that machine writes it; 📋 puts the copy on the clipboard and the path there in the prompt.
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-path:mac:/nota.md' })
+  expect(copies.at(-1)).toBe('/nota.md')
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/nota.md' })
+  expect(FILES.copied.at(-1)).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
+  expect(prompt.fills.at(-1)).toContain('mac:/nota.md')
+  // ✏ and 🗑 are not for another machine's files: no dialog asks.
+  const dialogs = DIALOG.asked.length
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(DIALOG.asked.length).toBe(dialogs)
+  // A path of it pasted in the field opens the tree down to it.
+  await far.input({ key: 'explorer-goto', text: 'mac:/Users/ana', kind: 'submit' })
+  await w.clock.advance(100)
+  expect(REMOTE.asked.some(one => one.mode === 'stat' && one.path === '/Users/ana')).toBe(true)
+  // The filter searches that machine: remote.py is asked, and what it found is drawn under the machine's disk.
+  FINDER.lines = [JSON.stringify({ paths: ['mac:/Users/ana/informe.pdf'], seen: 12, done: true, cut: false })]
+  await far.input({ key: 'explorer-filter:0', text: '*.pdf', kind: 'submit' })
+  await w.clock.advance(100)
+  expect(REMOTE.asked.at(-1)).toEqual({ mode: 'find', host: 'mac', pattern: '*.pdf' })
+  expect((await farRows()).slice(5)).toEqual(['▾ mac:/', '  ▾ Users', '    ▾ ana', '        informe.pdf'])
+  REMOTE.hosts = []
+  await far.unmount()
   await footer.unmount()
 })
 
@@ -2665,6 +2749,7 @@ test('pastedPath: a path as pasted in the explorer’s field, quotes, spaces and
   expect(pastedPath('D:\\')).toBe('D:/')
   expect(pastedPath("'/Users/ana/notas.md'")).toBe('/Users/ana/notas.md')
   expect(pastedPath('/')).toBe('/')
+  expect([pastedPath('mac:'), pastedPath('mac:/'), pastedPath('mac:/Users/ana/')]).toEqual(['mac:/', 'mac:/', 'mac:/Users/ana'])
   expect(pastedPath('   ')).toBe('')
 })
 
