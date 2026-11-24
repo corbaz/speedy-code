@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Viewer: a sound's and a video's popup has a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar.
+- Narration: with the narrator on, an answer's narration is made whole first (`NARRATOR_ONLY_MAKE`) and then played in the viewer's popup, where there is one; a selection read is spoken as before.
 - Explorer: 📥 goes across machines, copied or moved: from another machine here, from here to it, and within it, a folder too (`remote.py pull | push | paste`, by tar over ssh).
 - Explorer: the filter's search is held and let go (`‖ pausar` / `▸ seguir`) in place of stopped, by a file `find_files.py` reads (`SPEEDY_PAUSE`); it finds up to 50,000 files, no longer 1,000.
 - Explorer: a file pressed is green until its popup is up, then stays marked until another press.

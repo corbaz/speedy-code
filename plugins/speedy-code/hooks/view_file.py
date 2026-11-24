@@ -142,7 +142,7 @@ class Popup:
                 extension = os.path.splitext(name)[1].lstrip('.').upper()
                 about = f'Audio {extension}  -  {readers.format_size(os.path.getsize(path))}'
                 doc['views'].append({'name': 'Media', 'type': 'media', 'video': kind == 'video', 'about': about})
-                inner = (min(640, room[0]), min(360 + MEDIA_BAR, room[1])) if kind == 'video' else (484, 90)
+                inner = (min(640, room[0]), min(360 + MEDIA_BAR, room[1])) if kind == 'video' else (620, 90)
             else:
                 data = readers.read_bytes(path)
                 text = None

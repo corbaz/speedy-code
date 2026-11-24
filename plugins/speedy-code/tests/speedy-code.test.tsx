@@ -22,6 +22,8 @@ const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
 const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
+/** Whether the speaker makes a narration asked to be only made; tests that look at what is spoken leave it off. */
+const SPEAKER = { makes: false }
 const VIEWER = { says: '', stays: false, next: [] as string[], isLate: false }
 /** What find_files.py says, a line each, and what each search was asked. */
 const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>>, isLong: false }
@@ -365,6 +367,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       return { value: { code: 0, signal: null } }
     }
     spoken.push(e.env ?? {})
+    // A narration only made says so once its file is whole, and plays nothing.
+    if (SPEAKER.makes && e.env?.NARRATOR_ONLY_MAKE === '1') {
+      yield { stream: 'stdout' as const, text: '.\nmade\n' }
+      return { value: { code: 0, signal: null } }
+    }
     yield { stream: 'stdout' as const, text: 'voice x\n' }
     // A voice that talks on until the test lets it end.
     while (talks.on) {
@@ -2259,6 +2266,30 @@ test('the 📎 menu lists the narrations kept from their folder, newest first by
   expect(w.ran.filter(argv => argv.join(' ').includes('*.mp3'))).toEqual([])
   await band.unmount()
   await ui.unmount()
+})
+
+test('an answer’s narration is made, then played in the viewer’s popup as soon as it is whole', { timeoutMs: 30000 }, async ($, on) => {
+  on('fs.stat', (_, e) => {
+    if (!e.path.endsWith('.mp3')) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }
+  })
+  const w = world(on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } }, '', { on: false }, 'un texto copiado para leer en voz alta')
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  SPEAKER.makes = true
+  try {
+    await answer($, 'Listo, ya quedó el cambio hecho.')
+    await w.clock.settle()
+    const made = w.spoken.find(env => env.NARRATOR_TEXT !== undefined)
+    expect(made).toMatchObject({ NARRATOR_TEXT: 'Listo, ya quedó el cambio hecho.', NARRATOR_ONLY_MAKE: '1' })
+    expect(made?.NARRATOR_SAVE_AS ?? '').toMatch(/\.mp3$/)
+    // The popup plays the file it was kept in, driven by a control file as any narration is.
+    const shown = w.spoken.find(env => env.SPEEDY_FILE !== undefined)
+    expect(shown?.SPEEDY_FILE).toBe(made?.NARRATOR_SAVE_AS)
+    expect(shown?.SPEEDY_CONTROL ?? '').not.toBe('')
+    expect(w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1'))).length).toBe(1)
+  } finally {
+    SPEAKER.makes = false
+  }
 })
 
 test('on Windows a narration kept plays in the viewer’s popup, where it can be sought: a row of the 📎 menu, and the play button once the answer was read', { timeoutMs: 30000 }, async ($, on) => {

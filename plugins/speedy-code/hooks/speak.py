@@ -4,6 +4,8 @@ It does what speak.ps1 does on Windows, with afplay in place of Windows' media p
 prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
 With NARRATOR_SAVE_AS set, the whole narration is joined into that file (history.py), stopped halfway or not.
+With NARRATOR_ONLY_MAKE=1 as well, nothing is played here: it says "made" once that file is whole and ends,
+and the mod plays the file in the viewer's popup.
 
 The text is cut in up to five parts at sentence ends, all synthesized at once (tts.py): the first plays as
 soon as it is ready while the rest are still being made, and each plays after the one before.
@@ -114,6 +116,15 @@ def main() -> int:
         if save_as:
             environment = {**os.environ, "SPEEDY_NARRATION": text}
             subprocess.Popen([sys.executable, os.path.join(HERE, "history.py"), "--wait", save_as, *audios], env=environment, start_new_session=True)
+
+        # Made and kept, not played: it ends once the whole narration is in its file.
+        if os.environ.get("NARRATOR_ONLY_MAKE") == "1" and save_as:
+            deadline = time.monotonic() + 150
+            while not os.path.exists(save_as) and time.monotonic() < deadline:
+                time.sleep(0.1)
+                say(".")
+            say("made" if os.path.exists(save_as) else "error the narration was not made")
+            return 0
 
         is_told = False
         is_paused = False

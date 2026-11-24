@@ -2,6 +2,8 @@
 # Prints "voice <name>" once the audio plays, "." every tenth of a second while it plays, "error ..." on failure.
 # Reads NARRATOR_CONTROL while it plays: "pause" pauses it, "play" goes on from where it stands.
 # With NARRATOR_SAVE_AS set, the whole narration is joined into that file (history.py), stopped halfway or not.
+# With NARRATOR_ONLY_MAKE=1 as well, nothing is played here: it says "made" once that file is whole and ends,
+# and the mod plays the file in the viewer's popup.
 #
 # The text is cut in up to five parts at sentence ends, all synthesized at once: the first plays as soon
 # as it is ready while the rest are still being made, and each plays after the one before.
@@ -86,6 +88,14 @@ try {
     [IO.File]::WriteAllText($narrated, $text, (New-Object Text.UTF8Encoding $false))
     $joinArguments = @("`"$PSScriptRoot\history.py`"", '--wait', '--text', "`"$narrated`"", "`"$saveAs`"") + @($audios | ForEach-Object { "`"$_`"" })
     [void](Start-Apart $joinArguments)
+  }
+
+  # Made and kept, not played: it ends once the whole narration is in its file.
+  if ($env:NARRATOR_ONLY_MAKE -eq '1' -and $saveAs) {
+    $deadline = (Get-Date).AddSeconds(150)
+    while (-not (Test-Path -LiteralPath $saveAs) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100; Say '.' }
+    if (Test-Path -LiteralPath $saveAs) { Say 'made' } else { Say 'error the narration was not made' }
+    return
   }
 
   Add-Type -AssemblyName PresentationCore

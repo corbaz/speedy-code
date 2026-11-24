@@ -81,6 +81,10 @@
   .controls .play svg, .controls .volume svg { width: 16px; height: 16px; fill: currentColor; }
   .controls .time { width: 132px; text-align: right; font: 13.33px Consolas, Menlo, monospace; color: var(--ink); padding-right: 4px; }
   .controls .volume { width: 28px; display: flex; justify-content: center; color: var(--line); }
+  /* The speed's switch: the one in force filled. After a sound's size; in a video's bar, before the time. */
+  .speeds { flex: none; display: flex; gap: 2px; }
+  .speeds div { width: 38px; height: 24px; line-height: 24px; text-align: center; font-size: 12px; background: var(--field); color: var(--ink); cursor: pointer; }
+  .speeds div.on { background: var(--line); color: #000; }
   .slider { position: relative; height: 16px; cursor: pointer; }
   .slider.seek { flex: 1; margin: 0 4px 0 6px; }
   .slider.loud { width: 82px; margin-right: 2px; }
@@ -328,6 +332,21 @@
     const seek = slider('seek', 0, value => { if (player.duration) player.currentTime = value * player.duration })
     const loud = slider('loud', 0.8, value => { player.volume = value })
     controls.append(play, seek, time, element('div', 'volume', icon('loud', 16)), loud)
+    // The speed's switch: x0.5 x1 x1.25 x1.5 x2, x1 as it opens.
+    const speeds = element('div', 'speeds')
+    for (const speed of [0.5, 1, 1.25, 1.5, 2]) {
+      const one = element('div', speed === 1 ? 'on' : 'off')
+      one.textContent = `x${speed}`
+      one.addEventListener('click', () => {
+        // The default too: a sound that ended and plays again keeps the speed chosen.
+        player.defaultPlaybackRate = speed
+        player.playbackRate = speed
+        for (const other of speeds.children) other.className = other === one ? 'on' : 'off'
+      })
+      speeds.append(one)
+    }
+    if (view.video) controls.insertBefore(speeds, time)
+    else stage.insertBefore(speeds, player)
     box.append(stage, controls)
     // It plays as it opens, as on Windows: `playing` is what the popup means, said to the mod when it changes.
     media = { player, playing: true, video: view.video }
@@ -349,7 +368,7 @@
       // A video takes its own size, within the room the screen gives.
       if (view.video && player.videoWidth > 0 && player.videoHeight > 0) {
         const scale = Math.min(1, doc.room[0] / player.videoWidth, (doc.room[1] - 40) / player.videoHeight)
-        resizeInner(Math.max(480, Math.round(player.videoWidth * scale)), Math.round(player.videoHeight * scale) + 40)
+        resizeInner(Math.max(640, Math.round(player.videoWidth * scale)), Math.round(player.videoHeight * scale) + 40)
       }
     })
     player.addEventListener('ended', () => {

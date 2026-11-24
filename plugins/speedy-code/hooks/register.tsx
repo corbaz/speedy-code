@@ -914,17 +914,24 @@ async function narrationOf ($: EngineInterface, answer: string, lang: string, si
 /** What `clipNow` holds while the 📎 menu's selection is being read: its row shows ⏸ and ⏵ as a kept one does. */
 const SELECTION_CLIP = 'selection'
 
-/** Reads `answer` aloud: ends any narration under way first. `source` marks the 📎 row it plays from, if any. */
-async function narrate ($: EngineInterface, answer: string, source = '') {
+/**
+ * Reads `answer` aloud: ends any narration under way first. `source` marks the 📎 row it plays from, if any.
+ * `inPopup`, for an answer: where there is the viewer's popup the narration is made first, whole, and then
+ * played in the popup, with its bar to seek and its speeds; elsewhere it is spoken as it is made.
+ */
+async function narrate ($: EngineInterface, answer: string, source = '', inPopup = false) {
   await stop($)
   const controller = new AbortController()
   current = controller
+  const hasPopup = inPopup && ((await osNow($)) === 'windows' || await macHasPopup($))
   if (source) await update($, clipNow, () => source)
   const chosen = await read($, picks)
   const lang = chosen.active ?? DEFAULT_LANG
   const voice = chosen[lang] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
   try {
     const isSame = lastNarration.answer === answer && lastNarration.lang === lang
+    // Said again where there is the popup: the file it was kept in plays there.
+    if (isSame && hasPopup && await playInViewer($, lastNarration.file, source)) return
     // Said again, nothing is written nor made: it shows as playing at once.
     await update($, speech, () => (isSame ? 'playing' : 'thinking'))
     const text = isSame ? lastNarration.text : await narrationOf($, answer, lang, controller.signal)
@@ -947,19 +954,29 @@ async function narrate ($: EngineInterface, answer: string, source = '') {
         await update($, clips, list => withStarted(list))
       }
     }
+    // Only made when it goes to the popup, which needs the file it is kept in.
+    const isOnlyMade = hasPopup && saveAs !== ''
+    let isMade = false
     const pythonFile = await python($)
     const speaker = $.process.spawn({
       argv: (await osNow($)) === 'windows'
         ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/speak.ps1`]
         : [pythonFile, `${$.plugin.root}/hooks/speak.py`],
-      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: pythonFile, NARRATOR_SAVE_AS: await nativePath($, saveAs) }
+      env: { NARRATOR_TEXT: text, NARRATOR_VOICE: voice, NARRATOR_SPEED: String(SPEED), NARRATOR_CONTROL: control, NARRATOR_PYTHON: pythonFile, NARRATOR_SAVE_AS: await nativePath($, saveAs), ...(isOnlyMade ? { NARRATOR_ONLY_MAKE: '1' } : {}) }
     })
     for await (const { text: said } of speaker) {
       // Leaving the loop ends the process, and its sound with it.
       if (controller.signal.aborted) break
+      // `made`: the narration is whole in its file.
+      if (isOnlyMade && /^made\s*$/m.test(said)) {
+        isMade = true
+        break
+      }
       if (/^voice /m.test(said) && (await read($, speech)) === 'thinking') await update($, speech, () => 'playing')
       if (/^error /m.test(said)) $.ui.log(`speedy: ${said.trim()}`, { to: 'debug' })
     }
+    // Made: it plays in the popup at once. The popup takes this narration's place, as any other would.
+    if (isMade && !controller.signal.aborted) await playInViewer($, saveAs, source)
   } catch (error) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
@@ -3886,7 +3903,7 @@ async function pressPlay ($: EngineInterface) {
     const lang = (await read($, picks)).active ?? DEFAULT_LANG
     const isKept = lastNarration.answer === lastAnswer && lastNarration.lang === lang
     if (isKept && await playInViewer($, lastNarration.file)) return
-    void narrate($, lastAnswer)
+    void narrate($, lastAnswer, '', true)
   }
   else if (now === 'thinking') await stop($)
   else if (now === 'playing') await control($, 'pause')
@@ -4654,7 +4671,7 @@ export const register: Register = on => {
     const result = await next(e)
     if (e.agentId === undefined && e.reason === 'answer' && e.answer.trim()) {
       lastAnswer = e.answer
-      if (isInteractive && (await read($, isEnabled))) void narrate($, e.answer)
+      if (isInteractive && (await read($, isEnabled))) void narrate($, e.answer, '', true)
     }
     return result
   })
@@ -4664,7 +4681,7 @@ export const register: Register = on => {
     if (arg === 'stop') { await stop($); return { text: 'speedy-code: callado.' } }
     if (arg === 'leer') {
       if (!lastAnswer) return { text: 'speedy-code: todavía no hay respuesta para leer.' }
-      void narrate($, lastAnswer)
+      void narrate($, lastAnswer, '', true)
       return { text: 'speedy-code: leyendo la última respuesta.' }
     }
     if (arg === 'voces') { await openPicker($); return { text: 'speedy-code: elegí la voz en el panel.' } }

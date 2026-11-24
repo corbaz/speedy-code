@@ -9,7 +9,8 @@
 #   Markdown, HTML and SVG: drawn as a page, the Preview, with a switch beside the title to their source;
 #   a spreadsheet (xlsx, xlsm; xls through Excel) or a Word document (docx; doc through Word): drawn as a page;
 #   a Word document, a Markdown or an HTML Preview also gets the bar's zoom;
-#   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume;
+#   audio and video: played by Windows' own media player, with a dark bar to pause, seek and set the volume,
+#     and a switch for the speed, x0.5 x1 x1.25 x1.5 x2: after a sound's size, and in a video's bar;
 #   a SQLite database (sqlite, sqlite3, db, db3, or any file that starts as one): its tables and views, a tab
 #   each, with their columns and first rows, read by db_view.py;
 #   a Windows shortcut (.lnk) or an Internet shortcut (.url): where it leads, as selectable text;
@@ -2181,7 +2182,7 @@ try {
     . {
       $uri = New-Object System.Uri($path)
       $barHeight = 40
-      $media = [pscustomobject]@{ Ready = $false; Playing = $true; Seconds = 0.0; Asked = 'play' }
+      $media = [pscustomobject]@{ Ready = $false; Playing = $true; Seconds = 0.0; Asked = 'play'; Speed = 1.0 }
       $panel = New-Object System.Windows.Forms.Panel
       $panel.BackColor = $black
       $panel.Dock = 'Fill'
@@ -2220,10 +2221,10 @@ try {
         $about.Font = New-Object System.Drawing.Font('Segoe UI', 10)
         $about.ForeColor = $dim
         $about.TextAlign = 'MiddleLeft'
-        $about.SetBounds(54, 2, 420, 46)
+        $about.SetBounds(54, 2, 330, 46)
         $stage.Controls.Add($note)
         $stage.Controls.Add($about)
-        $inner = New-Object System.Drawing.Size(484, 90)
+        $inner = New-Object System.Drawing.Size(620, 90)
       }
       $stage.Dock = 'Fill'
       $player.Volume = 0.8
@@ -2294,13 +2295,38 @@ try {
       $volumeIcon.Text = [string][char]0xE767
       $volumeBar = & $makeSlider 0.8
       foreach ($one in @($playButton, $seekBar, $timeLabel, $volumeIcon, $volumeBar)) { $bar.Controls.Add($one) }
+      # The speed's switch: x0.5 x1 x1.25 x1.5 x2, the one in force filled, x1 as it opens. A sound has it
+      # after its size; a video, which fills its stage, in the bar before the time.
+      $speedButtons = New-Object System.Collections.ArrayList
+      $speedWidth = 38
+      $speedGap = 2
+      $speedsWidth = 5 * $speedWidth + 4 * $speedGap
+      $speedOff = [System.Drawing.ColorTranslator]::FromHtml('#25282e')
+      foreach ($speed in @(0.5, 1.0, 1.25, 1.5, 2.0)) {
+        $one = New-Object System.Windows.Forms.Label
+        $one.Text = 'x' + ([double]$speed).ToString('0.##', [Globalization.CultureInfo]::InvariantCulture)
+        $one.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $one.TextAlign = 'MiddleCenter'
+        $one.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $one.Tag = [double]$speed
+        $one.Add_Click({ Set-Speed $this.Tag })
+        [void]$speedButtons.Add($one)
+        if ($kind -eq 'video') { $bar.Controls.Add($one) } else {
+          $one.SetBounds(392 + ($speedButtons.Count - 1) * ($speedWidth + $speedGap), 13, $speedWidth, 24)
+          $stage.Controls.Add($one)
+        }
+      }
       $bar.Add_Resize({
         $w = $bar.ClientSize.Width
+        $speeds = if ($kind -eq 'video') { $speedsWidth + 6 } else { 0 }
         $playButton.SetBounds(0, 4, 34, 32)
         $volumeBar.SetBounds($w - 84, 12, 82, 16)
         $volumeIcon.SetBounds($w - 112, 4, 28, 32)
         $timeLabel.SetBounds($w - 112 - 136, 4, 132, 32)
-        $seekBar.SetBounds(40, 12, [Math]::Max(40, $w - 40 - 112 - 136 - 8), 16)
+        $seekBar.SetBounds(40, 12, [Math]::Max(40, $w - 40 - 112 - 136 - 8 - $speeds), 16)
+        if ($kind -eq 'video') {
+          for ($i = 0; $i -lt $speedButtons.Count; $i++) { $speedButtons[$i].SetBounds($w - 112 - 136 - $speedsWidth + $i * ($speedWidth + $speedGap), 8, $speedWidth, 24) }
+        }
       })
 
       $panel.Controls.Add($stage)
@@ -2316,11 +2342,23 @@ try {
       $t = [TimeSpan]::FromSeconds([Math]::Floor([Math]::Max(0, $seconds)))
       if ($t.TotalHours -ge 1) { '{0}:{1:00}:{2:00}' -f [int][Math]::Floor($t.TotalHours), $t.Minutes, $t.Seconds } else { '{0}:{1:00}' -f $t.Minutes, $t.Seconds }
     }
+    # The speed it plays at, and its switch drawn to match.
+    function Set-Speed([double]$speed) {
+      $mediaParts.Media.Speed = $speed
+      $player.SpeedRatio = $speed
+      foreach ($one in $speedButtons) {
+        $isOn = [Math]::Abs([double]$one.Tag - $speed) -lt 0.001
+        $one.BackColor = $(if ($isOn) { $blue } else { $speedOff })
+        $one.ForeColor = $(if ($isOn) { $black } else { $ink })
+      }
+    }
+    Set-Speed 1.0
     # Plays or pauses, and says which, so the mod's own play marks follow the popup's.
     function Set-Playing([bool]$on) {
       $media = $mediaParts.Media
       if ($media.Playing -eq $on) { return }
-      if ($on) { $player.Play() } else { $player.Pause() }
+      # Windows' player goes back to its own speed when it starts again: the one chosen is set anew.
+      if ($on) { $player.Play(); $player.SpeedRatio = $media.Speed } else { $player.Pause() }
       $media.Playing = $on
       $mediaParts.Play.Text = [string][char]$(if ($on) { 0xE769 } else { 0xE768 })
       try { Say $(if ($on) { 'media playing' } else { 'media paused' }) } catch { }
@@ -2334,7 +2372,7 @@ try {
       if ($kind -eq 'video' -and $player.NaturalVideoWidth -gt 0 -and $player.NaturalVideoHeight -gt 0) {
         $width = [double]$player.NaturalVideoWidth; $height = [double]$player.NaturalVideoHeight
         $scale = [Math]::Min(1.0, [Math]::Min($room.Width / $width, ($room.Height - $mediaParts.Bar) / $height))
-        Set-PopupSize (([int][Math]::Max(480, $width * $scale)) + $extraWidth) (([int]($height * $scale)) + $mediaParts.Bar + $extraHeight)
+        Set-PopupSize (([int][Math]::Max(640, $width * $scale)) + $extraWidth) (([int]($height * $scale)) + $mediaParts.Bar + $extraHeight)
       }
     })
     $player.Add_MediaFailed({
