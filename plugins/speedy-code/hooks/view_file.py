@@ -92,9 +92,8 @@ class Summary:
         pass
 
     def close(self):
-        window, self._window = self._window, None
-        if window is not None:
-            window.destroy()
+        # The two go together: Resumen closed closes the player too, as the player closed ends them both.
+        self._owner.close()
 
 
 def text_view(name, text, wrap):

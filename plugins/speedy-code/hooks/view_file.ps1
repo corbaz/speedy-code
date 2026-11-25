@@ -3092,6 +3092,8 @@ function Open-Summary {
   $take.Location = New-Object System.Drawing.Point(($carry.Location.X - $take.PreferredWidth - 6), ($middle - [int]($take.PreferredHeight / 2)))
   $hear.Location = New-Object System.Drawing.Point(($take.Location.X - $hear.PreferredWidth - 6), ($middle - [int]($hear.PreferredHeight / 2)))
   $popup.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $summary.Form.Close(); $_.Handled = $true } })
+  # The two go together: Resumen closed closes the player, as the player closed takes Resumen with it.
+  $popup.Add_FormClosed({ if (-not $summary.IsEnding -and -not $form.IsDisposed) { $form.Close() } })
   $summary.Form = $popup
   $popup.Show($form)
 }
@@ -3173,7 +3175,11 @@ $summaryTimer.Add_Tick({
     }
   }
 })
-if ($summaryButton) { $summaryTimer.Start() }
+if ($summaryButton) {
+  $summaryTimer.Start()
+  # The player closing: Resumen, which it owns, goes with it and asks nothing more of it.
+  $form.Add_FormClosing({ $summary.IsEnding = $true })
+}
 
 Set-PopupSize ($inner.Width + $extraWidth) ($inner.Height + $extraHeight)
 # The view it opens on: the first, or the one SPEEDY_VIEW names when it has it (`Texto` for a PDF's text).
