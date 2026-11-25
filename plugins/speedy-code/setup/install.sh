@@ -12,6 +12,7 @@
 #   - ffmpeg, where there is none (Windows: gyan.dev's release build, about 120 MB, into the mod's own folder,
 #     beside its Python; macOS: it is only told how to get it): see extras.py, which also checks git,
 #     the other machines the explorer reaches by ssh and, on macOS, the Accessibility permission
+# With SPEEDY_NO_DICTATION set, the model is not downloaded: the rest is installed, and the dictation waits.
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses. The key is read
 # from the environment: export it in ~/.zshrc. Its value is never printed.
 #
@@ -90,6 +91,8 @@ packages_step() {
 model_step() {
   local models="$data/models" model="$data/models/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf" answer
   if [ ! -f "$model" ]; then
+    # Asked for without the dictation (SPEEDY_NO_DICTATION): its 750 MB are not downloaded; one already there is kept and checked.
+    if [ -n "$SPEEDY_NO_DICTATION" ]; then echo 'omitido: sin el dictado (se instala con Instalar / reparar todo)'; return 0; fi
     mkdir -p "$models"
     # To a .part first: a download cut halfway never passes for the model.
     if ! curl -L --fail --silent --show-error -o "$model.part" "$model_url"; then

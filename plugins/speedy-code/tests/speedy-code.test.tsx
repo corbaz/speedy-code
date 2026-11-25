@@ -24,6 +24,8 @@ const DIALOG = { answer: 'cancel', asked: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 /** Whether the speaker makes a narration asked to be only made; tests that look at what is spoken leave it off. */
 const SPEAKER = { makes: false }
+/** Each setup script run: its name, and `lean` when it was asked without the dictation. */
+const SETUP = { ran: [] as string[] }
 const VIEWER = { says: '', stays: false, next: [] as string[], isLate: false }
 /** What find_files.py says, a line each, and what each search was asked. */
 const FINDER = { lines: [] as string[], asked: [] as Array<Record<string, string>>, isLong: false }
@@ -315,7 +317,13 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   on('process.spawn', async function * (_, e) {
     ran.push([...e.argv])
     // The setup: install.ps1 says each step as it starts and ends.
+    if (e.argv.some(arg => arg.endsWith('uninstall.ps1'))) {
+      SETUP.ran.push('uninstall')
+      yield { stream: 'stdout' as const, text: 'info venv: borrado\ndone\n' }
+      return { value: { code: 0, signal: null } }
+    }
     if (e.argv.some(arg => arg.endsWith('install.ps1'))) {
+      SETUP.ran.push((e as { env?: Record<string, string> }).env?.SPEEDY_NO_DICTATION ? 'install lean' : 'install')
       yield { stream: 'stdout' as const, text: 'step python Creando el entorno\ninfo Using Python 3.12\nok python Python 3.12.16\n' }
       yield { stream: 'stdout' as const, text: 'step groq Buscando la clave\nfail groq falta GROQ_API_KEY (opcional: solo la usa la pluma)\ndone con avisos\n' }
       return { value: { code: 0, signal: null } }
@@ -1528,6 +1536,36 @@ test('the setup tab checks what is in place, and its button runs install.ps1 sho
   // Done, it checks again: the environment is in place.
   expect((await after.find({ type: 'Text', text: /^listo$/ }))?.text).toBe('listo')
   expect((await after.find({ type: 'Text', text: /Using Python 3\.12/ }))?.text).toBe('   Using Python 3.12')
+  await after.unmount()
+  await ui.unmount()
+})
+
+test('the setup installs without the dictation when asked so, and removes what it installed only when asked twice', { timeoutMs: 30000 }, async ($, on) => {
+  SETUP.ran = []
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await ui.post({ isClicked: true }, { in: 'speedy:settings' })
+  await w.clock.advance(200)
+  const band = await $.ui.mount(BAND)
+  await band.press({ key: 'settings:setup' })
+  await band.unmount()
+  const setup = await $.ui.mount(BAND)
+  await setup.press({ key: 'setup:lean' })
+  await w.clock.advance(200)
+  expect(SETUP.ran).toEqual(['install lean'])
+  // A first press of Desinstalar removes nothing: it asks, and says what goes and what stays.
+  await setup.press({ key: 'setup:remove' })
+  await w.clock.advance(200)
+  expect(SETUP.ran).toEqual(['install lean'])
+  await setup.unmount()
+  const asked = await $.ui.mount(BAND)
+  expect((await asked.find({ type: 'Text', text: /Seguro/ }))?.text).toBe('   ¿Seguro? Se borran el entorno de Python, el modelo de dictado y el ffmpeg propio (vuelven con Instalar).')
+  // The second press is what removes.
+  await asked.press({ key: 'setup:remove' })
+  await w.clock.advance(200)
+  expect(SETUP.ran).toEqual(['install lean', 'uninstall'])
+  await asked.unmount()
+  const after = await $.ui.mount(BAND)
+  expect((await after.find({ type: 'Text', text: /borrado/ }))?.text).toBe('   venv: borrado')
   await after.unmount()
   await ui.unmount()
 })

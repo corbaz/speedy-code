@@ -197,7 +197,7 @@ const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['ffmpeg', 'ffmpeg (videos que el sistema no reproduce)'],
   ['git', 'git (la rama y la actualización)'],
   ['remotes', 'Otras máquinas por ssh (opcional)'],
-  ['access', 'Accesibilidad (macOS: pegar imágenes y ⏎)'],
+  ['access', 'Accesibilidad (macOS: pegar imágenes y enviar)'],
   ['groq', 'Clave de Groq (la pluma, opcional)'],
   ['prefs', 'Claude Code: sesión normal al iniciar']
 ]
@@ -3873,17 +3873,33 @@ async function resetLevels ($: EngineInterface) {
   await saveLevels($, DEFAULT_LEVELS)
 }
 
-/** Runs install.ps1, each line it prints shown as it comes; then checks again. */
-async function runSetup ($: EngineInterface) {
+/** When Desinstalar was pressed a first time: a second press within these seconds is what removes. */
+let removeAskedAt = 0
+const REMOVE_ASK_MS = 10000
+
+/**
+ * Runs the setup, each line it prints shown as it comes; then checks again. `all` is install.ps1; `lean` the
+ * same without the dictation's model (750 MB less); `remove` is uninstall.ps1, which takes away what the
+ * setup put in the mod's own folder: it is asked twice, the second press within ten seconds.
+ */
+async function runSetup ($: EngineInterface, what: 'all' | 'lean' | 'remove' = 'all') {
   if (await read($, isInstalling)) return
+  if (what === 'remove' && Date.now() - removeAskedAt > REMOVE_ASK_MS) {
+    removeAskedAt = Date.now()
+    await update($, setupLog, () => ['¿Seguro? Se borran el entorno de Python, el modelo de dictado y el ffmpeg propio (vuelven con Instalar).', 'Tus audios, imágenes, historial y ajustes se quedan. Pulsá Desinstalar otra vez en 10 s para borrar.'])
+    return
+  }
+  removeAskedAt = 0
   await update($, isInstalling, () => true)
   await update($, setupLog, () => [])
+  const script = what === 'remove' ? 'uninstall' : 'install'
   let pending = ''
   try {
     const setup = $.process.spawn({
       argv: (await osNow($)) === 'windows'
-        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/setup/install.ps1`]
-        : ['/bin/bash', `${$.plugin.root}/setup/install.sh`]
+        ? ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/setup/${script}.ps1`]
+        : ['/bin/bash', `${$.plugin.root}/setup/${script}.sh`],
+      ...(what === 'lean' ? { env: { SPEEDY_NO_DICTATION: '1' } } : {})
     })
     for await (const { stream, text } of setup) {
       if (stream !== 'stdout') continue
@@ -4044,6 +4060,14 @@ async function settingsMenu ($: EngineInterface, e: Drawn, width = 90, height = 
       <Box flexDirection="row" marginTop={1}>
         <Button key="setup:run" plain onPress={() => { void runSetup($) }}>
           <Text bold color="black" backgroundColor={installing ? '#ffd43b' : '#51cf66'}>{installing ? ' Instalando… ' : ' Instalar / reparar todo '}</Text>
+        </Button>
+        <Text> </Text>
+        <Button key="setup:lean" plain onPress={() => { void runSetup($, 'lean') }}>
+          <Text bold color="black" backgroundColor="#74c0fc">{' Instalar sin dictado (750 MB menos) '}</Text>
+        </Button>
+        <Text> </Text>
+        <Button key="setup:remove" plain onPress={() => { void runSetup($, 'remove') }}>
+          <Text bold color="black" backgroundColor="#ff6b6b">{' Desinstalar '}</Text>
         </Button>
       </Box>
       {log.map((line, index) => <Text key={`setup-log:${index}`} dimColor>{`   ${line}`}</Text>)}

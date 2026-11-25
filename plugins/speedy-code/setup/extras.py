@@ -102,7 +102,9 @@ def ffmpeg(install):
 
 
 def tool(name, why, link):
-    said = version_of(shutil.which(name) or name)
+    # bun keeps itself under the person's folder, which a program started outside a terminal may not have on its PATH.
+    own = os.path.join(os.path.expanduser('~'), f'.{name}', 'bin', name + ('.exe' if IS_WINDOWS else ''))
+    said = version_of(shutil.which(name) or (own if os.path.isfile(own) else name))
     return (True, said) if said else (False, f'falta ({why}): {link}')
 
 

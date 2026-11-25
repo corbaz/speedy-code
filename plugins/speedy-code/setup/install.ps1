@@ -12,6 +12,7 @@
 #   - ffmpeg, where there is none (Windows: gyan.dev's release build, about 120 MB, into the mod's own folder,
 #     beside its Python; macOS: it is only told how to get it): see extras.py, which also checks git,
 #     the other machines the explorer reaches by ssh and, on macOS, the Accessibility permission
+# With SPEEDY_NO_DICTATION set, the model is not downloaded: the rest is installed, and the dictation waits.
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses; -GroqKey
 # saves that key as a user environment variable. The key's value is never printed.
 #
@@ -84,6 +85,8 @@ Step 'model' 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' {
   $models = Join-Path $data 'models'
   $model = Join-Path $models 'nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf'
   if (-not (Test-Path -LiteralPath $model)) {
+    # Asked for without the dictation (SPEEDY_NO_DICTATION): its 750 MB are not downloaded; one already there is kept and checked.
+    if ($env:SPEEDY_NO_DICTATION) { return 'omitido: sin el dictado (se instala con Instalar / reparar todo)' }
     New-Item -ItemType Directory -Force -Path $models | Out-Null
     # To a .part first: a download cut halfway never passes for the model.
     $part = "$model.part"

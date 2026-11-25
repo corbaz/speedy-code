@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Setup: **Instalar sin dictado** installs all but the dictation's model (`SPEEDY_NO_DICTATION`), and **Desinstalar**, asked twice, removes what the setup installed in the mod's own folder (`setup/uninstall.ps1`, `uninstall.sh`): the Python environment, the model and its own ffmpeg; what is the person's stays.
 - Setup: four steps more, checked by `setup/extras.py` and shown in ⚙️ → Instalación: ffmpeg (downloaded on Windows when there is none, into the mod's own folder, where the viewer looks for it too), git, the other machines reached by ssh, and macOS's Accessibility permission.
 - Explorer, macOS: a folder that is another machine's disk mounted over the network (`/Volumes/share`, by smb, afp, nfs or webdav; `remote.py mounts`) is left out of the disks where a machine is reached by ssh: that disk is shown once, under its machine. With no machine by ssh it stays.
 - Explorer: another machine's disk over a network that falters: a connection cut at once (reset, refused, a name not found for a moment) is tried again, twice, before the explorer says there is none; a machine that does not answer in its whole time is not waited for again.
