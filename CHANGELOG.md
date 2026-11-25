@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Viewer, Windows: Office's old files open with no Office installed, by readers the setup adds (`msdoc2docx`, `sharepoint-to-text`; `legacy_office.py`): a .doc as its pages with its headings, bold and tables, an .xls as its sheets, and a .ppt as slides of its words alone. With Office they open through it as before; `SPEEDY_NO_OFFICE=1` shows them as on a machine with none.
 - Viewer: more kinds of sound and video open in the player on both systems (FLV, OGV, MTS, VOB, ASF, RM, AC3, DTS, AMR, APE, WavPack and others): what the system does not play by itself, ffmpeg makes again as one it does.
 - Viewer, Windows: the same there: a video or a sound Windows does not play as it is, as AV1 with no decoder for it, is made again by ffmpeg, when there is one, and plays.
 - Viewer, macOS: a video or a sound macOS does not play as it is (AV1 on a Mac with no decoder for it, VP9) is made again as H.264 by ffmpeg, when there is one, and plays; with none, the popup says ffmpeg is what is missing.

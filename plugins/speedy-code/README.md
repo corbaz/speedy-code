@@ -190,6 +190,7 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
   and the rename and delete dialogs open in popups drawn as the Windows ones (Python with pywebview, which the
   installer adds; without it, Quick Look and macOS's own dialogs, and narrations play with `afplay`). There
   an .xls has no preview and a .doc is read through `textutil`, and the history and image copies live in `~/Library/Application Support/speedy-code`.
+- Office is not needed on Windows: with none, Office's old files are read by the readers the setup adds (`msdoc2docx`, `sharepoint-to-text`): a .doc with its headings, bold and tables, an .xls as its sheets, and of a .ppt the words of each slide, not its drawing. With Office they open through it, as before; `SPEEDY_NO_OFFICE=1` in the environment shows them as on a machine with none.
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY` (on macOS, exported in `~/.zshrc`); the draft is sent to Groq.
 - Everything else (uv, Python 3.12, edge-tts, transcribe-cpp, the dictation model) is installed by

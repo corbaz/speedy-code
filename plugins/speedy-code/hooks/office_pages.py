@@ -3,7 +3,8 @@ installed: view_file.ps1 then draws that PDF as it draws any other, under the sa
 
     office_pages.py <file> <pdf> <browser>
 
-The file is read by the popup's own readers (view_readers for a .docx, view_slides for a .pptx) and written
+The file is read by the popup's own readers (view_readers for a .docx, view_slides for a .pptx; legacy_office
+for the old .doc, made a .docx first, and for the old .ppt, of which only the words are read) and written
 as a page of HTML on its paper beside <pdf>; <browser> (Edge, or any Chromium), with no window, prints it to
 <pdf>. It exits 0 once the PDF is there; otherwise it says why on stderr and exits 1.
 """
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import zipfile
 
+import legacy_office as legacy
 import view_readers as readers
 import view_slides as slides
 
@@ -47,6 +49,14 @@ def slides_page(path, folder):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, 'wb') as out:
                 out.write(archive.read(member))
+    return deck_page(deck)
+
+
+def deck_page(deck):
+    """Slides as a page of HTML, a slide a sheet of its size."""
+    width, height = deck['width'], deck['height']
+    if not deck['slides']:
+        raise ValueError('la presentación no tiene diapositivas que se puedan leer')
     paper = f'@page {{ size: {width}px {height}px; margin: 0; }} body {{ margin: 0; }}'
     sheet = f'.sheet {{ width: {width}px; height: {height}px; overflow: hidden; position: relative; page-break-after: always; break-after: page; }}'
     sheets = ''.join(f'<div class="sheet">{one}</div>' for one in deck['slides'])
@@ -59,8 +69,17 @@ def main():
         return 1
     path, pdf, browser = sys.argv[1], os.path.abspath(sys.argv[2]), sys.argv[3]
     folder = os.path.dirname(pdf)
-    is_slides = os.path.splitext(path)[1].lower() in ('.pptx', '.pptm', '.ppsx', '.potx')
-    page = slides_page(path, folder) if is_slides else document_page(path)
+    extension = os.path.splitext(path)[1].lower()
+    if extension in ('.ppt', '.pps', '.pot'):
+        # An old presentation: its words alone, a slide a sheet.
+        page = deck_page(legacy.read_ppt(path))
+    elif extension == '.doc':
+        # An old document, as a .docx first: then laid out as those are.
+        copy = os.path.join(folder, 'copy.docx')
+        legacy.doc_to_docx(path, copy)
+        page = document_page(copy)
+    else:
+        page = slides_page(path, folder) if extension in ('.pptx', '.pptm', '.ppsx', '.potx') else document_page(path)
     source = os.path.join(folder, 'pages.html')
     with open(source, 'w', encoding='utf-8') as out:
         out.write(page)

@@ -504,15 +504,26 @@ try { if (app && !keep) { if (a.Item(0) == "excel" || a.Item(0) == "slides-pdf")
 WScript.Quit(code);
 '@
 
-function Start-OfficeCopy([string]$application, [string]$copyExtension, [scriptblock]$done) {
+# Whether Office's program is installed. SPEEDY_NO_OFFICE says no for all of them: the popup is then seen as
+# on a machine with no Office.
+function Test-Office([string]$program) { -not $env:SPEEDY_NO_OFFICE -and [bool][Type]::GetTypeFromProgID($program) }
+
+# With $python, the copy is made with no Office: by legacy_office.py, with the readers the setup adds.
+function Start-OfficeCopy([string]$application, [string]$copyExtension, [scriptblock]$done, [string]$python = '') {
   $folder = Join-Path ([IO.Path]::GetTempPath()) ('speedy-view-' + [guid]::NewGuid().ToString('N'))
   [void](New-Item -ItemType Directory -Path $folder)
-  $script = Join-Path $folder 'copy.js'
-  [IO.File]::WriteAllText($script, $officeScript, [System.Text.Encoding]::ASCII)
   $copyPath = Join-Path $folder ('copy' + $copyExtension)
   $info = New-Object System.Diagnostics.ProcessStartInfo
-  $info.FileName = Join-Path $env:SystemRoot 'System32\cscript.exe'
-  $info.Arguments = '//nologo //E:jscript "' + $script + '" ' + $application + ' "' + $path + '" "' + $copyPath + '"'
+  if ($python) {
+    $info.FileName = $python
+    $info.Arguments = '"' + (Join-Path $PSScriptRoot 'legacy_office.py') + '" "' + $path + '" "' + $copyPath + '"'
+    $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+  } else {
+    $script = Join-Path $folder 'copy.js'
+    [IO.File]::WriteAllText($script, $officeScript, [System.Text.Encoding]::ASCII)
+    $info.FileName = Join-Path $env:SystemRoot 'System32\cscript.exe'
+    $info.Arguments = '//nologo //E:jscript "' + $script + '" ' + $application + ' "' + $path + '" "' + $copyPath + '"'
+  }
   $info.UseShellExecute = $false
   $info.CreateNoWindow = $true
   # Its output never reaches the popup's own: the mod reads that.
@@ -557,8 +568,10 @@ function Find-Browser {
 
 # A Word document or a presentation as a PDF of its pages, in a folder of its own under %TEMP%, which the
 # popup then draws as it draws a PDF. Word or PowerPoint writes it where it is installed, as it would print
-# it; without them, office_pages.py lays a .docx or a .pptx out with the popup's own readers and Edge prints
-# that. It gives the PDF's path, or nothing when neither could: the file is then shown as it was before.
+# it; without them, office_pages.py lays the file out with the popup's own readers and Edge prints that: a
+# .docx or a .pptx as it is, the old .doc made a .docx first and of the old .ppt its words alone, both by the
+# readers the setup adds. It gives the PDF's path, or nothing when neither could: the file is then shown as
+# it was before.
 function Get-OfficePages([string]$file, [string]$fileKind) {
   $isSlides = $fileKind -in @('pptx', 'ppt')
   # A popup ended from outside leaves its folder behind: those a day old go now.
@@ -572,20 +585,18 @@ function Get-OfficePages([string]$file, [string]$fileKind) {
   $state.Pages = $folder
   $target = Join-Path $folder 'pages.pdf'
   $written = { (Test-Path -LiteralPath $target) -and (Get-Item -LiteralPath $target).Length -gt 0 }
-  if ([Type]::GetTypeFromProgID($(if ($isSlides) { 'PowerPoint.Application' } else { 'Word.Application' }))) {
+  if (Test-Office $(if ($isSlides) { 'PowerPoint.Application' } else { 'Word.Application' })) {
     $script = Join-Path $folder 'copy.js'
     [IO.File]::WriteAllText($script, $officeScript, [System.Text.Encoding]::ASCII)
     $mode = if ($isSlides) { 'slides-pdf' } else { 'word-pdf' }
     $done = Invoke-Hidden (Join-Path $env:SystemRoot 'System32\cscript.exe') ('//nologo //E:jscript "' + $script + '" ' + $mode + ' "' + $file + '" "' + $target + '"')
     if ($done -and (& $written)) { return $target }
   }
-  if ($fileKind -in @('docx', 'pptx')) {
-    $python = Find-Python
-    $browser = Find-Browser
-    if ($python -and $browser) {
-      $done = Invoke-Hidden $python ('"' + (Join-Path $PSScriptRoot 'office_pages.py') + '" "' + $file + '" "' + $target + '" "' + $browser + '"')
-      if ($done -and (& $written)) { return $target }
-    }
+  $python = Find-Python
+  $browser = Find-Browser
+  if ($python -and $browser) {
+    $done = Invoke-Hidden $python ('"' + (Join-Path $PSScriptRoot 'office_pages.py') + '" "' + $file + '" "' + $target + '" "' + $browser + '"')
+    if ($done -and (& $written)) { return $target }
   }
   $null
 }
@@ -2536,7 +2547,7 @@ try {
         $rawText = Get-SheetsText $sheets
       }
       'xls' {
-        if ([Type]::GetTypeFromProgID('Excel.Application')) {
+        if (Test-Office 'Excel.Application') {
           $views['Page'] = New-PageView (New-MessagePage 'Abriendo con Excel...')
           $state.Office = Start-OfficeCopy 'excel' '.xlsx' {
             param($copyPath, $problem)
@@ -2545,6 +2556,16 @@ try {
             $views['Page'].DocumentText = New-SheetsPage $sheets ''
             $script:rawText = Get-SheetsText $sheets
           }
+        } elseif (Find-Python) {
+          # With no Excel, by the reader the setup adds: the sheets with the text each cell shows.
+          $views['Page'] = New-PageView (New-MessagePage 'Abriendo el .xls...')
+          $state.Office = Start-OfficeCopy 'excel' '.xlsx' {
+            param($copyPath, $problem)
+            if ($problem) { $views['Page'].DocumentText = New-MessagePage ('No se pudo abrir este .xls sin Excel: ' + $problem + '<br><br>' + (Html $fileName) + ' &middot; ' + (Html (Format-Size $bytes.Length))); return }
+            $sheets = Read-Xlsx $copyPath
+            $views['Page'].DocumentText = New-SheetsPage $sheets ''
+            $script:rawText = Get-SheetsText $sheets
+          } (Find-Python)
         } else {
           $views['Page'] = New-PageView (New-MessagePage ('No se puede previsualizar .xls sin Excel instalado.<br><br>' + (Html $fileName) + ' &middot; ' + (Html (Format-Size $bytes.Length))))
         }
@@ -2554,7 +2575,7 @@ try {
         $rawText = try { Get-DocxText $path } catch { $null }
       }
       'doc' {
-        if ([Type]::GetTypeFromProgID('Word.Application')) {
+        if (Test-Office 'Word.Application') {
           $views['Page'] = New-PageView (New-MessagePage 'Abriendo con Word...')
           $state.Office = Start-OfficeCopy 'word' '.docx' {
             param($copyPath, $problem)
@@ -2562,6 +2583,15 @@ try {
               New-Page ('<p class="note">Word no pudo abrir este .doc: ' + $problem + '<br>Texto aproximado: los textos legibles del archivo.</p><pre>' + (Html (Get-LooseText $bytes)) + '</pre>') $documentCss
             } else { $script:rawText = try { Get-DocxText $copyPath } catch { $null }; New-Page (ConvertFrom-Docx $copyPath) $documentCss }
           }
+        } elseif (Find-Python) {
+          # With no Word, by the reader the setup adds: the document as a .docx, drawn as those are.
+          $views['Page'] = New-PageView (New-MessagePage 'Abriendo el .doc...')
+          $state.Office = Start-OfficeCopy 'word' '.docx' {
+            param($copyPath, $problem)
+            $views['Page'].DocumentText = if ($problem) {
+              New-Page ('<p class="note">No se pudo abrir este .doc sin Word: ' + $problem + '<br>Texto aproximado: los textos legibles del archivo.</p><pre>' + (Html (Get-LooseText $bytes)) + '</pre>') $documentCss
+            } else { $script:rawText = try { Get-DocxText $copyPath } catch { $null }; New-Page (ConvertFrom-Docx $copyPath) $documentCss }
+          } (Find-Python)
         } else {
           $views['Text'] = New-SourceBox ((T 'Texto aproximado: sin Word instalado, se muestran los textos legibles del archivo.') + "`r`n`r`n" + (Get-LooseText $bytes)) $true
         }

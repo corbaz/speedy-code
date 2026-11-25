@@ -5,7 +5,8 @@
 # What it installs, all under the user's own folders (no administrator rights):
 #   - uv, the Python manager, if missing (from astral.sh, its official installer)
 #   - a Python 3.12 environment at ~/.claude/speedy-code/venv (uv fetches Python 3.12 if missing)
-#   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation), pdfminer.six (the viewer's PDF text), jsbeautifier and cssbeautifier (its minified code laid out)
+#   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation), pdfminer.six (the viewer's PDF text), jsbeautifier and cssbeautifier (its minified code laid out),
+#     msdoc2docx and sharepoint-to-text (Office's old files, doc, xls and ppt, read where there is no Office)
 #   - the dictation model, NVIDIA's Nemotron 3.5 ASR Streaming (about 750 MB, from Hugging Face),
 #     at ~/.claude/speedy-code/models: dictation runs on this machine with it
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses; -GroqKey
@@ -68,12 +69,12 @@ Step 'python' 'Creando el entorno con Python 3.12' {
 }
 
 Step 'packages' 'Instalando las voces y el dictado' {
-  Run { uv pip install --python $python edge-tts transcribe-cpp sounddevice numpy pdfminer.six jsbeautifier cssbeautifier }
+  Run { uv pip install --python $python edge-tts transcribe-cpp sounddevice numpy pdfminer.six jsbeautifier cssbeautifier msdoc2docx sharepoint-to-text }
   if ($LASTEXITCODE -ne 0) { throw "uv pip install salió con $LASTEXITCODE" }
   # transcribe-cpp notes on stderr as it loads: Run keeps them from counting as a failure.
-  Run { & $python -c "import edge_tts, transcribe_cpp, sounddevice, numpy, pdfminer, jsbeautifier, cssbeautifier" }
+  Run { & $python -c "import edge_tts, transcribe_cpp, sounddevice, numpy, pdfminer, jsbeautifier, cssbeautifier, doc2docx, sharepoint2text, xlrd, openpyxl" }
   if ($LASTEXITCODE -ne 0) { throw 'los paquetes no se pueden importar' }
-  'edge-tts, transcribe-cpp, sounddevice, numpy, pdfminer.six y los formateadores listos'
+  'edge-tts, transcribe-cpp, sounddevice, numpy, pdfminer.six, los formateadores y los lectores de Office viejo listos'
 }
 
 Step 'model' 'Descargando el modelo de dictado (unos 750 MB, puede tardar)' {
