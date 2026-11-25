@@ -191,6 +191,7 @@ leaves the machine. ▾ picks the microphone; the choice is kept.
   installer adds; without it, Quick Look and macOS's own dialogs, and narrations play with `afplay`). There
   an .xls has no preview and a .doc is read through `textutil`, and the history and image copies live in `~/Library/Application Support/speedy-code`.
 - Office is not needed on Windows: with none, Office's old files are read by the readers the setup adds (`msdoc2docx`, `sharepoint-to-text`): a .doc with its headings, bold and tables, an .xls as its sheets, and of a .ppt the words of each slide, not its drawing. With Office they open through it, as before; `SPEEDY_NO_OFFICE=1` in the environment shows them as on a machine with none.
+- The setup also looks for what the mod uses beside its own Python (`setup/extras.py`), and ⚙️ → Instalación shows each: ffmpeg, which on Windows it downloads when there is none (gyan.dev's release build, about 120 MB, into the mod's own folder; on macOS it only says how to get it); git; the other machines the explorer reaches by ssh, each tried; and on macOS the Accessibility permission, whose settings' pane it opens when the terminal does not have it.
 - Internet for the voices: Edge synthesizes them, so each narration's text is sent to Microsoft.
 - For 🖋️: a Groq API key in the user variable `GROQ_API_KEY` (on macOS, exported in `~/.zshrc`); the draft is sent to Groq.
 - Everything else (uv, Python 3.12, edge-tts, transcribe-cpp, the dictation model) is installed by

@@ -9,6 +9,9 @@
 #   - edge-tts (the voices), transcribe-cpp, sounddevice and numpy (the dictation), pdfminer.six (the viewer's PDF text), jsbeautifier and cssbeautifier (its minified code laid out)
 #   - the dictation model, NVIDIA's Nemotron 3.5 ASR Streaming (about 750 MB, from Hugging Face),
 #     at ~/.claude/speedy-code/models: dictation runs on this machine with it
+#   - ffmpeg, where there is none (Windows: gyan.dev's release build, about 120 MB, into the mod's own folder,
+#     beside its Python; macOS: it is only told how to get it): see extras.py, which also checks git,
+#     the other machines the explorer reaches by ssh and, on macOS, the Accessibility permission
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses. The key is read
 # from the environment: export it in ~/.zshrc. Its value is never printed.
 #
@@ -124,6 +127,21 @@ voices_step() {
   echo "$count voces"
 }
 
+# What the mod uses beside its own Python, checked by extras.py: its line without the `ok` or `fail` it starts with.
+extra() {
+  local said
+  said="$("$python" "$here/extras.py" "$@" 2>/dev/null)"
+  case "$said" in
+    'ok '*) echo "${said#ok }" ;;
+    *) echo "${said#fail }"; return 1 ;;
+  esac
+}
+ffmpeg_step() { extra ffmpeg; }
+git_step() { extra git; }
+remotes_step() { extra remotes; }
+# Where the terminal may not press keys, the settings' pane is opened for the person to allow it.
+access_step() { extra access --open; }
+
 groq_step() {
   [ -n "$GROQ_API_KEY" ] || { echo 'falta GROQ_API_KEY (opcional: solo la usa la pluma; exportala en ~/.zshrc)'; return 1; }
   echo 'GROQ_API_KEY presente'
@@ -152,6 +170,10 @@ step mics 'Buscando micrófonos' mics_step
 step voices 'Consultando las voces de Edge' voices_step
 step font 'Instalando la fuente de iconos (Symbols Nerd Font)' font_step
 step fonts 'Instalando las fuentes de texto (JetBrains Mono, Meslo)' fonts_step
+step ffmpeg 'Buscando ffmpeg' ffmpeg_step
+step git 'Buscando git' git_step
+step remotes 'Probando las otras máquinas (ssh)' remotes_step
+step access 'Revisando el permiso de Accesibilidad' access_step
 step groq 'Buscando la clave de Groq de la pluma' groq_step
 step prefs 'Ajustando las preferencias de Claude Code' prefs_step
 

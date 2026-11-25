@@ -9,6 +9,9 @@
 #     msdoc2docx and sharepoint-to-text (Office's old files, doc, xls and ppt, read where there is no Office)
 #   - the dictation model, NVIDIA's Nemotron 3.5 ASR Streaming (about 750 MB, from Hugging Face),
 #     at ~/.claude/speedy-code/models: dictation runs on this machine with it
+#   - ffmpeg, where there is none (Windows: gyan.dev's release build, about 120 MB, into the mod's own folder,
+#     beside its Python; macOS: it is only told how to get it): see extras.py, which also checks git,
+#     the other machines the explorer reaches by ssh and, on macOS, the Accessibility permission
 # It then checks the microphones, the Edge voices and the GROQ_API_KEY the pen uses; -GroqKey
 # saves that key as a user environment variable. The key's value is never printed.
 #
@@ -119,6 +122,19 @@ Step 'fonts' 'Instalando las fuentes de texto (JetBrains Mono, Meslo)' {
   if ($LASTEXITCODE -ne 0) { throw $said }
   $said
 }
+
+# What the mod uses beside its own Python, checked by extras.py; ffmpeg is downloaded when it is missing.
+function Extra($name, $text, [string[]]$asked) {
+  Step $name $text {
+    $said = (& $python (Join-Path $PSScriptRoot 'extras.py') @asked) -join ' '
+    if ($said -notlike 'ok *') { throw ($said -replace '^fail ', '') }
+    $said.Substring(3)
+  }.GetNewClosure()
+}
+Extra 'ffmpeg' 'Buscando ffmpeg (unos 120 MB si hay que bajarlo)' @('ffmpeg', '--install')
+Extra 'git' 'Buscando git' @('git')
+Extra 'remotes' 'Probando las otras máquinas (ssh)' @('remotes')
+Extra 'access' 'Revisando el permiso de Accesibilidad (macOS)' @('access')
 
 Step 'groq' 'Buscando la clave de Groq de la pluma' {
   if ($GroqKey) {

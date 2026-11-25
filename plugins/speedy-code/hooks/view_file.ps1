@@ -2487,6 +2487,10 @@ try {
       if ($remade.IsTried) { Show-MediaRefusal $why; return }
       $remade.IsTried = $true
       $ffmpeg = (Get-Command ffmpeg -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+      # With none on the PATH, the one the setup put beside the mod's own Python, in Claude Code's folder or OpenCode's.
+      if (-not $ffmpeg) {
+        $ffmpeg = @((Join-Path $env:USERPROFILE '.claude\speedy-code\bin\ffmpeg.exe'), (Join-Path $env:USERPROFILE '.config\opencode\speedy-code\bin\ffmpeg.exe')) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+      }
       if (-not $ffmpeg) { Show-MediaRefusal (T 'Para verlo hace falta ffmpeg.'); return }
       $remade.File = Join-Path ([IO.Path]::GetTempPath()) ("speedy-code-played-$PID" + $(if ($kind -eq 'video') { '.mp4' } else { '.m4a' }))
       Remove-Item -LiteralPath $remade.File -Force -ErrorAction SilentlyContinue

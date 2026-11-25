@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Setup: four steps more, checked by `setup/extras.py` and shown in ⚙️ → Instalación: ffmpeg (downloaded on Windows when there is none, into the mod's own folder, where the viewer looks for it too), git, the other machines reached by ssh, and macOS's Accessibility permission.
 - Explorer, macOS: a folder that is another machine's disk mounted over the network (`/Volumes/share`, by smb, afp, nfs or webdav; `remote.py mounts`) is left out of the disks where a machine is reached by ssh: that disk is shown once, under its machine. With no machine by ssh it stays.
 - Explorer: another machine's disk over a network that falters: a connection cut at once (reset, refused, a name not found for a moment) is tried again, twice, before the explorer says there is none; a machine that does not answer in its whole time is not waited for again.
 - Viewer, Windows: Office's old files open with no Office installed, by readers the setup adds (`msdoc2docx`, `sharepoint-to-text`; `legacy_office.py`): a .doc as its pages with its headings, bold and tables, an .xls as its sheets, and a .ppt as slides of its words alone. With Office they open through it as before; `SPEEDY_NO_OFFICE=1` shows them as on a machine with none.

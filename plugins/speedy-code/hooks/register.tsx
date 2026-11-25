@@ -194,6 +194,10 @@ const SETUP_STEPS: ReadonlyArray<readonly [string, string]> = [
   ['voices', 'Voces de Edge (internet)'],
   ['font', 'Fuente de iconos (Symbols Nerd Font)'],
   ['fonts', 'Fuentes de texto (JetBrains Mono, Meslo)'],
+  ['ffmpeg', 'ffmpeg (videos que el sistema no reproduce)'],
+  ['git', 'git (la rama y la actualización)'],
+  ['remotes', 'Otras máquinas por ssh (opcional)'],
+  ['access', 'Accesibilidad (macOS: pegar imágenes y ⏎)'],
   ['groq', 'Clave de Groq (la pluma, opcional)'],
   ['prefs', 'Claude Code: sesión normal al iniciar']
 ]
@@ -2008,6 +2012,11 @@ async function checkSetup ($: EngineInterface) {
     }
   }
   await setCheck($, 'fonts', missing.length ? { state: 'fail', detail: `falta ${missing.join(' y ')}` } : { state: 'ok', detail: 'instaladas' })
+  // What the mod uses beside its own Python, as extras.py finds it. The other machines are tried by the setup alone: that goes over the network.
+  for (const name of ['ffmpeg', 'git', 'access']) {
+    const said = hasPython ? (await $.process.run([pythonFile, `${$.plugin.root}/setup/extras.py`, name], { env: { PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined))?.stdout.trim() ?? '' : ''
+    await setCheck($, name, said.startsWith('ok ') ? { state: 'ok', detail: said.slice(3) } : { state: 'fail', detail: said.startsWith('fail ') ? said.slice(5) : 'sin revisar' })
+  }
   await setCheck($, 'groq', (await $.env.get('GROQ_API_KEY')) ? { state: 'ok', detail: 'presente' } : { state: 'fail', detail: 'falta GROQ_API_KEY' })
 }
 
