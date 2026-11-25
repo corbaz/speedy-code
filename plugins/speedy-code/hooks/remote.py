@@ -211,19 +211,33 @@ def way_file(host):
     return os.path.join(base(), f'{host}.way.json')
 
 
+# A connection cut at once (reset, refused, a name not found for a moment) is tried again after these pauses:
+# a network that falters, as Wi-Fi does, gives it the next time. One that waited its whole time out is not:
+# the machine is off, and saying so is not to take three times as long.
+AGAIN_PAUSES = (0.7, 1.5)
+CUT_SECONDS = 3
+
+
 def find_way(host):
     """How the machine is reached: the ssh program that connects and its Python's name, asked of it; or None."""
-    for program in ssh_programs():
-        for python in PYTHONS:
-            try:
-                done = subprocess.run([program] + OPTIONS + [host, python, '--version'], capture_output=True, stdin=subprocess.DEVNULL, timeout=20, **HIDDEN)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if done.returncode == 0:
-                return [program, python]
-            if done.returncode == 255:
-                # ssh itself did not connect: its other program may.
-                break
+    for pause in (0,) + AGAIN_PAUSES:
+        time.sleep(pause)
+        was_cut = False
+        for program in ssh_programs():
+            for python in PYTHONS:
+                started = time.time()
+                try:
+                    done = subprocess.run([program] + OPTIONS + [host, python, '--version'], capture_output=True, stdin=subprocess.DEVNULL, timeout=20, **HIDDEN)
+                except (OSError, subprocess.TimeoutExpired):
+                    break
+                if done.returncode == 0:
+                    return [program, python]
+                if done.returncode == 255:
+                    # ssh itself did not connect: its other program may.
+                    was_cut = was_cut or time.time() - started < CUT_SECONDS
+                    break
+        if not was_cut:
+            break
     return None
 
 
@@ -257,15 +271,21 @@ def python_there(host, script, timeout=30):
         found = way(host, anew)
         if not found:
             continue
-        try:
-            done = subprocess.run([found[0]] + OPTIONS + [host, found[1], '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout, **HIDDEN)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if done.returncode == 0:
-            return done.stdout
-        # A way that no longer connects is found anew, once; a script that failed there has its answer: none.
-        if done.returncode != 255:
-            return None
+        for pause in (0,) + AGAIN_PAUSES:
+            time.sleep(pause)
+            started = time.time()
+            try:
+                done = subprocess.run([found[0]] + OPTIONS + [host, found[1], '-'], input=script.encode('utf-8'), capture_output=True, timeout=timeout, **HIDDEN)
+            except (OSError, subprocess.TimeoutExpired):
+                break
+            if done.returncode == 0:
+                return done.stdout
+            # A script that failed there has its answer: none.
+            if done.returncode != 255:
+                return None
+            # A connection cut at once is tried again; a way that no longer connects is found anew, once.
+            if time.time() - started >= CUT_SECONDS:
+                break
     return None
 
 
