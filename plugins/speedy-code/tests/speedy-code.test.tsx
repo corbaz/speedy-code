@@ -158,6 +158,12 @@ test('idle, the footer switches the narrator off and on', async ($, on) => {
   await ui.unmount()
 })
 
+/**
+ * A path as the mod wrote it, with `/`. The engine running on macOS takes a path of Windows (`C:/Users/...`) for
+ * a relative one and puts its own folder before it: what comes after that folder is the path the mod wrote.
+ */
+const asWritten = (path: string) => path.replace(/\\/g, '/').replace(/^\/.*?\/(?=[A-Za-z]:(\/|$))/, '').replace(/^([A-Za-z]:)$/, '$1/')
+
 function world (on: On, store: Record<string, unknown>, reply = '', talks = { on: false }, clipboard = '', mic = { on: false }, polish = { reply: '', sent: [] as string[] }, installed = true, line = { on: false }, system: 'windows' | 'mac' = 'windows') {
   const clock = mock.clock(on, { now: 0 })
   const kept: Record<string, unknown> = { ...store }
@@ -177,8 +183,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
   const files: string[] = []
   on('fs.write', (_, e) => {
     if (e.path.endsWith('levels.json')) files.push(e.text)
-    else written.push({ path: e.path.split('\\').join('/'), text: e.text })
-    WRITTEN.push([e.path.split('\\').join('/'), e.text])
+    else written.push({ path: asWritten(e.path), text: e.text })
+    WRITTEN.push([asWritten(e.path), e.text])
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
@@ -1061,11 +1067,11 @@ test('the explorer is open from the start, and a new conversation or a move show
     'c:/users/test/facturas': []
   }
   on('fs.stat', (_, e) => {
-    if (!TREE[e.path.replace(/\\/g, '/').toLowerCase()]) throw new Error('ENOENT')
+    if (!TREE[asWritten(e.path).toLowerCase()]) throw new Error('ENOENT')
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
   })
   on('fs.list', (_, e) => {
-    const entries = TREE[(e.path ?? '').replace(/\\/g, '/').toLowerCase()]
+    const entries = TREE[asWritten(e.path ?? '').toLowerCase()]
     if (!entries) throw new Error('EPERM')
     return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
   })
@@ -1116,11 +1122,11 @@ test('📍 on a folder of the explorer opens the + menu for it: a new conversati
     'c:/users/test/facturas': []
   }
   on('fs.stat', (_, e) => {
-    if (!TREE[e.path.replace(/\\/g, '/').toLowerCase()]) throw new Error('ENOENT')
+    if (!TREE[asWritten(e.path).toLowerCase()]) throw new Error('ENOENT')
     return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
   })
   on('fs.list', (_, e) => {
-    const entries = TREE[(e.path ?? '').replace(/\\/g, '/').toLowerCase()]
+    const entries = TREE[asWritten(e.path ?? '').toLowerCase()]
     if (!entries) throw new Error('EPERM')
     return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
   })
@@ -2686,7 +2692,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   on('session.cwd', () => ({ value: 'C:\\Users\\test\\proyectos' }))
   // Paths as Windows takes them: whatever their case.
   const known = (path: string) => {
-    const key = path.replace(/\\/g, '/').toLowerCase()
+    const key = asWritten(path).toLowerCase()
     if (/^[cd]:\/$/.test(key) || Object.keys(TREE).some(folder => folder.toLowerCase() === key)) return 'dir'
     const at = key.lastIndexOf('/')
     // A disk's own entry is under `C:/`, with its slash.
@@ -2710,7 +2716,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     'D:/fotos': [{ name: 'viaje.jpg', kind: 'file' }]
   }
   on('fs.list', (_, e) => {
-    const wanted = (e.path ?? '').replace(/\\/g, '/').toLowerCase()
+    const wanted = asWritten(e.path ?? '').toLowerCase()
     const entries = Object.entries(TREE).find(([name]) => name.toLowerCase() === wanted)?.[1]
     if (!entries) throw new Error('EPERM')
     return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
