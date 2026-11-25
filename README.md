@@ -16,6 +16,18 @@ Requirements: [Claude Code](https://claude.com/claude-code) and git. Nothing nee
 everything else (uv, Python 3.12, the voices, the dictation and its model, about 750 MB) is installed
 under the user's own folders.
 
+The setup also checks what the plugin uses beside its own Python, and ⚙️ → **Instalación** shows each step:
+ffmpeg (on Windows downloaded when there is none, about 120 MB, into the plugin's own folder; on macOS
+optional, `brew install ffmpeg`), git, the other machines reached by ssh, and macOS's Accessibility
+permission. Office is not needed: on Windows the setup adds readers for its old files (.doc, .xls, .ppt).
+
+- **Instalar sin dictado** installs all but the dictation's model (750 MB less).
+- **Desinstalar**, pressed twice, removes what the setup installed (the Python environment, the model and
+  its own ffmpeg) and keeps the audios, images, history and settings. From a terminal:
+  `plugins/speedy-code/setup/uninstall.ps1` or `uninstall.sh`.
+
+Linux is not supported.
+
 ### Windows
 
 ```powershell
@@ -87,7 +99,13 @@ plugins/speedy-code/              the plugin: what Claude Code copies and runs
   hooks/speak.py, play.py, player.py  the voice on macOS (afplay)
   hooks/listen.py                   dictation: microphone, pauses, streamed words
   hooks/polish.py                   the 🖋️ button: Groq, in ASCII both ways
+  hooks/view_file.ps1, view_file.py the viewer's popup: documents, sheets, slides, images, sound, video
+  hooks/legacy_office.py            Office's old files (.doc, .xls, .ppt) read with no Office
+  hooks/remote.py                   another machine's disks, by ssh
+  hooks/find_files.py               the explorer's filter
   setup/install.ps1, install.sh     installs everything beside the code (Windows, macOS)
+  setup/extras.py                   the setup's checks: ffmpeg, git, the other machines, Accessibility
+  setup/uninstall.ps1, uninstall.sh removes what the setup installed, and nothing of the person's
   setup/claude_prefs.py             Claude Code preferences the setup sets
   statusline/                       the colored status line (statusline.ps1, statusline.py)
   tests/speedy-code.test.tsx        the tests
