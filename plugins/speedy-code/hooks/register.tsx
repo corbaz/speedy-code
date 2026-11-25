@@ -3294,8 +3294,26 @@ async function toggleTreeFolder ($: EngineInterface, path: string) {
     return
   }
   await update($, explorer, now => ({ ...now, open: [...now.open, key] }))
-  const listed = await readFolder($, path)
-  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed } }))
+  const fresh = await readOpenTree($, path, await read($, explorer))
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, ...fresh } }))
+}
+
+/**
+ * A folder read afresh with every folder still open under it, all at once, here or on another machine: what
+ * came and went on the disk while it was closed shows when it opens again.
+ */
+async function readOpenTree ($: EngineInterface, path: string, state: Explorer) {
+  const fresh: Explorer['listed'] = {}
+  const walk = async (folder: string): Promise<void> => {
+    const listed = await readFolder($, folder)
+    fresh[pathKey(folder, state.caseless)] = listed
+    if (listed === 'denied') return
+    const open = listed.entries
+      .filter(entry => entry.kind === 'dir' && state.open.includes(pathKey(joinPath(folder, entry.name), state.caseless)))
+    await Promise.all(open.map(entry => walk(joinPath(folder, entry.name))))
+  }
+  await walk(path)
+  return fresh
 }
 
 /**

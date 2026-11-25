@@ -2773,6 +2773,18 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    setup.exe'])
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Windows' })
   expect((await texts()).slice(-2)).toEqual(['  ▸ Windows', '    setup.exe'])
+  // A folder closed and opened again is read afresh, and so is every folder still open under it: what came
+  // and went on the disk meanwhile shows.
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users' })
+  TREE['C:/Users']?.push({ name: 'Invitado', kind: 'dir' })
+  TREE['C:/Users/test/proyectos']?.push({ name: 'nuevo.txt', kind: 'file' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users' })
+  expect((await texts()).slice(6, 12)).toEqual(['  ▾ Users', '    ▸ Invitado', '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  expect((await texts()).slice(12, 14)).toEqual(['          notas.txt', '          nuevo.txt'])
+  TREE['C:/Users']?.pop()
+  TREE['C:/Users/test/proyectos']?.pop()
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users' })
   // One that cannot be read says so.
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/test/proyectos/facturas' })
   expect(await texts()).toContain('          (sin acceso)')
