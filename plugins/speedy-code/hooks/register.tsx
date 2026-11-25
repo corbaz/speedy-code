@@ -2304,9 +2304,17 @@ export function folderLabel (cwd: string, home: string, os: 'windows' | 'mac', m
 
 /** Where the session works, after the ✕: its folder and git branch, followed outside any draw. */
 let place = { folder: '', branch: '', cwd: '' }
+/** The session's folder as last seen: a change of it opens the explorer on the new one. */
+let rootSeen = ''
 
 async function followPlace ($: EngineInterface) {
   const cwd = await $.session.cwd().catch(() => '')
+  // The session moved to another folder, however it did: the explorer goes with it.
+  const root = await $.session.root().catch(() => '')
+  const caseless = (await osNow($)) === 'windows'
+  const isMoved = root && rootSeen && pathKey(root, caseless) !== pathKey(rootSeen, caseless)
+  if (root) rootSeen = root
+  if (isMoved && isInteractive) void showExplorer($, root).catch(() => undefined)
   const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || ''
   const folder = folderLabel(cwd, home, await osNow($))
   const asked = cwd ? await $.process.run(['git', '-C', cwd.replace(/\\/g, '/'), 'branch', '--show-current']).catch(() => undefined) : undefined
@@ -3029,9 +3037,19 @@ async function toggleExplorer ($: EngineInterface) {
     await $.ui.close({ id: EXPLORER_PANE }).catch(() => undefined)
     return
   }
+  await showExplorer($)
+}
+
+/**
+ * Opens the explorer beside the chat, open down to `folder` (the session's, when none is given) and read
+ * afresh, its filter off; open already, it is drawn again for that folder. A session opens it as it starts,
+ * and a new conversation or a move (/clear, /cd) shows it on the session's folder.
+ */
+async function showExplorer ($: EngineInterface, folder = '') {
+  filtering?.abort()
   const os = await osNow($)
   const caseless = os === 'windows'
-  const here = slashed(place.cwd || (await $.session.cwd().catch(() => '')))
+  const here = slashed(folder || place.cwd || (await $.session.cwd().catch(() => '')))
   const drives = await readDrives($, os)
   const drive = driveOf(here, drives, caseless)
   const chain = drive ? chainOf(here, drive) : []
@@ -4756,8 +4774,26 @@ export const register: Register = on => {
     })
     // Code Mode's switch says where it stands from the start, a reload included: not "leyendo…".
     void switchCodeMode($, 'status')
+    // The explorer is open from the start, on the session's folder.
+    if (e.isInteractive) void showExplorer($).catch(() => undefined)
     return next(e)
   })
+
+  // A new conversation, or the session moved to another folder (typed, or by the + menu): the explorer
+  // shows the session's folder, opened again if it was closed.
+  for (const command of ['clear', 'cd']) {
+    on('command.run', { command }, async ($, e, next) => {
+      // A command run with no arguments has none to hand on: next() takes it with empty ones.
+      const result = await next({ ...e, args: e.args ?? '' })
+      if (isInteractive) {
+        const root = await $.session.root().catch(() => '')
+        if (root) rootSeen = root
+        void followPlace($)
+        await showExplorer($, root).catch(() => undefined)
+      }
+      return result
+    })
+  }
 
   on('session.end', async ($, e, next) => {
     await stop($)

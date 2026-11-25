@@ -1026,6 +1026,57 @@ test('+ beside ⏎ asks the name of the new conversation, then starts it by /cle
   await ui.unmount()
 })
 
+test('the explorer is open from the start, and a new conversation or a move shows it again on the session’s folder', { timeoutMs: 30000 }, async ($, on) => {
+  const HERE = 'C:\\Users\\test\\proyectos'
+  const THERE = 'C:\\Users\\test\\facturas'
+  const place = { root: HERE }
+  on('session.root', () => ({ value: place.root }))
+  on('session.cwd', () => ({ value: HERE }))
+  on('command.run', (_, e) => { if (e.command === 'cd') place.root = e.args ?? place.root; return { text: '' } })
+  const panes: string[] = []
+  on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.close', (_, e) => { panes.splice(panes.indexOf(e.id), 1); return { value: undefined } })
+  on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
+  const TREE: Record<string, Array<{ name: string, kind: 'file' | 'dir' }>> = {
+    'c:/': [{ name: 'Users', kind: 'dir' }],
+    'c:/users': [{ name: 'test', kind: 'dir' }],
+    'c:/users/test': [{ name: 'facturas', kind: 'dir' }, { name: 'proyectos', kind: 'dir' }],
+    'c:/users/test/proyectos': [],
+    'c:/users/test/facturas': []
+  }
+  on('fs.stat', (_, e) => {
+    if (!TREE[e.path.replace(/\\/g, '/').toLowerCase()]) throw new Error('ENOENT')
+    return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+  })
+  on('fs.list', (_, e) => {
+    const entries = TREE[(e.path ?? '').replace(/\\/g, '/').toLowerCase()]
+    if (!entries) throw new Error('EPERM')
+    return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
+  })
+  const shown = async () => {
+    const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 60, scroll: { offset: 0, bodyRows: 20 } }, surface: 'terminal' })
+    const rows = (await explorerRows(pane)).map(row => row.text.trim())
+    await pane.unmount()
+    return rows.find(row => row.endsWith('●'))
+  }
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await w.clock.advance(100)
+  // Open as the session starts, on its folder.
+  expect(panes).toEqual(['speedy-code-explorer'])
+  expect(await shown()).toBe('▾ proyectos ●')
+  // Closed by hand, a new conversation opens it again.
+  await ui.post({ isClicked: true }, { in: 'speedy:place' })
+  expect(panes).toEqual([])
+  await $.command.run({ command: 'clear' })
+  await w.clock.advance(100)
+  expect(panes).toEqual(['speedy-code-explorer'])
+  // The session moved: the explorer shows the folder it went to.
+  await $.command.run({ command: 'cd', args: THERE })
+  await w.clock.advance(100)
+  expect(await shown()).toBe('▾ facturas ●')
+  await ui.unmount()
+})
+
 test('📍 on a folder of the explorer opens the + menu for it: a new conversation there by /cd, /clear and /rename, this one moved there by /cd alone, or nothing', { timeoutMs: 30000 }, async ($, on) => {
   const commands: Array<[string, string]> = []
   const HERE = 'C:\\Users\\test\\proyectos'
@@ -1058,8 +1109,7 @@ test('📍 on a folder of the explorer opens the + menu for it: a new conversati
     return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
   })
   const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
-  await w.clock.advance(100)
-  await ui.post({ isClicked: true }, { in: 'speedy:place' })
+  // The explorer is open from the start.
   await w.clock.advance(100)
   const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 60, scroll: { offset: 0, bodyRows: 20 } }, surface: 'terminal' })
   const folder = 'C:/Users/test/facturas'
@@ -1144,7 +1194,8 @@ test('however wide the terminal, the menus show framed above the prompt, never i
   const micBand = await $.ui.mount(BAND)
   expect((await micBand.find({ type: 'Text', text: /Micrófono para dictar/ }))?.text).toBe(' Micrófono para dictar ')
   await micBand.unmount()
-  expect(opened).toEqual([])
+  // The explorer alone, open as the session starts.
+  expect(opened.filter(id => id !== 'speedy-code-explorer')).toEqual([])
   await ui.unmount()
 })
 
@@ -2611,6 +2662,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   await ui.unmount()
   const footer = await $.ui.mount({ ...FOOTER, viewport: { columns: 200, rows: 30 } })
+  // Open from the start: the folder closes it, and pressed again opens it.
+  expect(panes).toEqual(['speedy-code-explorer'])
+  await footer.post({ isClicked: true }, { in: 'speedy:place' })
+  expect(panes).toEqual([])
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
   expect(panes).toEqual(['speedy-code-explorer'])
@@ -2967,7 +3022,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // The footer's folder clicked again closes the explorer.
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
   await w.clock.advance(100)
-  expect(closed).toEqual(['speedy-code-explorer'])
+  expect(closed).toEqual(['speedy-code-explorer', 'speedy-code-explorer'])
   // Another machine, reached by ssh: remote.py names it, and its disk stands after this machine's.
   REMOTE.hosts = ['mac']
   await footer.post({ isClicked: true }, { in: 'speedy:place' })
