@@ -2742,11 +2742,13 @@ export function badFileName (name: string) {
  * `name <name>`) or `cancel`.
  */
 async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '') {
-  const native = await nativePath($, path)
+  // A path of another machine is shown as the explorer writes it, `mac:/Users/ana`.
+  const shown = async (one: string) => remoteOf(one) ? one : await nativePath($, one)
+  const native = await shown(path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
-  const kind = mode === 'mkdir' || (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
+  const kind = mode === 'mkdir' || (await kindAt($, path)) === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
-  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '' }
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await shown(into) : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
   // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
   if (!isWindows) {
@@ -2867,10 +2869,10 @@ async function askRename ($: EngineInterface, path: string) {
 
 /**
  * 📁: the dialog asks the new folder's name, then the folder is made where the row is: in a folder, inside it;
- * on a file, in the folder it is in. The folder it went into is read again and opened, to show it.
+ * on a file, in the folder it is in; on another machine too, by remote.py. The folder it went into is read
+ * again and opened, to show it.
  */
 async function askNewFolder ($: EngineInterface, path: string) {
-  if (remoteOf(path)) return
   const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
   const answer = await askDialog($, 'mkdir', folder)
   const name = (answer.startsWith('mkdir ') ? fromBase64Utf8(answer.slice('mkdir '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : '').trim()
@@ -2889,11 +2891,28 @@ async function makeFolder ($: EngineInterface, folder: string, name: string) {
     $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
     return
   }
-  const argv = (await osNow($)) === 'windows'
-    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "if (Test-Path -LiteralPath $env:SPEEDY_TARGET) { 'exists' } else { [void][IO.Directory]::CreateDirectory($env:SPEEDY_TARGET); 'made' }"]
-    : ['/bin/sh', '-c', 'mkdir -- "$SPEEDY_TARGET" && echo made']
-  const result = await $.process.run(argv, { env: { SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
-  if (result?.stdout.trim() !== 'made') {
+  const remote = remoteOf(target)
+  let said = ''
+  if (remote) {
+    // Another machine's folder is made there, by ssh.
+    const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, 'mkdir'], { env: { SPEEDY_HOST: remote.host, SPEEDY_PATH: remote.path, PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
+    try {
+      said = String(saidField(JSON.parse((result?.stdout ?? '').trim().split(/\r?\n/).pop() ?? ''), 'said') ?? '')
+    } catch {
+      said = ''
+    }
+  } else {
+    const argv = (await osNow($)) === 'windows'
+      ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "if (Test-Path -LiteralPath $env:SPEEDY_TARGET) { 'exists' } else { [void][IO.Directory]::CreateDirectory($env:SPEEDY_TARGET); 'made' }"]
+      : ['/bin/sh', '-c', 'mkdir -- "$SPEEDY_TARGET" && echo made']
+    const result = await $.process.run(argv, { env: { SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
+    said = result?.stdout.trim() ?? ''
+  }
+  if (said === 'exists') {
+    $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
+    return
+  }
+  if (said !== 'made') {
     $.ui.toast(`speedy-code: no pude crear la carpeta ${name}.`)
     return
   }
@@ -3483,8 +3502,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            // 📁 makes a folder on this machine alone.
-            (kind === 'work' && !isWorkable) || (kind === 'mkdir' && remoteOf(row.path))
+            kind === 'work' && !isWorkable
               ? gap(`none:${kind}`, 2)
               : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
           ])

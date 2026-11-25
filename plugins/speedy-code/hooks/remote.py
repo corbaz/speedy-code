@@ -24,6 +24,8 @@ those of Windows in the explorer of a Mac.
                       These three answer {"said": "done"}; "exists" when something is there already, which
                       is never written over; "kept" when it was copied but what was to move could not be
                       removed; "error". A folder goes with its files and folders, by tar; links are left out.
+    remote.py mkdir   a folder made there, at SPEEDY_PATH, its own name included: {"said": "made"}; "exists"
+                      when something is there already, which is never written over; "error".
 
 SPEEDY_HOST is the machine, as ssh knows it; SPEEDY_PATH the path on it, with `/`; SPEEDY_PATTERN and
 SPEEDY_MOST are find_files.py's. A machine with Windows has its disks under its root: `/` holds `C:`, `D:`,
@@ -121,6 +123,20 @@ if os.path.isdir(PATH) and not os.path.islink(PATH):
 else:
     os.remove(PATH)
 print(json.dumps({'removed': True}))
+'''
+
+# 📁 there: the folder PATH made, unless something is there already, which is never written over.
+MKDIR = THERE + '''
+import json
+if ROOT or os.path.lexists(PATH):
+    said = 'exists'
+else:
+    try:
+        os.mkdir(PATH)
+        said = 'made'
+    except OSError:
+        said = 'error'
+print(json.dumps({'said': said}))
 '''
 
 # Before paste.py, run there: a path of Windows as Windows writes it, and what paste.py reads.
@@ -527,6 +543,11 @@ def main():
             said = paste_there(host, path, target, verb) if target.startswith('/') and verb in ('copy', 'move') else 'error'
         say({'said': said})
         return 0 if said in ('done', 'kept') else 1
+    if mode == 'mkdir':
+        answer = ask(host, MKDIR, path)
+        said = answer.get('said') if isinstance(answer, dict) and answer.get('said') in ('made', 'exists') else 'error'
+        say({'said': said})
+        return 0 if said == 'made' else 1
     if mode in ('list', 'stat'):
         answer = ask(host, LIST if mode == 'list' else STAT, path)
         say(answer if answer is not None else {'error': 'not reached'})

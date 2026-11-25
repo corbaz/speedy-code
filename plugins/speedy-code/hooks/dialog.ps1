@@ -217,10 +217,14 @@ if ($mode -eq 'rename') {
   $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
   $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Accept; $_.Handled = $true; $_.SuppressKeyPress = $true } })
 } elseif ($mode -eq 'mkdir') {
+  # A folder of another machine (`mac:/Users/ana`) is not looked into here: the explorer says, once asked,
+  # whether the name is taken there. Join-Path would take `mac:` for a drive of this machine.
+  $isRemote = $path -match '^[A-Za-z][\w.-]+:[\\/]'
+  function Taken([string]$name) { (-not $isRemote) -and (Test-Path -LiteralPath ([IO.Path]::Combine($path, $name))) }
   # The first name free in the folder is offered, all of it selected, so typing replaces it.
   $offered = 'Nueva carpeta'
   $number = 2
-  while (Test-Path -LiteralPath (Join-Path $path $offered)) { $offered = "Nueva carpeta ($number)"; $number++ }
+  while (Taken $offered) { $offered = "Nueva carpeta ($number)"; $number++ }
   [void](New-Text 'Nombre de la carpeta nueva' $gap $gap $dim $font)
   $nameBox = New-Box $offered $gap 52 ($inner - 2 * $gap)
   # The folder it is made in, its end kept when it is too long for the line.
@@ -237,7 +241,7 @@ if ($mode -eq 'rename') {
     if (-not $wanted) { $why = T 'El nombre est\u00e1 vac\u00edo.' }
     elseif ($wanted -eq '.' -or $wanted -eq '..') { $why = T 'Ese nombre no es v\u00e1lido.' }
     elseif ($wanted.IndexOfAny([char[]]'\/:*?"<>|') -ge 0) { $why = T 'No puede tener \\ / : * ? " < > |' }
-    elseif (Test-Path -LiteralPath (Join-Path $path $wanted)) { $why = "Ya hay una carpeta o un archivo $wanted en esa carpeta." }
+    elseif (Taken $wanted) { $why = "Ya hay una carpeta o un archivo $wanted en esa carpeta." }
     if ($why) { $problem.Text = $why; return }
     Finish ('mkdir ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($wanted)))
   }

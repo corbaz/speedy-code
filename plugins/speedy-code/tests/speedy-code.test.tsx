@@ -20,7 +20,7 @@ const PASTE = { ran: [] as string[], says: 'done' }
 /** The clipboard's text when a test changes it midway; undefined: the one its world was given. */
 const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
-const DIALOG = { answer: 'cancel', asked: [] as string[] }
+const DIALOG = { answer: 'cancel', asked: [] as string[], files: [] as string[] }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 /** Whether the speaker makes a narration asked to be only made; tests that look at what is spoken leave it off. */
 const SPEAKER = { makes: false }
@@ -246,6 +246,11 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
         REMOTE.moved.push(`${mode} ${env.SPEEDY_VERB ?? ''} ${env.SPEEDY_HOST ?? ''} ${mode === 'push' ? env.SPEEDY_FILE ?? '' : path} -> ${mode === 'push' ? path : env.SPEEDY_TARGET ?? ''}`)
         return { value: { exitCode: 0, stdout: `${JSON.stringify({ said: REMOTE.says })}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
       }
+      // A folder made there.
+      if (mode === 'mkdir') {
+        REMOTE.moved.push(`mkdir ${e.init?.env?.SPEEDY_HOST ?? ''} ${path}`)
+        return { value: { exitCode: 0, stdout: JSON.stringify({ said: 'made' }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       if (mode !== 'hosts') REMOTE.asked.push({ mode, host: e.init?.env?.SPEEDY_HOST ?? '', path })
       const folder = REMOTE.tree[path]
       const isFile = Object.entries(REMOTE.tree).some(([parent, entries]) => entries.some(entry => `${parent === '/' ? '' : parent}/${entry.name}` === path))
@@ -270,6 +275,7 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       return { value: { exitCode: 0, stdout: `${PASTE.says}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv.some(arg => arg.endsWith('dialog.ps1'))) {
+      DIALOG.files.push(e.init?.env?.SPEEDY_FILE ?? '')
       DIALOG.asked.push([e.init?.env?.SPEEDY_MODE ?? '', e.init?.env?.SPEEDY_KIND === 'dir' ? 'dir' : '', e.init?.env?.SPEEDY_ONLY === 'copy' ? 'only copy' : ''].filter(Boolean).join(' '))
       return { value: { exitCode: 0, stdout: `${DIALOG.answer}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -3135,6 +3141,26 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
   await w.clock.advance(100)
   expect(DIALOG.asked.length).toBe(dialogs)
+  // 📁 makes a folder there too, by remote.py (`mkdir`); the dialog shows the folder as the explorer writes it.
+  REMOTE.moved = []
+  DIALOG.answer = 'mkdir Rm90b3M='
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/Users' })
+  await w.clock.advance(100)
+  expect(DIALOG.asked.at(-1)).toBe('mkdir dir')
+  expect(DIALOG.files.at(-1)).toBe('mac:/Users')
+  expect(REMOTE.moved).toEqual(['mkdir mac /Users/Fotos'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: se creó la carpeta Fotos en Users.')
+  // On a file's row, in the folder it is in; a name taken there is said, and nothing is made.
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(DIALOG.files.at(-1)).toBe('mac:/')
+  expect(REMOTE.moved.at(-1)).toBe('mkdir mac /Fotos')
+  DIALOG.answer = 'mkdir YW5h'
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/Users' })
+  await w.clock.advance(100)
+  expect(REMOTE.moved.length).toBe(2)
+  expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un ana en esa carpeta.')
+  DIALOG.answer = 'cancel'
   // A path of it pasted in the field opens the tree down to it.
   await far.input({ key: 'explorer-goto', text: 'mac:/Users/ana', kind: 'submit' })
   await w.clock.advance(100)
