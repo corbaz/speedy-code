@@ -6,6 +6,8 @@
   SPEEDY_MODE=paste: asks whether SPEEDY_FILE is copied or moved into the folder SPEEDY_TARGET, then whether
     for sure. Prints `copy`, `move` or `cancel`. With SPEEDY_ONLY=copy (a file of another machine, which stays
     there) it only asks whether for sure.
+  SPEEDY_MODE=mkdir: the name of a folder to make in the folder SPEEDY_FILE. Prints `mkdir <base64 of the UTF-8
+    name>`, or `cancel`.
 
 Exits 3 with nothing printed when pywebview is missing: the mod then asks with the system's dialog.
 """
@@ -16,7 +18,7 @@ import popup
 
 # One size for Renombrar, Borrar and Pegar, the one dialog.ps1 has.
 WIDTH, HEIGHT = 544, 282
-TITLES = {'rename': 'Renombrar', 'delete': 'Borrar', 'paste': 'Pegar'}
+TITLES = {'rename': 'Renombrar', 'delete': 'Borrar', 'paste': 'Pegar', 'mkdir': 'Nueva carpeta'}
 
 
 class Api:
@@ -29,10 +31,12 @@ class Api:
         self._target = target
 
     def asked(self):
-        return {'name': os.path.basename(self._path), 'mode': self._mode, 'kind': self._kind, 'target': self._target, 'only': os.environ.get('SPEEDY_ONLY', '')}
+        return {'name': os.path.basename(self._path), 'folder': self._path, 'mode': self._mode, 'kind': self._kind, 'target': self._target, 'only': os.environ.get('SPEEDY_ONLY', '')}
 
     def exists(self, name):
-        return os.path.lexists(os.path.join(os.path.dirname(self._path), name))
+        # A new folder's name is looked for in the folder it goes into; a rename's beside the file.
+        folder = self._path if self._mode == 'mkdir' else os.path.dirname(self._path)
+        return os.path.lexists(os.path.join(folder, name))
 
     def shown(self):
         popup.front()

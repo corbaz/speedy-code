@@ -59,8 +59,10 @@ export const MAC = {
   copyFile: (path: string) => ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'return "copied"', '-e', 'end run', path],
   /** 📥's dialog, by AppleScript: whether the file is copied or moved into a folder, then whether for sure. */
   pasteDialog: (name: string, folder: string) => ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set verb to button returned of (display dialog ("¿Copiar o mover " & (item 1 of argv) & " a " & (item 2 of argv) & "?") with title "Pegar" buttons {"Cancelar", "Mover", "Copiar"} default button "Copiar" cancel button "Cancelar")', '-e', 'display dialog ("¿Seguro? " & verb & " " & (item 1 of argv) & " a " & (item 2 of argv)) with title "Pegar" buttons {"No", "Sí"} default button "No" cancel button "No"', '-e', 'if verb is "Mover" then return "move"', '-e', 'return "copy"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name, folder],
-  /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), or whether the file goes to the Trash. */
-  dialog: (mode: 'rename' | 'delete', name: string) => mode === 'rename'
+  /** The explorer's dialogs, by AppleScript: the new name (`name <text>`), the new folder's (`name <text>`), or whether the file goes to the Trash. */
+  dialog: (mode: 'rename' | 'delete' | 'mkdir', name: string) => mode === 'mkdir'
+    ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog ("Nombre de la carpeta nueva, en " & (item 1 of argv) & ":") default answer "Nueva carpeta" with title "Nueva carpeta" buttons {"Cancelar", "Crear"} default button "Crear" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
+    : mode === 'rename'
     ? ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'set answer to text returned of (display dialog "Nombre nuevo:" default answer (item 1 of argv) with title "Renombrar" buttons {"Cancelar", "Aceptar"} default button "Aceptar" cancel button "Cancelar")', '-e', 'return "name " & answer', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name]
     : ['osascript', '-e', 'on run argv', '-e', 'try', '-e', 'display dialog ("¿Mandar " & (item 1 of argv) & " a la papelera?") with title "Borrar" buttons {"No", "Sí, borrar"} default button "No" cancel button "No"', '-e', 'return "delete"', '-e', 'on error', '-e', 'return "cancel"', '-e', 'end try', '-e', 'end run', name],
   /** A file to the Trash by Finder, where Put Back brings it again. */
@@ -2362,11 +2364,13 @@ function followDock ($: EngineInterface, width: number) {
   explorerDock = width
   $.ui.invalidate('ui.render')
 }
-/** The cells each row's six tools take at its right: each on its own two, a gap of two between them and one before the first. */
-const EXPLORER_TOOLS_WIDTH = 23
+/** The cells each row's seven tools take at its right: each on its own two, a gap of two between them and one before the first. */
+const EXPLORER_TOOLS_WIDTH = 27
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
- * Fonts) and its color. 📍, the last, is a folder's alone: the session goes to work there. */
+ * Fonts) and its color. 📁, the first, makes a folder there; 📍, the last, is a folder's alone: the session
+ * goes to work there. Both are for this machine's folders alone. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['mkdir', '📁', '\uea80', '#ffd43b'],
   ['copy', '📋', '\uf0c5', '#74c0fc'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
   ['rename', '✏', '\uf044', '#b197fc'],
@@ -2733,12 +2737,14 @@ export function badFileName (name: string) {
  * rename with a field for the name and one for the extension), dialog.py's popup on macOS, drawn the same
  * (a dialog of macOS's own where pywebview is not installed). It answers `rename <base64 name>` (macOS's
  * own dialog: `name <name>`), `delete` or `cancel`. 📥's (`paste`) asks whether the file is copied or moved
- * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`.
+ * into the folder `into`, then whether for sure, and answers `copy`, `move` or `cancel`. 📁's (`mkdir`) asks
+ * the name of a folder to make in the folder `path`, and answers `mkdir <base64 name>` (macOS's own dialog:
+ * `name <name>`) or `cancel`.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste', path: string, into = '') {
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '') {
   const native = await nativePath($, path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
-  const kind = (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
+  const kind = mode === 'mkdir' || (await $.fs.stat(path).catch(() => undefined))?.kind === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
   const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await nativePath($, into) : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
@@ -2857,6 +2863,45 @@ async function askRename ($: EngineInterface, path: string) {
   const answer = await askDialog($, 'rename', path)
   const name = answer.startsWith('rename ') ? fromBase64Utf8(answer.slice('rename '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : ''
   if (name) await renameFile($, path, name)
+}
+
+/**
+ * 📁: the dialog asks the new folder's name, then the folder is made where the row is: in a folder, inside it;
+ * on a file, in the folder it is in. The folder it went into is read again and opened, to show it.
+ */
+async function askNewFolder ($: EngineInterface, path: string) {
+  if (remoteOf(path)) return
+  const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
+  const answer = await askDialog($, 'mkdir', folder)
+  const name = (answer.startsWith('mkdir ') ? fromBase64Utf8(answer.slice('mkdir '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : '').trim()
+  if (name) await makeFolder($, folder, name)
+}
+
+/** Makes the folder `name` in `folder`; nothing there is written over. Then reads `folder` again, opened. */
+async function makeFolder ($: EngineInterface, folder: string, name: string) {
+  const why = badFileName(name)
+  if (why) {
+    $.ui.toast(`speedy-code: no creé la carpeta: ${why}.`)
+    return
+  }
+  const target = joinPath(folder, name)
+  if (await kindAt($, target)) {
+    $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
+    return
+  }
+  const argv = (await osNow($)) === 'windows'
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "if (Test-Path -LiteralPath $env:SPEEDY_TARGET) { 'exists' } else { [void][IO.Directory]::CreateDirectory($env:SPEEDY_TARGET); 'made' }"]
+    : ['/bin/sh', '-c', 'mkdir -- "$SPEEDY_TARGET" && echo made']
+  const result = await $.process.run(argv, { env: { SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
+  if (result?.stdout.trim() !== 'made') {
+    $.ui.toast(`speedy-code: no pude crear la carpeta ${name}.`)
+    return
+  }
+  $.ui.toast(`speedy-code: se creó la carpeta ${name} en ${driveLabel(folder)}.`)
+  const state = await read($, explorer)
+  const key = pathKey(folder, state.caseless)
+  const listed = await readFolder($, folder)
+  await update($, explorer, now => ({ ...now, listed: { ...now.listed, [key]: listed }, open: now.open.includes(key) ? now.open : [...now.open, key] }))
 }
 
 /** 🗑: the dialog that asks, then the trash when it said yes. */
@@ -3438,7 +3483,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            kind === 'work' && !isWorkable
+            // 📁 makes a folder on this machine alone.
+            (kind === 'work' && !isWorkable) || (kind === 'mkdir' && remoteOf(row.path))
               ? gap(`none:${kind}`, 2)
               : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
           ])
@@ -4978,6 +5024,10 @@ export const register: Register = on => {
       else if (kind === 'trash') void askTrash($, path)
       else if (kind === 'rename') void askRename($, path)
       else if (kind === 'paste') void pasteInto($, path)
+      else if (kind === 'mkdir') {
+        void flashTool($, e.element)
+        void askNewFolder($, path)
+      }
       else if (kind === 'work') {
         void flashTool($, e.element)
         await openNewIn($, path)

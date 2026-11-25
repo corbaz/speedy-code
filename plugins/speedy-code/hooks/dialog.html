@@ -26,6 +26,8 @@
   body.rename .for-delete, body.delete .for-rename, body.dir .for-file { display: none; }
   body.paste .for-rename, body.paste .for-delete, body:not(.paste) .for-paste, body.sure #other { display: none; }
   body.dir #name { width: 428px !important; }
+  body.mkdir .for-delete, body.mkdir .for-rename:not(.for-name), body:not(.mkdir) .for-mkdir { display: none; }
+  body.mkdir #problem { top: 114px; }
 </style>
 </head>
 <body class="rename">
@@ -35,10 +37,12 @@
   <div class="paper">
     <span class="for-rename dim" style="left:26px;top:24px">Nombre</span>
     <span class="for-rename for-file dim" style="left:332px;top:24px">Extensión</span>
-    <input class="for-rename" id="name" style="left:24px;width:290px" spellcheck="false" autocomplete="off">
+    <span class="for-mkdir dim" style="left:26px;top:24px">Nombre de la carpeta nueva</span>
+    <input class="for-rename for-name" id="name" style="left:24px;width:290px" spellcheck="false" autocomplete="off">
+    <span class="for-mkdir dim one-line" id="folder" style="top:88px"></span>
     <span class="for-rename for-file strong" style="left:319px;top:56px;font-size:17px">.</span>
     <input class="for-rename for-file" id="extension" style="left:330px;width:122px" spellcheck="false" autocomplete="off">
-    <span class="for-rename" id="problem"></span>
+    <span class="for-rename for-name" id="problem"></span>
     <span class="for-delete strong one-line" style="top:24px">¿Mandar a la papelera?</span>
     <span class="for-delete strong blue one-line" id="doomed" style="top:52px"></span>
     <span class="for-delete dim one-line" id="note" style="top:80px"></span>
@@ -73,6 +77,18 @@
     finish(wanted === fileName ? 'cancel' : 'rename ' + toBase64(wanted))
   }
 
+  // A new folder's name, checked as a rename's is: nothing of that name may be in the folder.
+  async function tryCreate () {
+    const wanted = $('name').value.trim()
+    let why = ''
+    if (!wanted) why = 'El nombre está vacío.'
+    else if (wanted === '.' || wanted === '..') why = 'Ese nombre no es válido.'
+    else if (/[\\/:*?"<>|]/.test(wanted)) why = 'No puede tener \\ / : * ? " < > |'
+    else if (await api.exists(wanted)) why = `Ya hay una carpeta o un archivo ${wanted} en esa carpeta.`
+    if (why) { $('problem').textContent = why; return }
+    finish('mkdir ' + toBase64(wanted))
+  }
+
   async function start () {
     api = window.pywebview.api
     const asked = await api.asked()
@@ -80,7 +96,7 @@
     isFolder = asked.kind === 'dir'
     mode = asked.mode
     document.body.className = mode + (isFolder ? ' dir' : '')
-    $('title').textContent = mode === 'delete' ? 'Borrar' : mode === 'paste' ? 'Pegar' : 'Renombrar'
+    $('title').textContent = mode === 'delete' ? 'Borrar' : mode === 'paste' ? 'Pegar' : mode === 'mkdir' ? 'Nueva carpeta' : 'Renombrar'
     $('cancel').onclick = () => finish('cancel')
     $('close').onclick = () => finish('cancel')
     if (mode === 'paste') {
@@ -102,6 +118,17 @@
       $('accept').onclick = () => { if (!verb) choose('move'); else if (Date.now() - since > 500) finish(verb) }
       // A file of another machine is copied, never moved: only whether for sure is asked.
       if (asked.only === 'copy') { choose('copy'); since = 0 }
+    } else if (mode === 'mkdir') {
+      // The first name free in the folder is offered, all of it selected, so typing replaces it.
+      let offered = 'Nueva carpeta'
+      for (let number = 2; await api.exists(offered); number++) offered = `Nueva carpeta (${number})`
+      $('name').value = offered
+      const folder = asked.folder
+      $('folder').textContent = 'en ' + (folder.length > 50 ? '…' + folder.slice(-49) : folder)
+      $('accept').textContent = 'Crear'
+      $('accept').onclick = tryCreate
+      $('name').focus()
+      $('name').select()
     } else if (mode === 'delete') {
       $('doomed').textContent = fileName
       $('note').textContent = isFolder ? 'Con todo lo que tiene. Se puede recuperar desde la Papelera.' : 'Se puede recuperar desde la Papelera.'
@@ -120,10 +147,11 @@
     api.shown()
   }
 
-  // Enter accepts a rename (a delete only by its button), and Esc cancels.
+  // Enter accepts a rename or a new folder (a delete only by its button), and Esc cancels.
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') finish('cancel')
     else if (event.key === 'Enter' && mode === 'rename') { event.preventDefault(); tryAccept() }
+    else if (event.key === 'Enter' && mode === 'mkdir') { event.preventDefault(); tryCreate() }
   })
   document.addEventListener('contextmenu', event => event.preventDefault())
   if (window.pywebview && window.pywebview.api) start()

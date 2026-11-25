@@ -10,7 +10,10 @@
 #   SPEEDY_MODE=paste: asks whether $env:SPEEDY_FILE is copied or moved into the folder $env:SPEEDY_TARGET,
 #     Copiar / Mover / Cancelar, and then whether for sure, Si, copiar / Cancelar. Prints `copy`, `move` or `cancel`.
 #     With SPEEDY_ONLY=copy (a file of another machine, which stays there) it only asks whether for sure.
-# Enter accepts a rename (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
+#   SPEEDY_MODE=mkdir: one field, the name of a folder to make in the folder $env:SPEEDY_FILE (the first free of
+#     Nueva carpeta, Nueva carpeta (2)...), and Crear / Cancelar. The name is checked as a rename's is, and no
+#     folder or file of that name may be there. Prints `mkdir <base64 of the UTF-8 name>`, or `cancel`.
+# Enter accepts a rename or a new folder (a delete only by its button), and Esc or the close mark cancels. The file stays ASCII: PowerShell 5.1 reads a script
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -20,7 +23,7 @@ function T([string]$text) { [regex]::Unescape($text) }
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
 $path = $env:SPEEDY_FILE
-$mode = if ($env:SPEEDY_MODE -eq 'delete') { 'delete' } elseif ($env:SPEEDY_MODE -eq 'paste') { 'paste' } else { 'rename' }
+$mode = if ($env:SPEEDY_MODE -eq 'delete') { 'delete' } elseif ($env:SPEEDY_MODE -eq 'paste') { 'paste' } elseif ($env:SPEEDY_MODE -eq 'mkdir') { 'mkdir' } else { 'rename' }
 $fileName = [IO.Path]::GetFileName($path)
 # A folder (SPEEDY_KIND=dir) is renamed whole, with no extension, and goes to the trash with what it holds.
 $isFolder = $env:SPEEDY_KIND -eq 'dir'
@@ -79,7 +82,7 @@ $form.Controls.Add($frame)
 
 # The title, the move mark and the close mark ride the top line, on black, as the viewer's do.
 $title = New-Object System.Windows.Forms.Label
-$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } elseif ($mode -eq 'paste') { 'Pegar' } else { 'Renombrar' }) + ' '
+$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } elseif ($mode -eq 'paste') { 'Pegar' } elseif ($mode -eq 'mkdir') { 'Nueva carpeta' } else { 'Renombrar' }) + ' '
 $title.AutoSize = $true
 $title.Font = $bold
 $title.ForeColor = $frame.BackColor
@@ -213,6 +216,35 @@ if ($mode -eq 'rename') {
   $cancel.Add_Click({ Finish 'cancel' })
   $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
   $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Accept; $_.Handled = $true; $_.SuppressKeyPress = $true } })
+} elseif ($mode -eq 'mkdir') {
+  # The first name free in the folder is offered, all of it selected, so typing replaces it.
+  $offered = 'Nueva carpeta'
+  $number = 2
+  while (Test-Path -LiteralPath (Join-Path $path $offered)) { $offered = "Nueva carpeta ($number)"; $number++ }
+  [void](New-Text 'Nombre de la carpeta nueva' $gap $gap $dim $font)
+  $nameBox = New-Box $offered $gap 52 ($inner - 2 * $gap)
+  # The folder it is made in, its end kept when it is too long for the line.
+  $where = [string]$path
+  if ($where.Length -gt 50) { $where = [char]0x2026 + $where.Substring($where.Length - 49) }
+  [void](New-Text "en $where" $gap 88 $dim $font)
+  $problem = New-Text '' $gap 114 $red $font
+  $accept = New-Action 'Crear' $blue $black 0
+  $cancel = New-Action 'Cancelar' $field $ink 1
+
+  function Try-Create {
+    $wanted = $nameBox.Text.Trim()
+    $why = ''
+    if (-not $wanted) { $why = T 'El nombre est\u00e1 vac\u00edo.' }
+    elseif ($wanted -eq '.' -or $wanted -eq '..') { $why = T 'Ese nombre no es v\u00e1lido.' }
+    elseif ($wanted.IndexOfAny([char[]]'\/:*?"<>|') -ge 0) { $why = T 'No puede tener \\ / : * ? " < > |' }
+    elseif (Test-Path -LiteralPath (Join-Path $path $wanted)) { $why = "Ya hay una carpeta o un archivo $wanted en esa carpeta." }
+    if ($why) { $problem.Text = $why; return }
+    Finish ('mkdir ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($wanted)))
+  }
+  $accept.Add_Click({ Try-Create })
+  $cancel.Add_Click({ Finish 'cancel' })
+  $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
+  $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Create; $_.Handled = $true; $_.SuppressKeyPress = $true } })
 } elseif ($mode -eq 'paste') {
   # Copiar or Mover first; the one chosen is then asked again, for sure, and only that answers. A press within
   # half a second of the choice is the same press twice, and is not an answer.
