@@ -35,6 +35,9 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+# The terminal this popup belongs to: it stands above that window alone, on its screen (owner.ps1).
+. (Join-Path $PSScriptRoot 'owner.ps1')
+
 # The window in front as the popup starts, the terminal most of the time: once a sound ends, the keys go
 # back to it, so typing goes on at the prompt while the popup stays open.
 Add-Type -Namespace SpeedyCode -Name Front -MemberDefinition @'
@@ -615,7 +618,7 @@ function Show-Wait([string]$text) {
   $wait = New-Object System.Windows.Forms.Form
   $wait.FormBorderStyle = 'None'
   $wait.StartPosition = 'Manual'
-  $wait.TopMost = $true
+  Set-PopupOwner $wait
   $wait.ShowInTaskbar = $false
   $wait.BackColor = $blue
   $wait.Padding = New-Object System.Windows.Forms.Padding(2)
@@ -938,7 +941,7 @@ $ink = [System.Drawing.ColorTranslator]::FromHtml('#e9ecef')
 $dim = [System.Drawing.ColorTranslator]::FromHtml('#868e96')
 $red = [System.Drawing.ColorTranslator]::FromHtml('#ff6b6b')
 
-$area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
+$area = Get-PopupArea
 $room = New-Object System.Drawing.Size(([int]($area.Width * 0.8 - $extraWidth)), ([int]($area.Height * 0.8 - $extraHeight)))
 
 # ---- The views -------------------------------------------------------------------------------------------
@@ -2771,7 +2774,7 @@ if ($viewNames.Count -gt 1) { foreach ($view in $viewNames) { Add-SwitchLabel $v
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
-$form.TopMost = $true
+Set-PopupOwner $form
 $form.ShowInTaskbar = $false
 $form.KeyPreview = $true
 $form.BackColor = $black
@@ -3005,7 +3008,8 @@ function Open-Summary {
   $popup = New-Object System.Windows.Forms.Form
   $popup.FormBorderStyle = 'None'
   $popup.StartPosition = 'Manual'
-  $popup.TopMost = $true
+  # Owned by the player, it goes with the player's terminal; with none found, above every window.
+  $popup.TopMost = $terminalWindow -eq [IntPtr]::Zero
   $popup.ShowInTaskbar = $false
   $popup.KeyPreview = $true
   $popup.BackColor = $black

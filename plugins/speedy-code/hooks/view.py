@@ -71,7 +71,7 @@ def main():
     picture = AppKit.NSImageRep.imageRepWithContentsOfFile_(path) if path else None
     if picture is None or picture.pixelsWide() < 1 or picture.pixelsHigh() < 1:
         return 1
-    screen, area_width, area_height = popup.pointer_screen(webview)
+    screen, area_width, area_height = popup.popup_screen(webview)
     # The title's width, near enough: bold, about nine points a letter, and its space at both sides.
     title_width = 9 * len(os.path.basename(path)) + 12
     width, height, shown_width, shown_height = popup_size(picture.pixelsWide(), picture.pixelsHigh(), area_width, area_height, title_width)

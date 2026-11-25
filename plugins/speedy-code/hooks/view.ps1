@@ -10,6 +10,9 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+# The terminal this popup belongs to: it stands above that window alone, on its screen (owner.ps1).
+. (Join-Path $PSScriptRoot 'owner.ps1')
+
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
 # The frame's widths, in pixels. The band under the top line leaves room for the half of the title and
@@ -68,7 +71,7 @@ $move.Add_MouseUp({ $drag.At = $null })
 # Read into memory, not with FromFile, which holds the file till the popup closes: clearing the history
 # could not delete the image shown.
 $image = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(, [System.IO.File]::ReadAllBytes($env:SPEEDY_IMAGE))))
-$area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
+$area = Get-PopupArea
 # The picture's scale: what leaves the whole popup within 80% of the screen, never above its own size.
 $scale = [Math]::Min(1.0, [Math]::Min(($area.Width * 0.8 - $extraWidth) / $image.Width, ($area.Height * 0.8 - $extraHeight) / $image.Height))
 $width = [int][Math]::Round($image.Width * $scale)
@@ -80,7 +83,7 @@ $popupHeight = $height + $extraHeight
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
-$form.TopMost = $true
+Set-PopupOwner $form
 $form.ShowInTaskbar = $false
 $form.KeyPreview = $true
 $form.BackColor = $black

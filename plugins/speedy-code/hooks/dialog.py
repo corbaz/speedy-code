@@ -64,7 +64,7 @@ def main():
     mode = os.environ.get('SPEEDY_MODE')
     mode = mode if mode in TITLES else 'rename'
     kind = 'dir' if os.environ.get('SPEEDY_KIND') == 'dir' else 'file'
-    screen = popup.pointer_screen(webview)[0]
+    screen = popup.popup_screen(webview)[0]
     popup.open_window(webview, TITLES[mode], 'dialog.html', Api(path.rstrip('/') or path, mode, kind, os.environ.get('SPEEDY_TARGET', '')), WIDTH, HEIGHT, screen)
     return 0
 

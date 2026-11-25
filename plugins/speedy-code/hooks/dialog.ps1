@@ -17,6 +17,9 @@
 # with no BOM in the system's code page, so its Spanish goes through T, as \u escapes.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+# The terminal this popup belongs to: it stands above that window alone, on its screen (owner.ps1).
+. (Join-Path $PSScriptRoot 'owner.ps1')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 function T([string]$text) { [regex]::Unescape($text) }
@@ -58,13 +61,13 @@ $gap = 24
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
-$form.TopMost = $true
+Set-PopupOwner $form
 $form.ShowInTaskbar = $false
 $form.KeyPreview = $true
 $form.BackColor = $black
 $form.Padding = New-Object System.Windows.Forms.Padding($contour)
 $form.ClientSize = New-Object System.Drawing.Size($width, $height)
-$area = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea
+$area = Get-PopupArea
 $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $width) / 2)), ([int]($area.Y + ($area.Height - $height) / 2)))
 
 $frame = New-Object System.Windows.Forms.Panel

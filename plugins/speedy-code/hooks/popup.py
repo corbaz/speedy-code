@@ -4,6 +4,7 @@ A popup is a page (dialog.html, view.html) in a window with no frame of the syst
 frame is drawn in the page (popup.css), so every popup has the one the Windows popups have.
 """
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -38,29 +39,149 @@ def page(name):
     return html.replace('/*popup.css*/', style).replace('<!--marks-->', MARKS)
 
 
-def pointer_screen(webview):
-    """The screen the pointer is on, as pywebview names it, and the size of its working area."""
+_terminal = []
+
+
+def terminal_app(start=None):
+    """The terminal the popup belongs to: the first program up the line of processes from this one (or from
+    `start`) that is an app with windows of its own, Terminal, iTerm2, Ghostty... The mod runs in one of its
+    shells. None where there is none, as over ssh or under tmux's server: the popup is then as it was."""
+    if start is None and _terminal:
+        return _terminal[0]
+    found = None
     try:
         import AppKit
+        pid = os.getppid() if start is None else start
+        for _ in range(16):
+            if pid <= 1:
+                break
+            app = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            if app is not None and app.activationPolicy() == AppKit.NSApplicationActivationPolicyRegular:
+                found = app
+                break
+            said = subprocess.run(['ps', '-o', 'ppid=', '-p', str(pid)], capture_output=True, text=True, timeout=2).stdout.strip()
+            pid = int(said) if said.isdigit() else 0
+    except Exception:
+        found = None
+    if start is None:
+        _terminal.append(found)
+    return found
+
+
+def screen_at(webview, x, y):
+    """The screen holding the point (x, y), as macOS counts it from the bottom of the main screen: as
+    pywebview names it, and the size of its working area; None when no screen holds it."""
+    import AppKit
+    for index, screen in enumerate(AppKit.NSScreen.screens()):
+        frame = screen.frame()
+        if frame.origin.x <= x < frame.origin.x + frame.size.width and frame.origin.y <= y < frame.origin.y + frame.size.height:
+            area = screen.visibleFrame()
+            return webview.screens[index], area.size.width, area.size.height
+    return None
+
+
+def terminal_middle(app):
+    """The middle of the terminal's frontmost window, as macOS counts a point; None when it shows none."""
+    import AppKit
+    import Quartz
+    windows = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, Quartz.kCGNullWindowID) or []
+    for info in windows:
+        if info.get('kCGWindowOwnerPID') == app.processIdentifier() and info.get('kCGWindowLayer') == 0:
+            bounds = info.get('kCGWindowBounds') or {}
+            # The window list counts down from the top of the main screen; a screen's frame, up from its bottom.
+            main = AppKit.NSScreen.screens()[0].frame().size.height
+            return bounds.get('X', 0) + bounds.get('Width', 0) / 2, main - (bounds.get('Y', 0) + bounds.get('Height', 0) / 2)
+    return None
+
+
+def popup_screen(webview):
+    """The screen a popup opens on, as pywebview names it, and the size of its working area: the terminal's,
+    where its window is; else the one the pointer is on."""
+    try:
+        app = terminal_app()
+        middle = terminal_middle(app) if app is not None else None
+        found = screen_at(webview, *middle) if middle is not None else None
+        if found is not None:
+            return found
+        import AppKit
         at = AppKit.NSEvent.mouseLocation()
-        for index, screen in enumerate(AppKit.NSScreen.screens()):
-            frame = screen.frame()
-            if frame.origin.x <= at.x < frame.origin.x + frame.size.width and frame.origin.y <= at.y < frame.origin.y + frame.size.height:
-                area = screen.visibleFrame()
-                return webview.screens[index], area.size.width, area.size.height
+        found = screen_at(webview, at.x, at.y)
+        if found is not None:
+            return found
     except Exception:
         pass
     return None, 1440.0, 900.0
 
 
+def belongs_in_front(front_pid):
+    """Whether the popup shows with the program `front_pid` in front: the terminal it belongs to, or the popup
+    itself. With no terminal found, always, as before."""
+    app = terminal_app()
+    return app is None or front_pid in (app.processIdentifier(), os.getpid())
+
+
+_watching = []
+
+
+def follow_terminal():
+    """The popup goes with its terminal: hidden while another program is in front, back as soon as the
+    terminal (or the popup) is. It stands above the terminal, never above the others."""
+    app = terminal_app()
+    if app is None or _watching:
+        return
+    try:
+        import AppKit
+        from Foundation import NSObject
+        from PyObjCTools import AppHelper
+        from webview.platforms.cocoa import BrowserView
+    except ImportError:
+        return
+    hidden = []
+
+    def windows():
+        return [view.window for view in list(BrowserView.instances.values())]
+
+    def follow(front_pid):
+        if belongs_in_front(front_pid):
+            for window in hidden:
+                if window in windows():
+                    window.orderFrontRegardless()
+            hidden.clear()
+            return
+        for window in windows():
+            if window.isVisible():
+                window.orderOut_(None)
+                hidden.append(window)
+
+    class Watcher(NSObject):
+        def activated_(self, note):
+            front = note.userInfo().objectForKey_(AppKit.NSWorkspaceApplicationKey)
+            follow(front.processIdentifier() if front is not None else 0)
+
+    def start():
+        watcher = Watcher.alloc().init()
+        _watching.append(watcher)
+        AppKit.NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+            watcher, 'activated:', AppKit.NSWorkspaceDidActivateApplicationNotification, None)
+        # Opened while another program is in front: it waits, hidden, for the terminal.
+        first = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+        follow(first.processIdentifier() if first is not None else 0)
+
+    AppHelper.callAfter(start)
+
+
 def front():
     """The popup comes to the front with the keys, as the Windows ones do when shown. macOS may not hand
-    them over at the first asking, so it is asked a few times, until the popup has them."""
+    them over at the first asking, so it is asked a few times, until the popup has them. Opened while a
+    program other than its terminal is in front, it takes nothing: it shows once the terminal is in front."""
     try:
         import AppKit
         from PyObjCTools import AppHelper
         from webview.platforms.cocoa import BrowserView
     except ImportError:
+        return
+    first = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+    if first is not None and not belongs_in_front(first.processIdentifier()):
         return
 
     def attempt():
@@ -231,8 +352,8 @@ def cover(window, on):
 
 
 def open_window(webview, title, name, api, width, height, screen=None, url=None):
-    """The page `name` (or the page at `url`) in a window of that size, in the middle of `screen`, above the
-    others. An `api` that keeps a `_window` gets the window. Runs until it ends."""
+    """The page `name` (or the page at `url`) in a window of that size, in the middle of `screen`, above its
+    terminal's. An `api` that keeps a `_window` gets the window. Runs until it ends."""
     remember_front()
     no_dock_icon()
     source = {'url': url} if url else {'html': page(name)}
@@ -244,4 +365,6 @@ def open_window(webview, title, name, api, width, height, screen=None, url=None)
     # The application's loop, stopped, would wait for one more event: the popup ends at once instead.
     window.events.closed += api.close
     window.events.before_show += lambda: square(window)
+    # It goes with the terminal it was opened from: above it, hidden while another program is in front.
+    window.events.shown += follow_terminal
     webview.start()

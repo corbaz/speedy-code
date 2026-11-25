@@ -753,7 +753,7 @@ def main():
     path = os.path.abspath(os.environ.get('SPEEDY_FILE', ''))
     if not os.path.isfile(path):
         return 1
-    screen, area_width, area_height = popup.pointer_screen(webview)
+    screen, area_width, area_height = popup.popup_screen(webview)
     room = (int(area_width * 0.8 - EXTRA_WIDTH), int(area_height * 0.8 - EXTRA_HEIGHT))
     try:
         shown = Popup(path, room)
