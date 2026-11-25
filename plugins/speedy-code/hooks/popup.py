@@ -51,7 +51,9 @@ def terminal_app(start=None):
     found = None
     try:
         import AppKit
-        pid = os.getppid() if start is None else start
+        # SPEEDY_TERMINAL_PID names the terminal outright: the tests open a popup with no terminal above it.
+        named = os.environ.get('SPEEDY_TERMINAL_PID', '')
+        pid = start if start is not None else int(named) if named.isdigit() else os.getppid()
         for _ in range(16):
             if pid <= 1:
                 break
@@ -113,42 +115,63 @@ def popup_screen(webview):
     return None, 1440.0, 900.0
 
 
-def belongs_in_front(front_pid):
-    """Whether the popup shows with the program `front_pid` in front: the terminal it belongs to, or the popup
-    itself. With no terminal found, always, as before."""
+def front_owner(windows):
+    """The program whose window is in front: the owner of the first window of the normal layer in `windows`,
+    the screen's windows from the front back (CGWindowListCopyWindowInfo); 0 when there is none. A popup
+    floats above that layer, so it is never it; a window too small or clear to be seen is passed over."""
+    for info in windows:
+        bounds = info.get('kCGWindowBounds') or {}
+        if info.get('kCGWindowLayer') == 0 and info.get('kCGWindowAlpha', 1) > 0 and bounds.get('Width', 0) > 40 and bounds.get('Height', 0) > 40:
+            return info.get('kCGWindowOwnerPID', 0)
+    return 0
+
+
+def popups_wanted(windows, terminal_pid, own_pid):
+    """Whether the popups show, from the screen's windows: the window in front is their terminal's (or a
+    popup's own). Another program's in front, or the terminal minimized, hidden or on another space (none of
+    its windows on the screen then), hides them."""
+    return front_owner(windows) in (terminal_pid, own_pid)
+
+
+def screen_windows():
+    """The windows on the screen now, from the front back, as the window server says it: nothing kept, so a
+    change shows at the next look (NSWorkspace's frontmost program, read away from the main thread, could stay
+    old for seconds)."""
+    import Quartz
+    return Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, Quartz.kCGNullWindowID) or []
+
+
+def belongs_in_front():
+    """Whether the popup shows now: always with no terminal found, as before."""
     app = terminal_app()
-    return app is None or front_pid in (app.processIdentifier(), os.getpid())
+    if app is None:
+        return True
+    try:
+        return popups_wanted(screen_windows(), app.processIdentifier(), os.getpid())
+    except Exception:
+        return True
 
 
 _watching = []
-
-
-def terminal_shown(app):
-    """Whether the terminal has a window on the screen: none while all of them are minimized or it is hidden."""
-    import Quartz
-    windows = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, Quartz.kCGNullWindowID) or []
-    return any(info.get('kCGWindowOwnerPID') == app.processIdentifier() and info.get('kCGWindowLayer') == 0 for info in windows)
-
-
-def popup_wanted(app, front_pid):
-    """Whether the popups show now: their terminal (or a popup) is in front, and the terminal is on the screen."""
-    return belongs_in_front(front_pid) and terminal_shown(app)
+# How often the screen is looked at, in seconds: an app's window minimized is told to no one.
+LOOK_EVERY = 0.1
 
 
 def follow_terminal():
-    """The popup goes with its terminal: hidden while another program is in front or while the terminal is
-    minimized or hidden, back as soon as it is in front again. It stands above the terminal, never above the
-    others. Looked at four times a second: an app's windows minimized change nothing macOS tells."""
+    """The popup goes with its terminal: hidden while another program's window is in front or while the
+    terminal is minimized, hidden or on another space; back as soon as its window is in front again. It stands
+    above the terminal, never above the others. The screen is looked at ten times a second, away from the main
+    thread; only showing and hiding go to it."""
     app = terminal_app()
     if app is None or _watching:
         return
     try:
-        import AppKit
         from PyObjCTools import AppHelper
         from webview.platforms.cocoa import BrowserView
     except ImportError:
         return
     _watching.append(True)
+    terminal_pid, own_pid = app.processIdentifier(), os.getpid()
     hidden = []
 
     def apply(shown):
@@ -161,6 +184,8 @@ def follow_terminal():
             return
         for window in windows:
             if window.isVisible():
+                # At once: macOS fades a window out for a third of a second, which reads as late.
+                window.setAnimationBehavior_(2)
                 window.orderOut_(None)
                 hidden.append(window)
 
@@ -168,14 +193,13 @@ def follow_terminal():
         shown = True
         while True:
             try:
-                front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-                wanted = popup_wanted(app, front.processIdentifier() if front is not None else 0)
+                wanted = popups_wanted(screen_windows(), terminal_pid, own_pid)
             except Exception:
                 wanted = True
             if wanted != shown:
                 shown = wanted
                 AppHelper.callAfter(apply, wanted)
-            time.sleep(0.25)
+            time.sleep(LOOK_EVERY)
 
     threading.Thread(target=watch, daemon=True).start()
 
@@ -190,8 +214,7 @@ def front():
         from webview.platforms.cocoa import BrowserView
     except ImportError:
         return
-    first = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-    if first is not None and not belongs_in_front(first.processIdentifier()):
+    if not belongs_in_front():
         return
 
     def attempt():
