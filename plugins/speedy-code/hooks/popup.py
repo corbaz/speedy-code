@@ -169,6 +169,37 @@ def resize(window, width, height):
     AppHelper.callAfter(apply)
 
 
+def stack(top, bottom, gap=8):
+    """Two popups one over the other in the middle of their screen's working area, `top` above `bottom`, each
+    in the middle across and neither covering the other: `top` is made shorter when both would not fit."""
+    try:
+        from PyObjCTools import AppHelper
+        from webview.platforms.cocoa import BrowserView
+    except ImportError:
+        return
+
+    def apply():
+        try:
+            upper = BrowserView.instances[top.uid].window
+            lower = BrowserView.instances[bottom.uid].window
+        except (KeyError, AttributeError):
+            return
+        screen = lower.screen()
+        area = screen.visibleFrame() if screen is not None else lower.frame()
+        high, low = upper.frame(), lower.frame()
+        high.size.height = min(high.size.height, max(160.0, area.size.height - low.size.height - gap))
+        margin = max(0.0, (area.size.height - high.size.height - gap - low.size.height) / 2)
+        # macOS counts up from the bottom of the screen.
+        high.origin.x = area.origin.x + (area.size.width - high.size.width) / 2
+        high.origin.y = area.origin.y + area.size.height - margin - high.size.height
+        low.origin.x = area.origin.x + (area.size.width - low.size.width) / 2
+        low.origin.y = max(area.origin.y, high.origin.y - gap - low.size.height)
+        upper.setFrame_display_(high, True)
+        lower.setFrame_display_(low, True)
+
+    AppHelper.callAfter(apply)
+
+
 # The place and the level a popup had before it covered its screen, by the window's own id.
 _covered = {}
 

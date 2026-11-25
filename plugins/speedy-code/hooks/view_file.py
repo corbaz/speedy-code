@@ -83,6 +83,7 @@ class Summary:
 
     def resize(self, width, height):
         popup.resize(self._window, width, height)
+        popup.stack(self._window, self._owner._window)
 
     def cover(self, on):
         pass
@@ -584,6 +585,8 @@ class Popup:
             frameless=True, easy_drag=False, resizable=False, on_top=True, background_color='#000000')
         shown._window = window
         window.events.before_show += lambda: popup.square(window)
+        # Resumen above, the player under it, both in the middle of the screen and in sight.
+        window.events.shown += lambda: popup.stack(window, self._window)
         self._summary = shown
         return {'ok': True}
 

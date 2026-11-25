@@ -3071,16 +3071,20 @@ function Open-Summary {
   $hear.Visible = [bool]$env:SPEEDY_VOICE
   $summary.Hear = $hear
   foreach ($label in @($heading, $hear, $take, $carry, $shut)) { $popup.Controls.Add($label); $label.BringToFront() }
-  # As wide as a reading line, as tall as its points ask, up to the room; over the player, in its middle.
+  # As wide as a reading line, as tall as its points ask. The two stand one over the other in the middle of
+  # the screen, Resumen above and the player under it, neither covering the other: Resumen is shorter when
+  # both would not fit.
   $lines = @($summary.Text -split "`n" | Where-Object { $_.Trim() }).Count
+  $gap = 8
   $width = [int][Math]::Min($room.Width, 640)
-  $height = [int][Math]::Min($room.Height, 2 * $contour + 2 * $band + 60 + $lines * 44)
+  $height = [int](2 * $contour + 2 * $band + 60 + $lines * 44)
+  $height = [int][Math]::Min($height, [Math]::Max(160, $area.Height - $form.Height - $gap))
   $popup.ClientSize = New-Object System.Drawing.Size($width, $height)
-  $x = [int]($form.Left + ($form.Width - $width) / 2)
-  $y = [int]($form.Top + ($form.Height - $height) / 2)
-  $x = [Math]::Max($area.X, [Math]::Min($x, $area.Right - $width))
-  $y = [Math]::Max($area.Y, [Math]::Min($y, $area.Bottom - $height))
-  $popup.Location = New-Object System.Drawing.Point($x, $y)
+  $top = $area.Y + [int][Math]::Max(0, ($area.Height - $height - $gap - $form.Height) / 2)
+  $popup.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $width) / 2)), $top)
+  $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $form.Width) / 2)), ([int][Math]::Min($top + $height + $gap, $area.Bottom - $form.Height)))
+  # Where it now stands is kept: a later size of the player does not take it back to the middle.
+  $state.Moved = $true
   $middle = $contour + [int]($line / 2)
   $heading.Location = New-Object System.Drawing.Point(([int](($width - $heading.PreferredWidth) / 2)), ($middle - [int]($heading.PreferredHeight / 2)))
   $shut.Location = New-Object System.Drawing.Point(($width - $contour - $shut.PreferredWidth - 12), ($middle - [int]($shut.PreferredHeight / 2)))
