@@ -3,6 +3,9 @@ those of Windows in the explorer of a Mac.
 
     remote.py hosts   the machines there are, a JSON list of names: those of SPEEDY_REMOTES (names apart by
                       commas), or those of `mac` and `windows` that ~/.ssh/config has a `Host` for.
+    remote.py mounts  this machine's folders that are another machine's disk mounted over the network (a
+                      Mac's /Volumes/share, by smb, afp, nfs or webdav), a JSON list of paths: the explorer
+                      leaves them out where the machine is reached by ssh, and its disks are shown once.
     remote.py list    a folder's entries: {"entries": [{"name", "kind": "dir" | "file", "isLink"}]}.
     remote.py stat    what a path is: {"kind": "dir" | "file" | ""}, empty when nothing is there.
     remote.py home    where the machine's disk opens: {"home": the person's folder there}, and `/` on Windows,
@@ -177,6 +180,31 @@ def hosts():
     except OSError:
         return []
     return [name for name in KNOWN_HOSTS if name in known]
+
+
+# The file systems that are another machine's disk.
+NETWORK_DISKS = ('smbfs', 'afpfs', 'nfs', 'webdav', 'cifs', 'ftp')
+
+
+def network_mounts(listing):
+    """The folders `mount` lists as another machine's disk: `//ana@pc/d on /Volumes/d (smbfs, nodev)`."""
+    found = []
+    for line in listing.splitlines():
+        mounted = re.match(r'.+ on (/.+) \(([a-z0-9]+)[,)]', line)
+        if mounted and mounted.group(2) in NETWORK_DISKS:
+            found.append(mounted.group(1))
+    return found
+
+
+def mounts():
+    """This machine's folders that are another machine's disk; none where it is not a Mac, or `mount` does not say."""
+    if sys.platform != 'darwin':
+        return []
+    try:
+        listed = subprocess.run(['/sbin/mount'], capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return network_mounts(listed.stdout.decode('utf-8', 'replace'))
 
 
 def ssh_programs():
@@ -461,6 +489,9 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ''
     if mode == 'hosts':
         say(hosts())
+        return 0
+    if mode == 'mounts':
+        say(mounts())
         return 0
     host = os.environ.get('SPEEDY_HOST', '')
     path = os.environ.get('SPEEDY_PATH', '')

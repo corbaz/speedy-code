@@ -2808,7 +2808,7 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
  * What remote.py answers about a path on another machine: its folder's entries (`list`), what it is (`stat`),
  * its copy here (`fetch`), or the machines there are (`hosts`). Nothing when the machine was not reached.
  */
-async function askRemote ($: EngineInterface, mode: 'hosts' | 'list' | 'stat' | 'fetch' | 'home', path = ''): Promise<unknown> {
+async function askRemote ($: EngineInterface, mode: 'hosts' | 'mounts' | 'list' | 'stat' | 'fetch' | 'home', path = ''): Promise<unknown> {
   const remote = remoteOf(path)
   const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, mode], { env: { SPEEDY_HOST: remote?.host ?? '', SPEEDY_PATH: remote?.path ?? '' } }).catch(() => undefined)
   try {
@@ -2905,10 +2905,21 @@ async function readFolder ($: EngineInterface, path: string): Promise<ExplorerLi
   }
 }
 
-/** The disks there are: this machine's, then those of the other machines reached by ssh. */
+/** A Mac's disks without those that are another machine's disk mounted over the network (`mounted`, as remote.py names them). */
+export const withoutMounted = (own: readonly string[], mounted: unknown) => {
+  const left = new Set(Array.isArray(mounted) ? mounted.filter((one): one is string => typeof one === 'string').map(one => one.replace(/\/+$/, '')) : [])
+  return own.filter(drive => drive === '/' || !left.has(drive.replace(/\/+$/, '')))
+}
+
+/**
+ * The disks there are: this machine's, then those of the other machines reached by ssh. Where there is one of
+ * those, a Mac's folders that are another machine's disk mounted over the network are left out: that disk is
+ * shown once, under its machine.
+ */
 async function readDrives ($: EngineInterface, os: Os) {
   const [own, remote] = await Promise.all([ownDrives($, os), remoteDrives($)])
-  return [...own, ...remote]
+  if (os === 'windows' || remote.length === 0) return [...own, ...remote]
+  return [...withoutMounted(own, await askRemote($, 'mounts')), ...remote]
 }
 
 /** This machine's disks: each lettered root that answers on Windows; `/` and each volume mounted on a Mac. */

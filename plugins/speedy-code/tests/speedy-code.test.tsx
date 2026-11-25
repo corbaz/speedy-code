@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2357,6 +2357,9 @@ test('driveOf, chainOf and driveLabel: the disk a folder is on, each folder from
   expect(chainOf('/Volumes/USB/fotos', '/Volumes/USB')).toEqual(['/Volumes/USB', '/Volumes/USB/fotos'])
   expect(chainOf('E:/x', 'C:/')).toEqual(['C:/'])
   expect([driveLabel('C:/'), driveLabel('/'), driveLabel('/Volumes/USB')]).toEqual(['C:', '/', 'USB'])
+  // A Mac's folder that is another machine's disk is left out; its own disks stay, and so does all when nothing is named.
+  expect(withoutMounted(['/', '/Volumes/USB', '/Volumes/pc-d'], ['/Volumes/pc-d'])).toEqual(['/', '/Volumes/USB'])
+  expect(withoutMounted(['/', '/Volumes/pc-d'], undefined)).toEqual(['/', '/Volumes/pc-d'])
   // Another machine's disk, reached by ssh: the machine, then its own path.
   expect(driveLabel('mac:/')).toBe('mac')
   expect(remoteOf('mac:/Users/ana')).toEqual({ host: 'mac', path: '/Users/ana' })
