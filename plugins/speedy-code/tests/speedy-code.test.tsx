@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, legendLines } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2656,9 +2656,14 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
  * (its label and its look); the file tools are left out.
  */
 async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
+  let isLegend = false
   return (await ui.findAll({})).flatMap(element => {
     // The scroll bar at the tree's right is no row: it is read apart, by explorerBar.
     if (element.type === 'Text' && /^[│█]$/.test(element.text ?? '')) return []
+    // The legend, between the header's last button and the rule, is read apart too, by explorerLegend.
+    if (element.type === 'Text' && (element.text ?? '').startsWith('─')) isLegend = false
+    if (isLegend && element.type === 'Text') return []
+    if (element.type === 'Text' && element.text === ' ↗ abrir en el sistema ') isLegend = true
     // The blank gaps between a row's tools are left out, as the tools are.
     if (element.type === 'Text') return (element.text ?? '').trim() ? [{ text: element.text ?? '', look: element.props ?? {} }] : []
     if (element.type === 'Client' && /^speedy:explorer-(view|folder):/.test(String(element.key))) {
@@ -2733,7 +2738,13 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
-  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 8 } }, surface: 'terminal' })
+  // Under the filter, the legend: each tool's icon and its word, on as many lines as the width asks (two at 48).
+  expect(legendLines(48)).toEqual([['mkdir', 'copy', 'path', 'rename'], ['trash', 'paste', 'work']])
+  expect(legendLines(200)).toEqual([['mkdir', 'copy', 'path', 'rename', 'trash', 'paste', 'work']])
+  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 10 } }, surface: 'terminal' })
+  const legendTexts = (await short.findAll({ type: 'Text' })).map(one => one.text ?? '')
+  const legend = legendTexts.slice(legendTexts.indexOf(' ↗ abrir en el sistema ') + 1, legendTexts.findIndex(one => one.startsWith('─')))
+  expect(legend).toEqual(['📁', ' carpeta', '  ', '📋', ' copiar', '  ', '🔗', ' ruta', '  ', '✏ ', ' renombrar', '🗑', ' borrar', '  ', '📥', ' pegar', '  ', '📍', ' trabajar'])
   expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(48), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas '])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
@@ -3008,7 +3019,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.unmount()
   // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
-  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
+  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 9 } }, surface: 'terminal' })
   await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
   const marked = async () => (await explorerRows(near)).filter(row => row.look.backgroundColor === '#ffd43b').map(row => row.text.trimEnd())
   expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })

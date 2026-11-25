@@ -2407,6 +2407,31 @@ const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> =
   ['paste', '📥', '\uf0ea', '#ffa94d'],
   ['work', '📍', '\uf041', '#51cf66']
 ]
+/** What each tool does, in a word, for the legend under the explorer's filter. */
+export const EXPLORER_LEGEND: Readonly<Record<string, string>> = {
+  mkdir: 'carpeta', copy: 'copiar', path: 'ruta', rename: 'renombrar', trash: 'borrar', paste: 'pegar', work: 'trabajar'
+}
+
+/**
+ * The legend's lines in `width` cells: the tools on each, in the rows' order. Each takes its icon's two
+ * cells, a space and its word, with two cells between one and the next.
+ */
+export function legendLines (width: number): string[][] {
+  const lines: string[][] = [[]]
+  let used = 0
+  for (const [kind] of EXPLORER_TOOLS) {
+    const size = 3 + cells(EXPLORER_LEGEND[kind] ?? kind)
+    if (used > 0 && used + 2 + size > width) {
+      lines.push([kind])
+      used = size
+    } else {
+      lines[lines.length - 1]?.push(kind)
+      used = used > 0 ? used + 2 + size : size
+    }
+  }
+  return lines
+}
+
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
 const PASTE_IDLE_MARK = '↧'
 const PASTE_IDLE_COLOR = '#495057'
@@ -2622,8 +2647,11 @@ export function treeRows (state: Explorer): TreeRow[] {
   return rows
 }
 
-/** The tree rows the explorer shows under its header, in a body of `bodyRows`. */
-const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS)
+/** The explorer's width as last drawn: the legend's lines under the filter depend on it. */
+let explorerWidth = EXPLORER_COLUMNS
+
+/** The tree rows the explorer shows under its header (the disks, the fields, the legend and a rule), in a body of `bodyRows`. */
+const explorerRoom = (bodyRows: number, width = explorerWidth) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS - legendLines(width).length)
 
 /**
  * The first tree row the explorer shows: `top` kept within the tree, so its last row stays at the bottom;
@@ -3440,6 +3468,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const Client = 'Client' in elements ? elements.Client : undefined
   const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
+  explorerWidth = width
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   const unfilterLabel = ' × limpiar '
@@ -3449,7 +3478,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const pauseColor = state.filter?.isPaused ? FLASH_COLOR : state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
-  const room = explorerRoom(bodyRows)
+  const room = explorerRoom(bodyRows, width)
   const top = windowTop(rows, state.top, room)
   // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
   const thumb = scrollThumb(rows.length, top, room)
@@ -3497,6 +3526,19 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           </Box>
           )
         : null}
+      {/* The legend: each tool of the rows, its icon in its color and what it does in a word. */}
+      {legendLines(width).map((line, index) => (
+        <Box key={`explorer-legend:${index}`} flexDirection="row" width={width}>
+          {line.flatMap((kind, at) => {
+            const tool = EXPLORER_TOOLS.find(one => one[0] === kind)
+            return [
+              at > 0 ? <Text key={`legend-gap:${kind}`}>{'  '}</Text> : null,
+              <Text key={`legend-icon:${kind}`} bold color={tool?.[3]}>{toolLabel(isGlyphs ? tool?.[2] ?? '' : tool?.[1] ?? '', isGlyphs)}</Text>,
+              <Text key={`legend-word:${kind}`} dimColor>{` ${EXPLORER_LEGEND[kind] ?? kind}`}</Text>
+            ]
+          })}
+        </Box>
+      ))}
       {state.filter
         ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
         : <Text dimColor>{'─'.repeat(width)}</Text>}
