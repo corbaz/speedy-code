@@ -2693,12 +2693,15 @@ async function copyPathToClipboard ($: EngineInterface, path: string, surface: P
 }
 
 
-/** Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder again. */
+/**
+ * Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder again.
+ * Said gone only once it is: one another program holds (its working folder, a file open in it) stays, and says so.
+ */
 async function trashFile ($: EngineInterface, path: string) {
   const native = await nativePath($, path)
   const isWindows = (await osNow($)) === 'windows'
   const argv = isWindows
-    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $env:SPEEDY_FILE -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') }; 'deleted'"]
+    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; try { if (Test-Path -LiteralPath $env:SPEEDY_FILE -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { }; if (Test-Path -LiteralPath $env:SPEEDY_FILE) { 'kept' } else { 'deleted' }"]
     : MAC.trash(native)
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
