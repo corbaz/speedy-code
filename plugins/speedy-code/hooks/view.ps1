@@ -78,7 +78,8 @@ $width = [int][Math]::Round($image.Width * $scale)
 $height = [int][Math]::Round($image.Height * $scale)
 # A small picture still leaves the top line room for its title and close mark: the picture stays its
 # size, centered, with black beside it.
-$popupWidth = [Math]::Max($width + $extraWidth, 2 * $contour + $title.PreferredWidth + 2 * ($close.PreferredWidth + $move.PreferredWidth + 2) + 48)
+# Each side as wide as the wider of its two: the marks at the right, the terminal's name at the left.
+$popupWidth = [Math]::Max($width + $extraWidth, 2 * $contour + $title.PreferredWidth + 2 * [Math]::Max($close.PreferredWidth + $move.PreferredWidth + 2 + 24, (Get-TerminalLabelWidth)))
 $popupHeight = $height + $extraHeight
 $form = New-Object System.Windows.Forms.Form
 $form.FormBorderStyle = 'None'
@@ -124,6 +125,8 @@ $move.BringToFront()
 $title.Location = New-Object System.Drawing.Point(([int](($popupWidth - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
 $close.Location = New-Object System.Drawing.Point(($popupWidth - $contour - $close.PreferredWidth - 12), ($lineMiddle - [int]($close.PreferredHeight / 2)))
 $move.Location = New-Object System.Drawing.Point(($close.Location.X - $move.PreferredWidth - 2), ($lineMiddle - [int]($move.PreferredHeight / 2)))
+# At the left of the line, the terminal it belongs to.
+[void](Add-TerminalLabel $form ($contour + 12) $lineMiddle)
 $close.Add_Click({ $form.Close() })
 
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })

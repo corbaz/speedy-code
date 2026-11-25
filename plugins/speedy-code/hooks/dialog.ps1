@@ -132,6 +132,8 @@ $lineMiddle = $contour + [int]($line / 2)
 $title.Location = New-Object System.Drawing.Point(([int](($width - $title.PreferredWidth) / 2)), ($lineMiddle - [int]($title.PreferredHeight / 2)))
 $close.Location = New-Object System.Drawing.Point(($width - $contour - $close.PreferredWidth - 10), ($lineMiddle - [int]($close.PreferredHeight / 2)))
 $move.Location = New-Object System.Drawing.Point(($close.Location.X - $move.PreferredWidth - 2), ($lineMiddle - [int]($move.PreferredHeight / 2)))
+# At the left of the line, the terminal it belongs to.
+[void](Add-TerminalLabel $form ($contour + 10) $lineMiddle)
 
 function New-Text([string]$text, [int]$x, [int]$y, $color, $face) {
   $label = New-Object System.Windows.Forms.Label

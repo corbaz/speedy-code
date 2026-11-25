@@ -3,6 +3,7 @@
 A popup is a page (dialog.html, view.html) in a window with no frame of the system's, by pywebview. The
 frame is drawn in the page (popup.css), so every popup has the one the Windows popups have.
 """
+import html
 import os
 import subprocess
 import sys
@@ -30,13 +31,33 @@ def say(line):
         os._exit(0)
 
 
+def terminal_name():
+    """The name of the terminal the popup belongs to, as macOS shows it (iTerm2, Ghostty, Terminal); empty
+    with none found."""
+    app = terminal_app()
+    try:
+        return str(app.localizedName() or '') if app is not None else ''
+    except Exception:
+        return ''
+
+
+def terminal_side():
+    """The room the terminal's name takes at the left of the top line, past the corner, with a gap after it:
+    near enough, at 7 points a letter; 0 with none."""
+    name = terminal_name()
+    return 12 + 7 * len(name) + 18 if name else 0
+
+
 def page(name):
-    """A page of this folder with the shared frame in it: its style and its marks."""
+    """A page of this folder with the shared frame in it: its style and its marks, and at the left of the top
+    line the terminal the popup belongs to."""
     with open(os.path.join(HERE, name), encoding='utf-8') as file:
-        html = file.read()
+        text = file.read()
     with open(os.path.join(HERE, 'popup.css'), encoding='utf-8') as file:
         style = file.read()
-    return html.replace('/*popup.css*/', style).replace('<!--marks-->', MARKS)
+    terminal = terminal_name()
+    marks = MARKS + (f'<div id="terminal-name" class="on-line">{html.escape(terminal)}</div>' if terminal else '')
+    return text.replace('/*popup.css*/', style).replace('<!--marks-->', marks)
 
 
 _terminal = []

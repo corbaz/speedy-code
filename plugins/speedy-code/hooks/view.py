@@ -24,13 +24,15 @@ EXTRA_HEIGHT = 2 * (CONTOUR + LINE) + BAND + MARGIN
 MARKS_WIDTH = 2 * (26 + 26 + 2) + 48
 
 
-def popup_size(image_width, image_height, area_width, area_height, title_width):
-    """The popup's size for a picture of that size: (popup width, popup height, picture width, picture height)."""
+def popup_size(image_width, image_height, area_width, area_height, title_width, left=0):
+    """The popup's size for a picture of that size: (popup width, popup height, picture width, picture height).
+    `left` is the room the terminal's name takes at the left of the top line."""
     scale = min(1.0, (area_width * 0.8 - EXTRA_WIDTH) / image_width, (area_height * 0.8 - EXTRA_HEIGHT) / image_height)
     width = max(1, round(image_width * scale))
     height = max(1, round(image_height * scale))
     # A small picture still leaves the top line room for its title and marks: it stays its size, centered.
-    return max(width + EXTRA_WIDTH, 2 * CONTOUR + title_width + MARKS_WIDTH), height + EXTRA_HEIGHT, width, height
+    # The left side as wide as the terminal's name, when that is wider than the marks.
+    return max(width + EXTRA_WIDTH, 2 * CONTOUR + title_width + max(MARKS_WIDTH, 2 * left)), height + EXTRA_HEIGHT, width, height
 
 
 class Api:
@@ -74,7 +76,7 @@ def main():
     screen, area_width, area_height = popup.popup_screen(webview)
     # The title's width, near enough: bold, about nine points a letter, and its space at both sides.
     title_width = 9 * len(os.path.basename(path)) + 12
-    width, height, shown_width, shown_height = popup_size(picture.pixelsWide(), picture.pixelsHigh(), area_width, area_height, title_width)
+    width, height, shown_width, shown_height = popup_size(picture.pixelsWide(), picture.pixelsHigh(), area_width, area_height, title_width, popup.terminal_side())
     popup.open_window(webview, os.path.basename(path), 'view.html', Api(path, shown_width, shown_height), width, height, screen)
     return 0
 

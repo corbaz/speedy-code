@@ -21,7 +21,8 @@ try {
     @('GetConsoleWindow', 'kernel32.dll', [IntPtr], [Type[]]@()),
     @('GetAncestor', 'user32.dll', [IntPtr], [Type[]]@([IntPtr], [int])),
     @('IsWindowVisible', 'user32.dll', [bool], [Type[]]@([IntPtr])),
-    @('SetWindowLongPtrW', 'user32.dll', [IntPtr], [Type[]]@([IntPtr], [int], [IntPtr]))
+    @('SetWindowLongPtrW', 'user32.dll', [IntPtr], [Type[]]@([IntPtr], [int], [IntPtr])),
+    @('GetWindowThreadProcessId', 'user32.dll', [uint32], [Type[]]@([IntPtr], [uint32].MakeByRefType()))
   )
   foreach ($call in $ownerCalls) {
     $method = $ownerType.DefinePInvokeMethod($call[0], $call[1], [System.Reflection.MethodAttributes]'Public, Static, PinvokeImpl', [System.Reflection.CallingConventions]::Standard, $call[2], $call[3], [System.Runtime.InteropServices.CallingConvention]::Winapi, [System.Runtime.InteropServices.CharSet]::Unicode)
@@ -56,6 +57,43 @@ try {
   }
 } catch {
   $terminalWindow = [IntPtr]::Zero
+}
+
+# The terminal's name, as its program calls itself (Windows Terminal), for the left of a popup's top line;
+# empty with no terminal found.
+$terminalName = ''
+if ($terminalWindow -ne [IntPtr]::Zero) {
+  try {
+    $terminalPid = [uint32]0
+    [void]$ownerNative::GetWindowThreadProcessId($terminalWindow, [ref]$terminalPid)
+    $terminalProcess = Get-Process -Id $terminalPid -ErrorAction Stop
+    $terminalName = if ($terminalProcess.Description) { [string]$terminalProcess.Description } else { [string]$terminalProcess.ProcessName }
+    # Windows Terminal calls itself its host; the old console's window is its host's, a console all the same.
+    if ($terminalProcess.ProcessName -eq 'WindowsTerminal') { $terminalName = 'Windows Terminal' }
+    if ($terminalProcess.ProcessName -eq 'conhost') { $terminalName = 'Consola' }
+  } catch { $terminalName = '' }
+}
+
+# The room the terminal's name takes on the top line, past the corner, with a gap after it; 0 with none.
+function Get-TerminalLabelWidth {
+  if (-not $terminalName) { return 0 }
+  12 + [System.Windows.Forms.TextRenderer]::MeasureText(" $terminalName ", (New-Object System.Drawing.Font('Segoe UI', 9))).Width + 10
+}
+
+# The terminal's name at the left of a popup's top line, on black, cutting it as the title does; `x` is where
+# the line starts to be free of the corner, `middle` its height. Nothing with no terminal found.
+function Add-TerminalLabel($form, [int]$x, [int]$middle) {
+  if (-not $terminalName) { return $null }
+  $label = New-Object System.Windows.Forms.Label
+  $label.Text = " $terminalName "
+  $label.AutoSize = $true
+  $label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+  $label.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#868e96')
+  $label.BackColor = [System.Drawing.Color]::Black
+  $form.Controls.Add($label)
+  $label.BringToFront()
+  $label.Location = New-Object System.Drawing.Point($x, ($middle - [int]($label.PreferredHeight / 2)))
+  $label
 }
 
 # The screen's working area a popup opens on: the terminal's, else the pointer's.

@@ -15,3 +15,5 @@ body { font: 14.67px 'Segoe UI', -apple-system, 'Helvetica Neue', sans-serif; co
 #close svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; }
 #move { right: calc(var(--contour) + 40px); color: var(--line); cursor: move; }
 #move svg { width: 15px; height: 15px; fill: currentColor; }
+/* The terminal the popup belongs to, at the left of the top line. */
+#terminal-name { left: calc(var(--contour) + 12px); padding: 0 .3em; color: #868e96; font-weight: normal; font-size: 12px; }

@@ -2799,6 +2799,8 @@ $form.Controls.Add($frame)
 $lineMiddle = $contour + [int]($line / 2)
 $topLabels = @($title, $close, $closeBelow, $move, $moveBelow) + @($switch.Values) + $copyLabels
 foreach ($label in $topLabels) { $form.Controls.Add($label); $label.BringToFront() }
+# At the left of the line, the terminal it belongs to.
+[void](Add-TerminalLabel $form ($contour + 12) $lineMiddle)
 
 # The top line: the title in the middle, the switch after it, Copiar, the move mark and the close mark at the right.
 function Set-TopLine {
@@ -2832,6 +2834,8 @@ function Set-PopupSize([int]$width, [int]$height) {
   $sides = $close.PreferredWidth + $move.PreferredWidth + 2 + 24 + 40
   if ($copy) { $sides += $copy.PreferredWidth + 6 }
   foreach ($label in $switch.Values) { $sides += $label.PreferredWidth + 4 }
+  # The left side holds the terminal's name: the title keeps clear of it as of the marks.
+  $sides = [Math]::Max($sides, (Get-TerminalLabelWidth))
   $width = [Math]::Max($width, 2 * $contour + $title.PreferredWidth + 2 * $sides)
   $form.ClientSize = New-Object System.Drawing.Size($width, $height)
   if (-not $state.Moved) { $form.Location = New-Object System.Drawing.Point(([int]($area.X + ($area.Width - $width) / 2)), ([int]($area.Y + ($area.Height - $height) / 2))) }
@@ -3076,6 +3080,8 @@ function Open-Summary {
   $hear.Visible = [bool]$env:SPEEDY_VOICE
   $summary.Hear = $hear
   foreach ($label in @($heading, $hear, $take, $carry, $shut)) { $popup.Controls.Add($label); $label.BringToFront() }
+  # At the left of the line, the terminal it belongs to.
+  [void](Add-TerminalLabel $popup ($contour + 12) ($contour + [int]($line / 2)))
   # As wide as a reading line, as tall as its points ask. The two stand one over the other in the middle of
   # the screen, Resumen above and the player under it, neither covering the other: Resumen is shorter when
   # both would not fit.

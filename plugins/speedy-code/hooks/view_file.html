@@ -610,7 +610,9 @@
     $('listen').style.right = `${Math.round(innerWidth - $('copy').getBoundingClientRect().left + 6)}px`
     // A small popup still leaves the top line room: the title, and at each side as much as the right holds.
     const sides = 26 + 26 + 2 + 24 + 40 + (doc.copy ? $('copy').offsetWidth + 6 : 0) + (doc.listen ? $('listen').offsetWidth + 6 : 0) + [...$('switch').children].reduce((sum, label) => sum + label.offsetWidth + 4, 0)
-    const needed = Math.ceil(2 * 24 + title.width + 2 * sides)
+    // The left side holds the terminal's name: the title keeps clear of it as of the marks.
+    const name = $('terminal-name')
+    const needed = Math.ceil(2 * 24 + title.width + 2 * Math.max(sides, name ? name.offsetWidth + 12 + 10 : 0))
     if (innerWidth < needed) api.resize(needed, innerHeight)
   }
 
