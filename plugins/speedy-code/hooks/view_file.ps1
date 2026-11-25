@@ -35,6 +35,15 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+# The window in front as the popup starts, the terminal most of the time: once a sound ends, the keys go
+# back to it, so typing goes on at the prompt while the popup stays open.
+Add-Type -Namespace SpeedyCode -Name Front -MemberDefinition @'
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
+'@
+$frontBefore = [SpeedyCode.Front]::GetForegroundWindow()
+
 function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 
 # Spanish words with \uXXXX escapes: PowerShell 5.1 reads a script with no BOM in the system's code page,
@@ -2511,6 +2520,11 @@ try {
       $mediaParts.Media.Playing = $false
       $mediaParts.Play.Text = [string][char]0xE768
       try { Say 'media ended' } catch { }
+      # The keys back to the window that had them before the popup, while the popup still has them.
+      try {
+        $isOurs = [SpeedyCode.Front]::GetForegroundWindow() -eq $form.Handle
+        if ($isOurs -and $frontBefore -ne [IntPtr]::Zero -and [SpeedyCode.Front]::IsWindow($frontBefore)) { [void][SpeedyCode.Front]::SetForegroundWindow($frontBefore) }
+      } catch { }
     })
     if ($kind -eq 'audio') { $player.Source = New-Object System.Uri($path) }
     $player.Play()

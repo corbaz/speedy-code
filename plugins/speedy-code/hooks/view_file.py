@@ -478,6 +478,8 @@ class Popup:
     def media(self, state):
         if state in ('playing', 'paused', 'ended'):
             popup.say('media ' + state)
+        if state == 'ended':
+            popup.give_back()
 
     def convert(self):
         """A sound or a video macOS does not play (AV1 on a Mac with no decoder for it, VP9, an old codec), made

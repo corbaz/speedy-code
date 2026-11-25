@@ -83,6 +83,44 @@ def front():
     threading.Thread(target=ask, daemon=True).start()
 
 
+_before = None
+
+
+def remember_front():
+    """The program in front as the popup starts, the terminal most of the time: give_back hands it the keys."""
+    global _before
+    try:
+        import AppKit
+        first = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+        if first is not None and first.processIdentifier() != os.getpid():
+            _before = first
+    except Exception:
+        pass
+
+
+def give_back():
+    """Once a sound ends, the keys go back to the program that had them before the popup, while the popup
+    still has them, as the Windows popup does: typing goes on at the prompt, the popup still open."""
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+    except ImportError:
+        return
+
+    def attempt():
+        app = AppKit.NSApp
+        if _before is None or _before.isTerminated() or not app.isActive():
+            return
+        # macOS 14 hands the front over only when the program in front yields it.
+        if hasattr(app, 'yieldActivationToApplication_'):
+            app.yieldActivationToApplication_(_before)
+            _before.activateWithOptions_(0)
+        else:
+            _before.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
+
+    AppHelper.callAfter(attempt)
+
+
 def square(window):
     """No frame of the system at all: macOS rounds the corners of a window with a title bar, even a hidden one,
     and the popup's contour is square, as on Windows. Done before the window is first shown, on the thread
@@ -164,6 +202,7 @@ def cover(window, on):
 def open_window(webview, title, name, api, width, height, screen=None, url=None):
     """The page `name` (or the page at `url`) in a window of that size, in the middle of `screen`, above the
     others. An `api` that keeps a `_window` gets the window. Runs until it ends."""
+    remember_front()
     no_dock_icon()
     source = {'url': url} if url else {'html': page(name)}
     window = webview.create_window(
