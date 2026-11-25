@@ -22,7 +22,7 @@ From left to right:
 | 🗜️ | Runs `/compact`; always shown, whatever the context used |
 | 🔊 / 🔇 | Switches the narrator on and off; off while it reads, it pauses, and on again it goes on |
 | ⏵ / ⏸︎ / ⧗ | Reads the last answer again / pauses / goes on; ⧗ while Haiku writes the narration. Gray only before the first answer; the narrator off (🔇) only keeps the answers from being read on their own, so this and 📎 work all the same |
-| 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk. On Windows a kept narration plays in the viewer's popup, with its bar to seek back and forth; so does ⏵ once the answer was read and kept. With the narrator on, an answer's narration is made whole first and then plays in that popup by itself, as soon as it is ready; the popup of a sound or a video has a switch for the speed, x0.5 x0.75 x1 x1.25 x1.5 x2; a narration's popup has **Resumen** after x2: Groq (the system's `GROQ_API_KEY`) sums the narrated text up as a list of points, shown in a popup of its own over the player, drawn as a Markdown preview, with Copiar (the clipboard and the prompt), the move mark and the close mark; pressed again, it shows the same points at once |
+| 📎 | Opens the audio menu: reads aloud the text selected with the mouse (or the clipboard's), and lists the last 10 narrations kept, newest first, each with ▶ to play it; 🗑️ clears them from disk. On Windows a kept narration plays in the viewer's popup, with its bar to seek back and forth; so does ⏵ once the answer was read and kept. With the narrator on, an answer's narration is made whole first and then plays in that popup by itself, as soon as it is ready; the popup of a sound or a video has a switch for the speed, x0.5 x0.75 x1 x1.25 x1.5 x2; a narration's popup has **Resumen** after x2: Groq (the system's `GROQ_API_KEY`) sums the narrated text up as a list of points, shown in a popup of its own over the player, drawn as a Markdown preview, with **Escuchar**, Copiar (the clipboard and the prompt), the move mark and the close mark; pressed again, it shows the same points at once. **Escuchar** reads those points aloud with the narrator's voice: they are made into one more narration, kept in the 📎 history, and play in the player in the narration's place; pressed again, it plays them again at once |
 | 🎙️ ▾ | Dictates into the prompt; ▾ picks the microphone |
 | 🖋️ | Sends the draft to Groq, which returns it with grammar, order and misheard technical words fixed; ⏳ while it works |
 | ⏎ | Sends the prompt (the system presses Enter for you, so pasted images and @ mentions go along) |
@@ -51,7 +51,8 @@ closes it, as its ✕ does.
 - Every narration is kept in the history from the moment it starts, whole even when it is stopped halfway;
   the same text read again is kept once.
 - 📎 → **leer selección** reads the newer of the text selected with the mouse and the clipboard's, as they
-  are when it is pressed, so a text copied by any means while the menu is open is read. What it reads is in
+  are when it is pressed, so a text copied by any means while the menu is open is read. Where there is the
+  viewer's popup it is made whole first and plays there, with its bar, its speeds and Resumen, as an answer does. What it reads is in
   the history at once, and that row is the one playing (⏸ while it sounds, ⏵ paused); the selection's own row
   stays ready for the next text. Clearing the history blanks it too, and passes over the text the clipboard
   and the selection held then.
@@ -86,7 +87,8 @@ their color. Pick a model, an effort or both, then **Aplicar**: it runs `/model 
 ## Icons
 
 The footer, the menus and the status line have two icon sets: emojis, which every terminal has, and Nerd Fonts glyphs, one color each
-and all the same width. ⚙️ → **Barra de estado** → **Usar Nerd Fonts** switches, and the row shows five
+and all the same width. A session starts with the glyphs whenever a Nerd Font is installed (for the user or
+for all); with none, as last chosen. ⚙️ → **Barra de estado** → **Usar Nerd Fonts** switches, and the row shows five
 glyphs to tell whether the terminal draws them. The setup installs Symbols Nerd Font Mono in the user's
 fonts; a terminal whose font is not a Nerd Font, and that does not fall back to the fonts installed,
 needs a Nerd Font picked in its settings.

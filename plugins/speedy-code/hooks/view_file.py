@@ -55,7 +55,8 @@ LETTER, TEXT_LINE = 8.84, 19
 
 class Summary:
     """The points of a narration Groq summed up, in a popup of their own over the player: view_file.html draws
-    them as a Markdown file's Preview, with Copiar, the move mark and the close mark. Closed, the player stays."""
+    them as a Markdown file's Preview, with Escuchar, Copiar, the move mark and the close mark. Closed, the
+    player stays."""
 
     def __init__(self, owner, text):
         self._owner = owner
@@ -65,10 +66,14 @@ class Summary:
         inner = (min(room[0], 640), min(room[1], 60 + points * 44))
         self._doc = {'name': 'Resumen', 'kind': 'markdown', 'views': [{'name': 'Preview', 'type': 'page', 'page': 'summary'}],
                      'raw': text, 'copy': True, 'room': list(room), 'tables': None, 'pdfText': None, 'area': owner._doc.get('area'),
-                     'width': inner[0] + EXTRA_WIDTH, 'height': inner[1] + EXTRA_HEIGHT, 'open': 'Preview'}
+                     'width': inner[0] + EXTRA_WIDTH, 'height': inner[1] + EXTRA_HEIGHT, 'open': 'Preview',
+                     'listen': bool(os.environ.get('SPEEDY_VOICE'))}
 
     def asked(self):
         return self._doc
+
+    def listen(self):
+        return self._owner.listen_summary()
 
     def shown(self):
         popup.front()
@@ -133,6 +138,8 @@ class Popup:
         self._screen = None
         self._summary_text = None
         self._summary = None
+        # The points read aloud, once Escuchar made them: an MP3 in the narrations' history.
+        self._summary_sound = ''
         self._doc = self._read()
 
     # ---- What the file is -------------------------------------------------------------------------------
@@ -578,6 +585,29 @@ class Popup:
         shown._window = window
         window.events.before_show += lambda: popup.square(window)
         self._summary = shown
+        return {'ok': True}
+
+    def listen_summary(self):
+        """Escuchar, in Resumen's popup: its points read aloud with the narrator's voice (SPEEDY_VOICE, at
+        SPEEDY_SPEED), made by speak.py into the narrations' history as one more, then played in this player in
+        the narration's place. Made once. It answers {'ok': True}, or {'ok': False, 'why': ...}."""
+        voice = os.environ.get('SPEEDY_VOICE', '')
+        if not voice or not self._summary_text:
+            return {'ok': False, 'why': 'falta la voz del narrador'}
+        if not (self._summary_sound and os.path.isfile(self._summary_sound)):
+            import polish
+            speech = polish.summary_speech(self._summary_text, os.path.dirname(self._path), datetime.datetime.now())
+            env = {**os.environ, 'PYTHONIOENCODING': 'utf-8', 'NARRATOR_TEXT': speech['text'], 'NARRATOR_VOICE': voice,
+                   'NARRATOR_SPEED': os.environ.get('SPEEDY_SPEED', '1'), 'NARRATOR_SAVE_AS': speech['file'], 'NARRATOR_ONLY_MAKE': '1'}
+            try:
+                subprocess.run([sys.executable, os.path.join(popup.HERE, 'speak.py')], env=env, capture_output=True, timeout=170, stdin=subprocess.DEVNULL)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            if not os.path.isfile(speech['file']):
+                return {'ok': False, 'why': 'no se pudo armar el audio'}
+            self._summary_sound = speech['file']
+        self._played = self._summary_sound
+        self._window.evaluate_js('playAnother(' + json.dumps(os.path.basename(self._summary_sound)) + ')')
         return {'ok': True}
 
     def resize(self, width, height):

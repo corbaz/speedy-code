@@ -1010,8 +1010,10 @@ async function narrate ($: EngineInterface, answer: string, source = '', inPopup
   const voice = chosen[lang] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
   try {
     const isSame = lastNarration.answer === answer && lastNarration.lang === lang
-    // Said again where there is the popup: the file it was kept in plays there.
-    if (isSame && hasPopup && await playInViewer($, lastNarration.file, source)) return
+    // Said again where there is the popup: the file it was kept in plays there. A selection's row in the
+    // history is the one marked playing, as it is while it sounds anywhere else.
+    const shownFrom = (file: string) => (source === SELECTION_CLIP ? file : source)
+    if (isSame && hasPopup && await playInViewer($, lastNarration.file, shownFrom(lastNarration.file))) return
     // Said again, nothing is written nor made: it shows as playing at once.
     await update($, speech, () => (isSame ? 'playing' : 'thinking'))
     const text = isSame ? lastNarration.text : await narrationOf($, answer, lang, controller.signal)
@@ -1056,7 +1058,7 @@ async function narrate ($: EngineInterface, answer: string, source = '', inPopup
       if (/^error /m.test(said)) $.ui.log(`speedy: ${said.trim()}`, { to: 'debug' })
     }
     // Made: it plays in the popup at once. The popup takes this narration's place, as any other would.
-    if (isMade && !controller.signal.aborted) await playInViewer($, saveAs, source)
+    if (isMade && !controller.signal.aborted) await playInViewer($, saveAs, shownFrom(saveAs))
   } catch (error) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
@@ -1312,7 +1314,8 @@ async function readPending ($: EngineInterface) {
     return
   }
   lastAnswer = pendingSelection
-  void narrate($, pendingSelection, SELECTION_CLIP)
+  // Made first, whole, then played in the viewer's popup with its bar and speeds, as an answer is.
+  void narrate($, pendingSelection, SELECTION_CLIP, true)
 }
 
 /**
@@ -1650,13 +1653,16 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
     const isWindows = (await osNow($)) === 'windows'
     // On macOS view.py and view_file.py draw the popups view.ps1 and view_file.ps1 draw on Windows.
     const macPopup = isWindows ? '' : `${$.plugin.root}/hooks/${script === 'view.ps1' ? 'view.py' : 'view_file.py'}`
+    // The narrator's voice, for a narration's Resumen read aloud there (Escuchar), at the speed narrations take.
+    const chosen = await read($, picks)
+    const voice = chosen[chosen.active ?? DEFAULT_LANG] ?? DEFAULT_PICKS[DEFAULT_LANG] ?? ''
     const viewer = $.process.spawn({
       argv: isWindows
         ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/${script}`]
         : MAC.popup,
       // view.ps1 and Quick Look read SPEEDY_IMAGE, view_file.ps1 SPEEDY_FILE.
       // view_file.ps1 reads a PDF's text with this mod's Python, SPEEDY_PYTHON.
-      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}), ...(macPopup ? { SPEEDY_POPUP: macPopup } : {}) }
+      env: { SPEEDY_IMAGE: await nativePath($, path), SPEEDY_FILE: await nativePath($, path), SPEEDY_PYTHON: await nativePath($, await python($)), SPEEDY_VOICE: voice, SPEEDY_SPEED: String(SPEED), ...(control ? { SPEEDY_CONTROL: await nativePath($, control) } : {}), ...(macPopup ? { SPEEDY_POPUP: macPopup } : {}) }
     })
     // It says "." ten times a second: leaving the loop ends it, and its window with it. Copiar in the
     // file viewer says `copied <base64>` too: the text goes into the prompt, on a line of its own.
@@ -1832,6 +1838,29 @@ async function setTerminalFont ($: EngineInterface, family: FontFamily, size: nu
   await $.store.set('fontFamily', family)
   $.ui.toast(`speedy-code: ${said}`)
   $.ui.invalidate('ui.render')
+}
+
+/**
+ * The icons a session starts with: Nerd Fonts glyphs when a Nerd Font is installed, else as last chosen in
+ * ⚙ (glyphs too, for a terminal whose own font is a Nerd Font).
+ */
+export function startIcons (stored: unknown, hasFont: boolean): IconSet {
+  return hasFont || stored === 'nerd' ? 'nerd' : 'emoji'
+}
+
+/**
+ * Whether a Nerd Font is installed, for this user or for all: the icons alone the setup puts
+ * (SymbolsNerdFontMono) or a text family with them (JetBrainsMonoNerdFont, MesloLGSNerdFont...).
+ */
+async function hasNerdFont ($: EngineInterface) {
+  const folders = (await osNow($)) === 'mac'
+    ? [await homeFile($, 'Library/Fonts'), '/Library/Fonts']
+    : [await appDataDir($, 'Microsoft/Windows/Fonts'), 'C:/Windows/Fonts']
+  for (const folder of folders) {
+    const found = await $.fs.list(folder).catch(() => [])
+    if (found.some(entry => /NerdFont/i.test(entry.name))) return true
+  }
+  return false
 }
 
 /** Changes the icon set, kept for the next sessions, and draws the footer again with it. */
@@ -4806,8 +4835,10 @@ export const register: Register = on => {
     const savedFamily = await $.store.get('fontFamily')
     if (FONT_FAMILIES.some(([id]) => id === savedFamily)) await update($, fontFamily, () => savedFamily as FontFamily)
     if ((await osNow($)) === 'mac') glyphGap = ' '
-    isGlyphs = (await $.store.get('icons')) === 'nerd'
-    if (isGlyphs) await update($, icons, () => 'nerd' as IconSet)
+    // Nerd Fonts glyphs whenever a Nerd Font is installed; emojis only where none is.
+    const iconSet = startIcons(await $.store.get('icons'), await hasNerdFont($))
+    isGlyphs = iconSet === 'nerd'
+    if (isGlyphs) await update($, icons, () => iconSet)
     if ((await $.store.get('labels')) === false) await update($, hasLabels, () => false)
     const savedMic = await $.store.get('mic')
     if (typeof savedMic === 'string') await update($, mic, () => savedMic)

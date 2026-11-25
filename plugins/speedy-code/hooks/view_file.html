@@ -20,6 +20,9 @@
   .label { font-size: 13.33px; padding: 0 .35em; color: var(--line); cursor: pointer; }
   .label.on { background: var(--line); color: #000; }
   .copy { right: calc(var(--contour) + 74px); }
+  /* Resumen's Escuchar, left of Copiar: placed by setTopLine. */
+  .listen.busy { color: var(--dim, #adb5bd); cursor: default; }
+  .listen.failed { color: #ff6b6b; }
   #switch { display: flex; gap: 4px; background: none; }
   #switch .label { background: #000; }
   #switch .label.on { background: var(--line); }
@@ -104,6 +107,7 @@
   <div class="frame"></div>
   <div id="title" class="on-line"></div>
   <div id="switch" class="on-line"></div>
+  <div id="listen" class="on-line label listen hidden">Escuchar</div>
   <div id="copy" class="on-line label copy hidden">Copiar</div>
   <!--marks-->
   <div id="copy-below" class="on-line below label copy hidden">Copiar</div>
@@ -432,6 +436,30 @@
     return box
   }
 
+  // Another sound in this player, in place of the one it had, from its start: Resumen's points read aloud,
+  // which the popup serves as `/played`. The title names it.
+  function playAnother (name) {
+    if (!media) return
+    media.player.src = `${base}/played?${Date.now()}`
+    media.playing = false
+    media.set(true)
+    $('title').textContent = name
+    setTopLine()
+  }
+
+  // Escuchar, in Resumen's popup: the points made into a narration, kept in the history, played in the player.
+  async function listenSummary () {
+    const button = $('listen')
+    if (button.classList.contains('busy')) return
+    button.className = 'on-line label listen busy'
+    button.textContent = 'Armando\u2026'
+    const said = await api.listen().catch(() => ({ ok: false, why: 'no se pudo armar el audio' }))
+    button.className = said && said.ok ? 'on-line label listen' : 'on-line label listen failed'
+    button.textContent = said && said.ok ? 'Escuchar' : 'Sin audio'
+    button.title = said && said.ok ? '' : (said && said.why) || ''
+    setTopLine()
+  }
+
   // ---- The bar above a view -------------------------------------------------------------------------------
 
   const tool = (name, tip, action) => {
@@ -579,8 +607,9 @@
     $('close-below').classList.toggle('hidden', !isLarge)
     $('move-below').classList.toggle('hidden', !isLarge)
     $('copy-below').classList.toggle('hidden', !isLarge || !doc.copy)
+    $('listen').style.right = `${Math.round(innerWidth - $('copy').getBoundingClientRect().left + 6)}px`
     // A small popup still leaves the top line room: the title, and at each side as much as the right holds.
-    const sides = 26 + 26 + 2 + 24 + 40 + (doc.copy ? $('copy').offsetWidth + 6 : 0) + [...$('switch').children].reduce((sum, label) => sum + label.offsetWidth + 4, 0)
+    const sides = 26 + 26 + 2 + 24 + 40 + (doc.copy ? $('copy').offsetWidth + 6 : 0) + (doc.listen ? $('listen').offsetWidth + 6 : 0) + [...$('switch').children].reduce((sum, label) => sum + label.offsetWidth + 4, 0)
     const needed = Math.ceil(2 * 24 + title.width + 2 * sides)
     if (innerWidth < needed) api.resize(needed, innerHeight)
   }
@@ -820,6 +849,8 @@
     pdfText = doc.pdfText
     $('title').textContent = doc.name
     $('copy').classList.toggle('hidden', !doc.copy)
+    $('listen').classList.toggle('hidden', !doc.listen)
+    $('listen').addEventListener('click', listenSummary)
     for (const view of doc.views) addView(view)
     for (const id of ['close', 'close-below']) $(id).addEventListener('click', () => api.close())
     for (const id of ['copy', 'copy-below']) $(id).addEventListener('click', copyView)

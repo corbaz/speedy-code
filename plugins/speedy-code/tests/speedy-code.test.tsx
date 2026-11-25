@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2475,6 +2475,47 @@ test('an answer’s narration is made, then played in the viewer’s popup as so
   } finally {
     SPEAKER.makes = false
   }
+})
+
+test('a selection read is made, then played in the viewer’s popup, which has the narrator’s voice for its Resumen’s Escuchar', { timeoutMs: 30000 }, async ($, on) => {
+  on('ui.selection', () => ({ value: { text: 'Hola, este es el texto que seleccioné en la terminal.' } }))
+  on('fs.stat', (_, e) => {
+    if (!e.path.endsWith('.mp3')) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }
+  })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  SPEAKER.makes = true
+  try {
+    await ui.post({ isClicked: true }, { in: 'speedy:clip' })
+    await w.clock.advance(200)
+    const band = await $.ui.mount(BAND)
+    await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+    await w.clock.advance(300)
+    const made = w.spoken.find(env => env.NARRATOR_TEXT !== undefined)
+    expect(made).toMatchObject({ NARRATOR_TEXT: 'Hola, este es el texto que seleccioné en la terminal.', NARRATOR_ONLY_MAKE: '1' })
+    const shown = w.spoken.find(env => env.SPEEDY_FILE !== undefined)
+    expect(shown?.SPEEDY_FILE).toBe(made?.NARRATOR_SAVE_AS)
+    expect(shown).toMatchObject({ SPEEDY_VOICE: 'es-AR-ElenaNeural', SPEEDY_SPEED: '1.3' })
+    expect(w.ran.filter(argv => argv.some(arg => arg.endsWith('view_file.ps1'))).length).toBe(1)
+    await band.unmount()
+  } finally {
+    SPEAKER.makes = false
+  }
+  await ui.unmount()
+})
+
+test('a session starts with Nerd Fonts glyphs whenever a Nerd Font is installed, whatever was chosen before', { timeoutMs: 30000 }, async ($, on) => {
+  expect(startIcons('emoji', true)).toBe('nerd')
+  expect(startIcons(undefined, true)).toBe('nerd')
+  expect(startIcons(undefined, false)).toBe('emoji')
+  expect(startIcons('emoji', false)).toBe('emoji')
+  // A terminal whose own font is a Nerd Font, with none installed apart: as chosen.
+  expect(startIcons('nerd', false)).toBe('nerd')
+  on('fs.list', (_, e) => ({ value: e.path.replace(/\\/g, '/').endsWith('Microsoft/Windows/Fonts') ? [{ name: 'SymbolsNerdFontMono-Regular.ttf', kind: 'file', size: 1 }] : [] }))
+  const w = world(on, { icons: 'emoji' })
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await w.clock.settle()
+  expect(JSON.parse(w.files.at(-1) ?? '{}').icons).toBe('nerd')
 })
 
 test('on Windows a narration kept plays in the viewer’s popup, where it can be sought: a row of the 📎 menu, and the play button once the answer was read', { timeoutMs: 30000 }, async ($, on) => {

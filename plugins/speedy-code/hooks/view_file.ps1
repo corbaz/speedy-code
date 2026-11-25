@@ -2966,7 +2966,7 @@ foreach ($one in $copyLabels) { $one.Add_Click({ Copy-View }) }
 # ---- A narration's Resumen ---------------------------------------------------------------------------------
 # Groq is asked by polish.py --summary, away from the popup's thread: the sound goes on meanwhile. The points
 # come back once, and a second press shows them again at once.
-$summary = @{ Text = ''; Asking = $null; Output = $null; Form = $null; Drag = $null; Flash = 0 }
+$summary = @{ Text = ''; Asking = $null; Output = $null; Form = $null; Drag = $null; Flash = 0; Sound = ''; Making = $null; Hear = $null }
 function Show-Summary {
   if ($summary.Text) { Open-Summary; return }
   if ($summary.Asking) { return }
@@ -3065,7 +3065,12 @@ function Open-Summary {
     } catch { }
   })
   $summary.Copy = $take
-  foreach ($label in @($heading, $take, $carry, $shut)) { $popup.Controls.Add($label); $label.BringToFront() }
+  # Escuchar: the points read aloud with the narrator's voice, kept in the history, and played here.
+  $hear = New-TopLabel 'Escuchar'
+  $hear.Add_Click({ Start-Listening })
+  $hear.Visible = [bool]$env:SPEEDY_VOICE
+  $summary.Hear = $hear
+  foreach ($label in @($heading, $hear, $take, $carry, $shut)) { $popup.Controls.Add($label); $label.BringToFront() }
   # As wide as a reading line, as tall as its points ask, up to the room; over the player, in its middle.
   $lines = @($summary.Text -split "`n" | Where-Object { $_.Trim() }).Count
   $width = [int][Math]::Min($room.Width, 640)
@@ -3081,15 +3086,80 @@ function Open-Summary {
   $shut.Location = New-Object System.Drawing.Point(($width - $contour - $shut.PreferredWidth - 12), ($middle - [int]($shut.PreferredHeight / 2)))
   $carry.Location = New-Object System.Drawing.Point(($shut.Location.X - $carry.PreferredWidth - 2), ($middle - [int]($carry.PreferredHeight / 2)))
   $take.Location = New-Object System.Drawing.Point(($carry.Location.X - $take.PreferredWidth - 6), ($middle - [int]($take.PreferredHeight / 2)))
+  $hear.Location = New-Object System.Drawing.Point(($take.Location.X - $hear.PreferredWidth - 6), ($middle - [int]($hear.PreferredHeight / 2)))
   $popup.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $summary.Form.Close(); $_.Handled = $true } })
   $summary.Form = $popup
   $popup.Show($form)
+}
+# The button's words, in the colors they are said in.
+function Set-Hear([string]$text, $color) {
+  if (-not $summary.Hear -or $summary.Hear.IsDisposed) { return }
+  $summary.Hear.Text = " $text "
+  $summary.Hear.ForeColor = $color
+}
+# Escuchar: polish.py --speech gives the sentences and the history's file for them; speak.ps1 makes that file
+# with the narrator's voice (SPEEDY_VOICE, at SPEEDY_SPEED), away from this thread; then it plays here, in
+# this player, in the narration's place. Made once: a second press plays it again at once.
+function Start-Listening {
+  if ($summary.Sound -and (Test-Path -LiteralPath $summary.Sound)) { Open-Sound $summary.Sound; return }
+  if ($summary.Making -or -not $env:SPEEDY_VOICE) { return }
+  $python = if ($env:SPEEDY_PYTHON) { $env:SPEEDY_PYTHON } else { Find-Python }
+  if (-not $python) { Set-Hear 'Sin Python' $red; return }
+  $asking = New-Object System.Diagnostics.ProcessStartInfo
+  $asking.FileName = $python
+  $asking.Arguments = '-X utf8 "' + (Join-Path $PSScriptRoot 'polish.py') + '" --speech "' + [IO.Path]::GetDirectoryName($path) + '"'
+  $asking.UseShellExecute = $false
+  $asking.CreateNoWindow = $true
+  $asking.RedirectStandardOutput = $true
+  $asking.EnvironmentVariables['SPEEDY_SUMMARY'] = $summary.Text
+  try {
+    $asked = [System.Diagnostics.Process]::Start($asking)
+    $speech = $asked.StandardOutput.ReadToEnd() | ConvertFrom-Json
+    $asked.WaitForExit()
+  } catch { $speech = $null }
+  if (-not $speech -or -not $speech.text) { Set-Hear 'Sin audio' $red; return }
+  $making = New-Object System.Diagnostics.ProcessStartInfo
+  $making.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $making.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + (Join-Path $PSScriptRoot 'speak.ps1') + '"'
+  $making.UseShellExecute = $false
+  $making.CreateNoWindow = $true
+  $making.RedirectStandardOutput = $true
+  $making.EnvironmentVariables['NARRATOR_TEXT'] = [string]$speech.text
+  $making.EnvironmentVariables['NARRATOR_VOICE'] = $env:SPEEDY_VOICE
+  $making.EnvironmentVariables['NARRATOR_SPEED'] = $(if ($env:SPEEDY_SPEED) { $env:SPEEDY_SPEED } else { '1' })
+  $making.EnvironmentVariables['NARRATOR_PYTHON'] = $python
+  $making.EnvironmentVariables['NARRATOR_SAVE_AS'] = [string]$speech.file
+  $making.EnvironmentVariables['NARRATOR_ONLY_MAKE'] = '1'
+  try { $summary.Making = [System.Diagnostics.Process]::Start($making) } catch { Set-Hear 'Sin audio' $red; return }
+  # Its dots are read and dropped, so a full pipe never holds it.
+  $summary.MakingOutput = $summary.Making.StandardOutput.ReadToEndAsync()
+  $summary.Sound = [string]$speech.file
+  Set-Hear ('Armando' + [string][char]0x2026) $dim
+}
+# Speak.ps1 done: the file plays, or the button says there is none.
+function Read-Listening {
+  if (-not $summary.Making.HasExited) { return }
+  $summary.Making = $null
+  if ($summary.Sound -and (Test-Path -LiteralPath $summary.Sound)) { Set-Hear 'Escuchar' $blue; Open-Sound $summary.Sound; return }
+  $summary.Sound = ''
+  Set-Hear 'Sin audio' $red
+}
+# Another sound in this player, in place of the one it had, from its start; the title names it.
+function Open-Sound([string]$file) {
+  $mediaParts.Media.Ready = $false
+  $mediaParts.Media.Seconds = 0
+  $mediaParts.Media.Playing = $false
+  $player.Source = New-Object System.Uri($file)
+  $title.Text = ' ' + [IO.Path]::GetFileName($file) + ' '
+  Set-TopLine
+  Set-Playing $true
 }
 # Polish.py's answer looked for, and Copiado back to Copiar a second after.
 $summaryTimer = New-Object System.Windows.Forms.Timer
 $summaryTimer.Interval = 100
 $summaryTimer.Add_Tick({
   if ($summary.Output) { Read-Summary }
+  if ($summary.Making) { Read-Listening }
   if ($summary.Flash -gt 0) {
     $summary.Flash--
     if ($summary.Flash -eq 0 -and $summary.Copy -and -not $summary.Copy.IsDisposed) {
