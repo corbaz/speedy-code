@@ -123,51 +123,61 @@ def belongs_in_front(front_pid):
 _watching = []
 
 
+def terminal_shown(app):
+    """Whether the terminal has a window on the screen: none while all of them are minimized or it is hidden."""
+    import Quartz
+    windows = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, Quartz.kCGNullWindowID) or []
+    return any(info.get('kCGWindowOwnerPID') == app.processIdentifier() and info.get('kCGWindowLayer') == 0 for info in windows)
+
+
+def popup_wanted(app, front_pid):
+    """Whether the popups show now: their terminal (or a popup) is in front, and the terminal is on the screen."""
+    return belongs_in_front(front_pid) and terminal_shown(app)
+
+
 def follow_terminal():
-    """The popup goes with its terminal: hidden while another program is in front, back as soon as the
-    terminal (or the popup) is. It stands above the terminal, never above the others."""
+    """The popup goes with its terminal: hidden while another program is in front or while the terminal is
+    minimized or hidden, back as soon as it is in front again. It stands above the terminal, never above the
+    others. Looked at four times a second: an app's windows minimized change nothing macOS tells."""
     app = terminal_app()
     if app is None or _watching:
         return
     try:
         import AppKit
-        from Foundation import NSObject
         from PyObjCTools import AppHelper
         from webview.platforms.cocoa import BrowserView
     except ImportError:
         return
+    _watching.append(True)
     hidden = []
 
-    def windows():
-        return [view.window for view in list(BrowserView.instances.values())]
-
-    def follow(front_pid):
-        if belongs_in_front(front_pid):
+    def apply(shown):
+        windows = [view.window for view in list(BrowserView.instances.values())]
+        if shown:
             for window in hidden:
-                if window in windows():
+                if window in windows:
                     window.orderFrontRegardless()
             hidden.clear()
             return
-        for window in windows():
+        for window in windows:
             if window.isVisible():
                 window.orderOut_(None)
                 hidden.append(window)
 
-    class Watcher(NSObject):
-        def activated_(self, note):
-            front = note.userInfo().objectForKey_(AppKit.NSWorkspaceApplicationKey)
-            follow(front.processIdentifier() if front is not None else 0)
+    def watch():
+        shown = True
+        while True:
+            try:
+                front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+                wanted = popup_wanted(app, front.processIdentifier() if front is not None else 0)
+            except Exception:
+                wanted = True
+            if wanted != shown:
+                shown = wanted
+                AppHelper.callAfter(apply, wanted)
+            time.sleep(0.25)
 
-    def start():
-        watcher = Watcher.alloc().init()
-        _watching.append(watcher)
-        AppKit.NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
-            watcher, 'activated:', AppKit.NSWorkspaceDidActivateApplicationNotification, None)
-        # Opened while another program is in front: it waits, hidden, for the terminal.
-        first = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-        follow(first.processIdentifier() if first is not None else 0)
-
-    AppHelper.callAfter(start)
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def front():

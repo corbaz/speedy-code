@@ -3008,8 +3008,9 @@ function Open-Summary {
   $popup = New-Object System.Windows.Forms.Form
   $popup.FormBorderStyle = 'None'
   $popup.StartPosition = 'Manual'
-  # Owned by the player, it goes with the player's terminal; with none found, above every window.
-  $popup.TopMost = $terminalWindow -eq [IntPtr]::Zero
+  # Its terminal's, as the player is: it goes with the terminal when that is minimized (a window owned by the
+  # player would stay, as the player is only hidden then). It still closes with the player, its form's owner.
+  Set-PopupOwner $popup
   $popup.ShowInTaskbar = $false
   $popup.KeyPreview = $true
   $popup.BackColor = $black
