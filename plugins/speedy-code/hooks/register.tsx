@@ -537,8 +537,9 @@ async function openMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
       await update($, isLoadingSessions, () => false)
     })
   }
+  // Opened by 📍 on a folder, the name is the folder's; by the footer's +, none.
   if (which === 'new') {
-    newName = ''
+    newName = newFolder ? (slashed(newFolder).split('/').filter(Boolean).pop() ?? '').replace(/:$/, '') : ''
     newOpened += 1
   }
   await update($, menu, () => which)
@@ -799,19 +800,30 @@ async function openSession ($: EngineInterface, id: string) {
 let newName = ''
 let newOpened = 0
 
-/** The new conversation's menu: its name, typed in a field; Enter or the button starts it. */
+/**
+ * The folder 📍 opened the new conversation's menu for: the session goes there, in a new conversation or
+ * in this one. Empty: the footer's +, a new conversation where the session is.
+ */
+let newFolder = ''
+
+/**
+ * The new conversation's menu: its name, typed in a field; Enter or the button starts it. Opened by 📍 it
+ * says the folder, and has two more buttons: Seguir esta moves this conversation there, Cancelar does nothing.
+ */
 async function newMenu ($: EngineInterface, e: Drawn) {
   const elements = glyphed($.ui.resolve(e))
   const { Box, Button, Text } = elements
   const Input = 'Input' in elements ? elements.Input : undefined
+  const folder = newFolder ? await nativePath($, newFolder) : ''
   return (
     <Box flexDirection="column">
+      {folder ? <Text><Text bold color={NEW_COLOR}>{' Trabajar en: '}</Text><Text>{folder}</Text></Text> : null}
       <Text bold color="#74c0fc">{' Nombre de la conversación '}<Text dimColor>(clic en el campo para escribirlo)</Text></Text>
       {Input
         ? (
           <Input
             key={`new:name:${newOpened}`}
-            value=""
+            value={newName}
             placeholder="vacío: sin nombre"
             submitLabel="↵"
             autoFocus
@@ -820,21 +832,83 @@ async function newMenu ($: EngineInterface, e: Drawn) {
           />
           )
         : null}
-      <Box flexDirection="row" marginTop={1}>
+      <Box flexDirection="row" marginTop={1} columnGap={2}>
         <Button key="new:start" plain onPress={() => { void startConversation($, newName) }}>
-          <Text bold color="black" backgroundColor={NEW_COLOR}>{' Empezar '}</Text>
+          <Text bold color="black" backgroundColor={NEW_COLOR}>{folder ? ' Nueva conversación ' : ' Empezar '}</Text>
         </Button>
+        {folder
+          ? (
+            <Button key="new:keep" plain onPress={() => { void keepConversation($) }}>
+              <Text bold color="black" backgroundColor="#74c0fc">{' Seguir esta '}</Text>
+            </Button>
+            )
+          : null}
+        {folder
+          ? (
+            <Button key="new:cancel" plain onPress={() => { void cancelNew($) }}>
+              <Text bold color="black" backgroundColor="#adb5bd">{' Cancelar '}</Text>
+            </Button>
+            )
+          : null}
       </Box>
     </Box>
   )
 }
 
+/** 📍 on a folder of the explorer: the + menu for it, unless the session already works there. */
+async function openNewIn ($: EngineInterface, folder: string) {
+  const caseless = (await osNow($)) === 'windows'
+  const here = await $.session.root().catch(() => '')
+  if (here && pathKey(here, caseless) === pathKey(folder, caseless)) {
+    $.ui.toast(`speedy-code: la sesión ya trabaja en ${slashed(folder).split('/').filter(Boolean).pop() ?? folder}.`)
+    return
+  }
+  // Open already, for another folder or none: it opens again, for this one.
+  await closeMenu($, 'new')
+  newFolder = folder
+  await openMenu($, 'new')
+}
+
+/**
+ * As the person typing /cd: the session moves to `folder`, its conversation with it. Whether it is there
+ * now: /cd can refuse (a folder gone, a rule), and says why itself.
+ */
+async function moveTo ($: EngineInterface, folder: string) {
+  const target = await nativePath($, folder)
+  await $.command.run({ command: 'cd', args: target }).catch(() => undefined)
+  const caseless = (await osNow($)) === 'windows'
+  const now = await $.session.root().catch(() => '')
+  if (now && pathKey(now, caseless) === pathKey(target, caseless)) return true
+  $.ui.toast(`speedy-code: no pude pasar a ${target}; escribí /cd ${target}`)
+  return false
+}
+
+/** Seguir esta: the conversation goes on in the folder 📍 was pressed on. */
+async function keepConversation ($: EngineInterface) {
+  const folder = newFolder
+  newFolder = ''
+  await closeMenu($, 'new')
+  if (folder) await moveTo($, folder)
+}
+
+/** Cancelar: the menu closes, and the session stays where it is. */
+async function cancelNew ($: EngineInterface) {
+  newFolder = ''
+  await closeMenu($, 'new')
+}
+
 /** The color of a new conversation: the footer's own `+`. */
 const NEW_COLOR = '#51cf66'
 
-/** As the person typing /clear, then /rename with the name given: a new conversation in this terminal, named. */
+/**
+ * As the person typing /clear, then /rename with the name given: a new conversation in this terminal, named.
+ * Opened by 📍, /cd takes the session to that folder first; where it could not, nothing is cleared.
+ */
 async function startConversation ($: EngineInterface, name: string) {
+  const folder = newFolder
+  newFolder = ''
   await closeMenu($, 'new')
+  if (folder && !(await moveTo($, folder))) return
   const title = name.trim()
   const cleared = await $.command.run({ command: 'clear' }).then(() => true, () => false)
   if (!cleared) {
@@ -2280,16 +2354,17 @@ function followDock ($: EngineInterface, width: number) {
   explorerDock = width
   $.ui.invalidate('ui.render')
 }
-/** The cells each row's five tools take at its right: each on its own two, a gap of two between them and one before the first. */
-const EXPLORER_TOOLS_WIDTH = 19
+/** The cells each row's six tools take at its right: each on its own two, a gap of two between them and one before the first. */
+const EXPLORER_TOOLS_WIDTH = 23
 /** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
- * Fonts) and its color. */
+ * Fonts) and its color. 📍, the last, is a folder's alone: the session goes to work there. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['copy', '📋', '\uf0c5', '#74c0fc'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
   ['rename', '✏', '\uf044', '#b197fc'],
   ['trash', '🗑', '\uf1f8', '#ff8787'],
-  ['paste', '📥', '\uf0ea', '#ffa94d']
+  ['paste', '📥', '\uf0ea', '#ffa94d'],
+  ['work', '📍', '\uf041', '#51cf66']
 ]
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
 const PASTE_IDLE_MARK = '↧'
@@ -3338,9 +3413,13 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
           const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
+          // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
+          const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
+            kind === 'work' && !isWorkable
+              ? gap(`none:${kind}`, 2)
+              : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
           ])
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>
@@ -4860,6 +4939,10 @@ export const register: Register = on => {
       else if (kind === 'trash') void askTrash($, path)
       else if (kind === 'rename') void askRename($, path)
       else if (kind === 'paste') void pasteInto($, path)
+      else if (kind === 'work') {
+        void flashTool($, e.element)
+        await openNewIn($, path)
+      }
       else if (kind === 'unfilter') await clearFilter($)
       else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
@@ -4949,6 +5032,7 @@ export const register: Register = on => {
       // In a menu above the prompt, as the others: the band takes the keyboard on a click, so the
       // field is clicked before the name is typed. A pane takes it as it opens, but docks at the side.
       await closeMenu($, 'more')
+      newFolder = ''
       if (e.surface === 'terminal' || e.surface === 'desktop') await openMenu($, 'new')
       else await startConversation($, '')
     } else if (e.element === 'speedy:image') {

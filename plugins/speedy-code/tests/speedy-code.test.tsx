@@ -1026,6 +1026,92 @@ test('+ beside ⏎ asks the name of the new conversation, then starts it by /cle
   await ui.unmount()
 })
 
+test('📍 on a folder of the explorer opens the + menu for it: a new conversation there by /cd, /clear and /rename, this one moved there by /cd alone, or nothing', { timeoutMs: 30000 }, async ($, on) => {
+  const commands: Array<[string, string]> = []
+  const HERE = 'C:\\Users\\test\\proyectos'
+  const place = { root: HERE, isBlocked: false }
+  on('session.root', () => ({ value: place.root }))
+  on('command.run', (_, e) => {
+    commands.push([e.command, e.args ?? ''])
+    if (e.command === 'cd' && !place.isBlocked) place.root = e.args ?? place.root
+    return { text: '' }
+  })
+  // The explorer, open on the session's folder, with a folder beside it.
+  const panes: string[] = []
+  on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
+  on('session.cwd', () => ({ value: HERE }))
+  const TREE: Record<string, Array<{ name: string, kind: 'file' | 'dir' }>> = {
+    'c:/': [{ name: 'Users', kind: 'dir' }],
+    'c:/users': [{ name: 'test', kind: 'dir' }],
+    'c:/users/test': [{ name: 'facturas', kind: 'dir' }, { name: 'proyectos', kind: 'dir' }],
+    'c:/users/test/proyectos': [],
+    'c:/users/test/facturas': []
+  }
+  on('fs.stat', (_, e) => {
+    if (!TREE[e.path.replace(/\\/g, '/').toLowerCase()]) throw new Error('ENOENT')
+    return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+  })
+  on('fs.list', (_, e) => {
+    const entries = TREE[(e.path ?? '').replace(/\\/g, '/').toLowerCase()]
+    if (!entries) throw new Error('EPERM')
+    return { value: entries.map(entry => ({ size: 0, mtimeMs: 0, isLink: false, ...entry })) }
+  })
+  const { w, ui } = await footerSession($, on, { picks: { es: 'es-AR-ElenaNeural', active: 'es' } })
+  await w.clock.advance(100)
+  await ui.post({ isClicked: true }, { in: 'speedy:place' })
+  await w.clock.advance(100)
+  const pane = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 60, scroll: { offset: 0, bodyRows: 20 } }, surface: 'terminal' })
+  const folder = 'C:/Users/test/facturas'
+  const THERE = 'C:\\Users\\test\\facturas'
+  const ask = async () => {
+    commands.length = 0
+    place.root = HERE
+    await pane.post({ isClicked: true }, { in: `speedy:explorer-work:${folder}` })
+    return $.ui.mount(BAND)
+  }
+  // The menu says where, and names the conversation after the folder unless another name is typed.
+  const fresh = await ask()
+  expect((await fresh.find({ type: 'Text', text: /Trabajar en/ }))?.text).toContain(THERE)
+  expect((await fresh.find({ type: 'Input' }))?.props?.value).toBe('facturas')
+  await fresh.press({ key: 'new:start' })
+  await fresh.unmount()
+  expect(commands).toEqual([['cd', THERE], ['clear', ''], ['rename', 'facturas']])
+  // Seguir esta: this conversation moves there, nothing cleared.
+  const kept = await ask()
+  await kept.press({ key: 'new:keep' })
+  await kept.unmount()
+  expect(commands).toEqual([['cd', THERE]])
+  // Cancelar: nothing runs, and the menu is gone.
+  const canceled = await ask()
+  await canceled.press({ key: 'new:cancel' })
+  await canceled.unmount()
+  expect(commands).toEqual([])
+  const after = await $.ui.mount(BAND)
+  expect(await after.find({ type: 'Text', text: /Trabajar en/ })).toBeUndefined()
+  await after.unmount()
+  // A move that did not happen clears nothing: the conversation stays where it was.
+  place.isBlocked = true
+  const blocked = await ask()
+  await blocked.press({ key: 'new:start' })
+  await blocked.unmount()
+  expect(commands).toEqual([['cd', THERE]])
+  expect(TOASTS.at(-1)).toBe(`speedy-code: no pude pasar a ${THERE}; escribí /cd ${THERE}`)
+  place.isBlocked = false
+  // The folder the session already works in opens nothing.
+  commands.length = 0
+  place.root = THERE
+  await pane.post({ isClicked: true }, { in: `speedy:explorer-work:${folder}` })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: la sesión ya trabaja en facturas.')
+  const same = await $.ui.mount(BAND)
+  expect(await same.find({ type: 'Text', text: /Trabajar en/ })).toBeUndefined()
+  await same.unmount()
+  expect(commands).toEqual([])
+  await pane.unmount()
+  await ui.unmount()
+})
+
 test('the exit button runs /exit', { timeoutMs: 30000 }, async ($, on) => {
   const commands: string[] = []
   on('command.run', (_, e) => { commands.push(e.command); return { text: '' } })
@@ -2530,7 +2616,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
   const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 44, scroll: { offset: 0, bodyRows: 8 } }, surface: 'terminal' })
-  expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(44), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas '])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
   expect(await explorerBar(short)).toBe('│██│')
@@ -2538,7 +2624,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await short.find({ key: 'speedy:explorer-bar' }))?.props?.width).toBe(2)
   // Held by its thumb and moved, the bar takes the tree with it: down to its last rows, and past the bar's
   // top back to its first; let go, a move does nothing.
-  const shortRows = async () => (await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, '')).slice(4)
+  const shortRows = async () => (await explorerRows(short)).map(row => row.text.replace(/ +$/, '')).slice(4)
   await short.pointer({ type: 'down', x: 0, y: 1, button: 'left', in: 'speedy:explorer-bar' })
   await short.pointer({ type: 'move', x: 0, y: 3, button: 'left', in: 'speedy:explorer-bar' })
   expect(await explorerBar(short)).toBe('││██')
@@ -2645,7 +2731,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // and stays while the pointer is on its tools; a disk's root has none.
   const folderLook = await look('speedy:explorer-folder:C:/Windows')
   expect(folderLook?.hover).toMatchObject({ backgroundColor: '#74c0fc', color: '#1a1a1a' })
-  for (const tool of ['copy', 'path', 'rename', 'trash', 'paste']) expect((await look(`speedy:explorer-${tool}:C:/Windows`))?.hover?.scope).toBe(folderLook?.hover?.scope)
+  for (const tool of ['copy', 'path', 'rename', 'trash', 'paste', 'work']) expect((await look(`speedy:explorer-${tool}:C:/Windows`))?.hover?.scope).toBe(folderLook?.hover?.scope)
+  // 📍, the session goes to work there, is a folder's alone: a file has its two cells empty.
+  expect((await pane.find({ type: 'Text', in: 'speedy:explorer-work:C:/Windows' }))?.text?.trimEnd()).toBe('📍')
+  expect(await pane.find({ key: 'speedy:explorer-work:C:/setup.exe' })).toBeUndefined()
   // A disk's root has the five tools too, to paste into it: 📋, ✏ and 🗑 are grey there, and do nothing but say so.
   expect((await look('speedy:explorer-folder:C:/'))?.hover).toMatchObject({ backgroundColor: '#74c0fc' })
   for (const tool of ['copy', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/` }))?.props).toMatchObject({ color: '#495057' })
