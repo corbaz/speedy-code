@@ -251,6 +251,12 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
         REMOTE.moved.push(`mkdir ${e.init?.env?.SPEEDY_HOST ?? ''} ${path}`)
         return { value: { exitCode: 0, stdout: JSON.stringify({ said: 'made' }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
       }
+      // ✏ and 🗑 there: renamed in its folder, or sent to that machine's Recycle Bin or Trash.
+      if (mode === 'rename' || mode === 'trash') {
+        REMOTE.moved.push(`${mode} ${e.init?.env?.SPEEDY_HOST ?? ''} ${path}${mode === 'rename' ? ` -> ${e.init?.env?.SPEEDY_NAME ?? ''}` : ''}`)
+        const said = REMOTE.says === 'error' ? 'error' : mode === 'rename' ? 'renamed' : 'trashed'
+        return { value: { exitCode: 0, stdout: JSON.stringify({ said }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       if (mode !== 'hosts') REMOTE.asked.push({ mode, host: e.init?.env?.SPEEDY_HOST ?? '', path })
       const folder = REMOTE.tree[path]
       const isFile = Object.entries(REMOTE.tree).some(([parent, entries]) => entries.some(entry => `${parent === '/' ? '' : parent}/${entry.name}` === path))
@@ -3188,12 +3194,32 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
   await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
   await w.clock.advance(100)
-  // ✏ and 🗑 are not for another machine's files: no dialog asks.
-  const dialogs = DIALOG.asked.length
+  // ✏ and 🗑 work on another machine's files too, by remote.py (`rename`, `trash`), once the dialog asked;
+  // the dialog shows the file as the explorer writes it.
+  REMOTE.moved = []
+  DIALOG.answer = `rename ${btoa('notas viejas.md')}`
   await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(DIALOG.files.at(-1)).toBe('mac:/nota.md')
+  expect(REMOTE.moved).toEqual(['rename mac /nota.md -> notas viejas.md'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: nota.md ahora se llama notas viejas.md.')
+  // A name already there is refused, and nothing is asked of the machine.
+  DIALOG.answer = `rename ${btoa('Users')}`
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(REMOTE.moved.length).toBe(1)
+  expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un archivo Users en esa carpeta.')
+  DIALOG.answer = 'delete'
   await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
   await w.clock.advance(100)
-  expect(DIALOG.asked.length).toBe(dialogs)
+  expect(REMOTE.moved.at(-1)).toBe('trash mac /nota.md')
+  expect(TOASTS.at(-1)).toBe('speedy-code: nota.md fue a la papelera.')
+  REMOTE.says = 'error'
+  await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
+  await w.clock.advance(100)
+  expect(TOASTS.at(-1)).toBe('speedy-code: no pude mandar nota.md a la papelera.')
+  REMOTE.says = 'done'
+  DIALOG.answer = 'cancel'
   // 📁 makes a folder there too, by remote.py (`mkdir`); the dialog shows the folder as the explorer writes it.
   REMOTE.moved = []
   DIALOG.answer = 'mkdir Rm90b3M='

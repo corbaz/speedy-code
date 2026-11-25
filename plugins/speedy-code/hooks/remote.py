@@ -26,6 +26,11 @@ those of Windows in the explorer of a Mac.
                       removed; "error". A folder goes with its files and folders, by tar; links are left out.
     remote.py mkdir   a folder made there, at SPEEDY_PATH, its own name included: {"said": "made"}; "exists"
                       when something is there already, which is never written over; "error".
+    remote.py rename  a file or a folder there (SPEEDY_PATH) renamed SPEEDY_NAME in its folder:
+                      {"said": "renamed"}; "exists" when another one has that name, which is never written
+                      over; "error".
+    remote.py trash   a file or a folder there (SPEEDY_PATH) sent to that machine's Recycle Bin, or its Trash,
+                      where it can be got back: {"said": "trashed"}; "error" when it is still there.
 
 SPEEDY_HOST is the machine, as ssh knows it; SPEEDY_PATH the path on it, with `/`; SPEEDY_PATTERN and
 SPEEDY_MOST are find_files.py's. A machine with Windows has its disks under its root: `/` holds `C:`, `D:`,
@@ -333,6 +338,63 @@ def python_there(host, script, timeout=30):
     return None
 
 
+# ✏ there: PATH renamed NAME in its folder; another of that name is never written over. Only the case changed
+# (on Windows, or on a Mac's disk that ignores it) is a rename too.
+RENAME = THERE + '''
+import json
+target = os.path.join(os.path.dirname(PATH.rstrip('/')), NAME)
+if ROOT or not os.path.lexists(PATH):
+    said = 'error'
+elif os.path.lexists(target) and NAME.lower() != os.path.basename(PATH.rstrip('/')).lower():
+    said = 'exists'
+else:
+    try:
+        os.rename(PATH, target)
+        said = 'renamed'
+    except OSError:
+        said = 'error'
+print(json.dumps({'said': said}))
+'''
+
+# 🗑 there: PATH to the machine's Recycle Bin (Windows' shell, as Explorer sends it) or its Trash (a Mac's
+# ~/.Trash, under a name of its own when one is there already; Linux's by the freedesktop way).
+TRASH = THERE + '''
+import json, time
+def to_trash():
+    if os.name == 'nt':
+        import ctypes
+        from ctypes import wintypes
+        class Operation(ctypes.Structure):
+            _fields_ = [('hwnd', wintypes.HWND), ('wFunc', ctypes.c_uint), ('pFrom', ctypes.c_wchar_p), ('pTo', ctypes.c_wchar_p),
+                        ('fFlags', ctypes.c_ushort), ('fAnyOperationsAborted', wintypes.BOOL), ('hNameMappings', ctypes.c_void_p),
+                        ('lpszProgressTitle', ctypes.c_wchar_p)]
+        # FO_DELETE, with FOF_ALLOWUNDO (the Recycle Bin), FOF_NOCONFIRMATION, FOF_SILENT and FOF_NOERRORUI.
+        operation = Operation(None, 3, os.path.abspath(PATH) + chr(0), None, 0x40 | 0x10 | 0x4 | 0x400, False, None, None)
+        ctypes.windll.shell32.SHFileOperationW(ctypes.byref(operation))
+        return
+    name = os.path.basename(PATH.rstrip('/'))
+    if os.path.isdir(os.path.expanduser('~/.Trash')):
+        folder = os.path.expanduser('~/.Trash')
+    else:
+        folder = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'Trash', 'files')
+        os.makedirs(folder, exist_ok=True)
+    target = os.path.join(folder, name)
+    if os.path.lexists(target):
+        stem, ext = os.path.splitext(name)
+        target = os.path.join(folder, stem + time.strftime(' %H.%M.%S') + ext)
+    os.rename(PATH, target)
+if ROOT or not os.path.lexists(PATH):
+    said = 'error'
+else:
+    try:
+        to_trash()
+    except OSError:
+        pass
+    said = 'error' if os.path.lexists(PATH) else 'trashed'
+print(json.dumps({'said': said}))
+'''
+
+
 def ask(host, script, path):
     """A script's JSON answer about a path there."""
     out = python_there(host, f'PATH = {ascii(path)}\n{script}')
@@ -548,6 +610,20 @@ def main():
         said = answer.get('said') if isinstance(answer, dict) and answer.get('said') in ('made', 'exists') else 'error'
         say({'said': said})
         return 0 if said == 'made' else 1
+    if mode == 'rename':
+        name = os.environ.get('SPEEDY_NAME', '')
+        if not name or name in ('.', '..') or re.search(r'[\\/:*?"<>|\x00-\x1f]', name):
+            say({'said': 'error'})
+            return 1
+        answer = ask(host, f'NAME = {ascii(name)}\n{RENAME}', path)
+        said = answer.get('said') if isinstance(answer, dict) and answer.get('said') in ('renamed', 'exists') else 'error'
+        say({'said': said})
+        return 0 if said == 'renamed' else 1
+    if mode == 'trash':
+        answer = ask(host, TRASH, path)
+        said = 'trashed' if isinstance(answer, dict) and answer.get('said') == 'trashed' else 'error'
+        say({'said': said})
+        return 0 if said == 'trashed' else 1
     if mode in ('list', 'stat'):
         answer = ask(host, LIST if mode == 'list' else STAT, path)
         say(answer if answer is not None else {'error': 'not reached'})

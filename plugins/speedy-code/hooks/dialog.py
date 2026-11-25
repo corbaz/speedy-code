@@ -12,6 +12,7 @@
 Exits 3 with nothing printed when pywebview is missing: the mod then asks with the system's dialog.
 """
 import os
+import re
 import sys
 
 import popup
@@ -35,6 +36,10 @@ class Api:
 
     def exists(self, name):
         # A new folder's name is looked for in the folder it goes into; a rename's beside the file.
+        # A path of another machine (`windows:/C:/Users`) is not looked into here: the explorer says, once
+        # asked, whether the name is taken there.
+        if re.match(r'[A-Za-z][\w.-]+:/', self._path):
+            return False
         folder = self._path if self._mode == 'mkdir' else os.path.dirname(self._path)
         return os.path.lexists(os.path.join(folder, name))
 

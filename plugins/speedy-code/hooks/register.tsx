@@ -2731,14 +2731,20 @@ async function copyPathToClipboard ($: EngineInterface, path: string, surface: P
  * Said gone only once it is: one another program holds (its working folder, a file open in it) stays, and says so.
  */
 async function trashFile ($: EngineInterface, path: string) {
-  const native = await nativePath($, path)
-  const isWindows = (await osNow($)) === 'windows'
-  const argv = isWindows
-    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; try { if (Test-Path -LiteralPath $env:SPEEDY_FILE -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { }; if (Test-Path -LiteralPath $env:SPEEDY_FILE) { 'kept' } else { 'deleted' }"]
-    : MAC.trash(native)
-  const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
-  if (result?.stdout.trim() !== 'deleted') {
+  let said = ''
+  if (remoteOf(path)) {
+    // Another machine's file goes to that machine's Recycle Bin or Trash, by ssh.
+    said = (await remoteSaid($, 'trash', path)) === 'trashed' ? 'deleted' : ''
+  } else {
+    const native = await nativePath($, path)
+    const argv = (await osNow($)) === 'windows'
+      ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Add-Type -AssemblyName Microsoft.VisualBasic; try { if (Test-Path -LiteralPath $env:SPEEDY_FILE -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:SPEEDY_FILE, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { }; if (Test-Path -LiteralPath $env:SPEEDY_FILE) { 'kept' } else { 'deleted' }"]
+      : MAC.trash(native)
+    const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
+    said = result?.stdout.trim() ?? ''
+  }
+  if (said !== 'deleted') {
     $.ui.toast(`speedy-code: no pude mandar ${name} a la papelera.`)
     return
   }
@@ -2881,16 +2887,20 @@ async function pasteInto ($: EngineInterface, path: string) {
   })
 }
 
-/** ✏ and 🗑 are not for another machine's files: a toast says so, and nothing is done. */
-function notOnRemote ($: EngineInterface, path: string) {
+/** What remote.py said it did (`said`) to a path on another machine, by ssh: `rename`, `trash` or `mkdir`. */
+async function remoteSaid ($: EngineInterface, mode: 'rename' | 'trash' | 'mkdir', path: string, more: Record<string, string> = {}) {
   const remote = remoteOf(path)
-  if (remote) $.ui.toast(`speedy-code: renombrar y borrar no están disponibles en ${remote.host}: sus archivos se leen por ssh.`)
-  return remote !== undefined
+  if (!remote) return ''
+  const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, mode], { env: { SPEEDY_HOST: remote.host, SPEEDY_PATH: remote.path, PYTHONIOENCODING: 'utf-8', ...more } }).catch(() => undefined)
+  try {
+    return String(saidField(JSON.parse((result?.stdout ?? '').trim().split(/\r?\n/).pop() ?? ''), 'said') ?? '')
+  } catch {
+    return ''
+  }
 }
 
 /** ✏: the rename dialog, then the rename it asked for. */
 async function askRename ($: EngineInterface, path: string) {
-  if (notOnRemote($, path)) return
   const answer = await askDialog($, 'rename', path)
   const name = answer.startsWith('rename ') ? fromBase64Utf8(answer.slice('rename '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : ''
   if (name) await renameFile($, path, name)
@@ -2920,16 +2930,10 @@ async function makeFolder ($: EngineInterface, folder: string, name: string) {
     $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
     return
   }
-  const remote = remoteOf(target)
   let said = ''
-  if (remote) {
+  if (remoteOf(target)) {
     // Another machine's folder is made there, by ssh.
-    const result = await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, 'mkdir'], { env: { SPEEDY_HOST: remote.host, SPEEDY_PATH: remote.path, PYTHONIOENCODING: 'utf-8' } }).catch(() => undefined)
-    try {
-      said = String(saidField(JSON.parse((result?.stdout ?? '').trim().split(/\r?\n/).pop() ?? ''), 'said') ?? '')
-    } catch {
-      said = ''
-    }
+    said = await remoteSaid($, 'mkdir', target)
   } else {
     const argv = (await osNow($)) === 'windows'
       ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "if (Test-Path -LiteralPath $env:SPEEDY_TARGET) { 'exists' } else { [void][IO.Directory]::CreateDirectory($env:SPEEDY_TARGET); 'made' }"]
@@ -2954,7 +2958,6 @@ async function makeFolder ($: EngineInterface, folder: string, name: string) {
 
 /** 🗑: the dialog that asks, then the trash when it said yes. */
 async function askTrash ($: EngineInterface, path: string) {
-  if (notOnRemote($, path)) return
   if ((await askDialog($, 'delete', path)) === 'delete') await trashFile($, path)
 }
 
@@ -2971,16 +2974,26 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
   const folder = path.slice(0, path.lastIndexOf('/'))
   const target = joinPath(folder.endsWith(':') ? `${folder}/` : folder, name)
   // A different name that is the same file whatever its case (Windows) is a rename too; another file is not overwritten.
-  if (name.toLowerCase() !== old.toLowerCase() && await $.fs.stat(target).then(() => true, () => false)) {
+  if (name.toLowerCase() !== old.toLowerCase() && await kindAt($, target)) {
     $.ui.toast(`speedy-code: ya hay un archivo ${name} en esa carpeta.`)
     return
   }
-  const isWindows = (await osNow($)) === 'windows'
-  const argv = isWindows
-    ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Rename-Item -LiteralPath $env:SPEEDY_FILE -NewName $env:SPEEDY_NAME -ErrorAction Stop; 'renamed'"]
-    : ['/bin/sh', '-c', 'mv -n -- "$SPEEDY_FILE" "$SPEEDY_TARGET" && echo renamed']
-  const result = await $.process.run(argv, { env: { SPEEDY_FILE: await nativePath($, path), SPEEDY_NAME: name, SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
-  if (result?.stdout.trim() !== 'renamed') {
+  let said = ''
+  if (remoteOf(path)) {
+    // Another machine's file is renamed there, by ssh.
+    said = await remoteSaid($, 'rename', path, { SPEEDY_NAME: name })
+  } else {
+    const argv = (await osNow($)) === 'windows'
+      ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-Command', "Rename-Item -LiteralPath $env:SPEEDY_FILE -NewName $env:SPEEDY_NAME -ErrorAction Stop; 'renamed'"]
+      : ['/bin/sh', '-c', 'mv -n -- "$SPEEDY_FILE" "$SPEEDY_TARGET" && echo renamed']
+    const result = await $.process.run(argv, { env: { SPEEDY_FILE: await nativePath($, path), SPEEDY_NAME: name, SPEEDY_TARGET: await nativePath($, target) } }).catch(() => undefined)
+    said = result?.stdout.trim() ?? ''
+  }
+  if (said === 'exists') {
+    $.ui.toast(`speedy-code: ya hay un archivo ${name} en esa carpeta.`)
+    return
+  }
+  if (said !== 'renamed') {
     $.ui.toast(`speedy-code: no pude renombrar ${old}.`)
     return
   }

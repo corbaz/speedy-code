@@ -28,6 +28,9 @@ $fileName = [IO.Path]::GetFileName($path)
 # A folder (SPEEDY_KIND=dir) is renamed whole, with no extension, and goes to the trash with what it holds.
 $isFolder = $env:SPEEDY_KIND -eq 'dir'
 $folder = [IO.Path]::GetDirectoryName($path)
+# A path of another machine (`mac:/Users/ana`) is not looked into here: the explorer says, once asked, whether
+# a name is taken there. Join-Path would take `mac:` for a drive of this machine.
+$isRemote = $path -match '^[A-Za-z][\w.-]+:[\\/]'
 
 $black = [System.Drawing.Color]::Black
 $blue = [System.Drawing.ColorTranslator]::FromHtml('#74c0fc')
@@ -207,7 +210,7 @@ if ($mode -eq 'rename') {
     if (-not $name) { $why = T 'El nombre est\u00e1 vac\u00edo.' }
     elseif ($wanted -eq '.' -or $wanted -eq '..') { $why = T 'Ese nombre no es v\u00e1lido.' }
     elseif ($wanted.IndexOfAny([char[]]'\/:*?"<>|') -ge 0) { $why = T 'No puede tener \\ / : * ? " < > |' }
-    elseif ($wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $folder $wanted))) { $why = "Ya hay $(if ($isFolder) { 'una carpeta o un archivo' } else { 'un archivo' }) $wanted en esa carpeta." }
+    elseif (-not $isRemote -and $wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $folder $wanted))) { $why = "Ya hay $(if ($isFolder) { 'una carpeta o un archivo' } else { 'un archivo' }) $wanted en esa carpeta." }
     if ($why) { $problem.Text = $why; return }
     if ($wanted -eq $fileName) { Finish 'cancel'; return }
     Finish ('rename ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($wanted)))
@@ -217,9 +220,7 @@ if ($mode -eq 'rename') {
   $form.Add_Shown({ $form.Activate(); [void]$nameBox.Focus(); $nameBox.SelectAll() })
   $form.Add_KeyDown({ if ($_.KeyCode -eq 'Enter') { Try-Accept; $_.Handled = $true; $_.SuppressKeyPress = $true } })
 } elseif ($mode -eq 'mkdir') {
-  # A folder of another machine (`mac:/Users/ana`) is not looked into here: the explorer says, once asked,
-  # whether the name is taken there. Join-Path would take `mac:` for a drive of this machine.
-  $isRemote = $path -match '^[A-Za-z][\w.-]+:[\\/]'
+  # A folder of another machine is not looked into here ($isRemote).
   function Taken([string]$name) { (-not $isRemote) -and (Test-Path -LiteralPath ([IO.Path]::Combine($path, $name))) }
   # The first name free in the folder is offered, all of it selected, so typing replaces it.
   $offered = 'Nueva carpeta'
