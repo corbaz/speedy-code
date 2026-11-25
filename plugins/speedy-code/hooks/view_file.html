@@ -86,6 +86,10 @@
   .speeds { flex: none; display: flex; gap: 2px; }
   .speeds div { width: 38px; height: 24px; line-height: 24px; text-align: center; font-size: 12px; background: var(--field); color: var(--ink); cursor: pointer; }
   .speeds div.on { background: var(--line); color: #000; }
+  /* A narration's Resumen, after the speeds: Groq sums its text up in a popup of its own. */
+  .summary-button { flex: none; height: 24px; line-height: 24px; padding: 0 12px; margin-left: 6px; font-size: 12px; font-weight: bold; background: var(--field); color: var(--line); cursor: pointer; }
+  .summary-button.busy { color: var(--dim, #adb5bd); cursor: default; }
+  .summary-button.failed { color: #ff6b6b; }
   .slider { position: relative; height: 16px; cursor: pointer; }
   .slider.seek { flex: 1; margin: 0 4px 0 6px; }
   .slider.loud { width: 82px; margin-right: 2px; }
@@ -348,6 +352,20 @@
     }
     if (view.video) controls.insertBefore(speeds, time)
     else stage.insertBefore(speeds, player)
+    if (doc.narration) {
+      const summary = element('div', 'summary-button')
+      summary.textContent = 'Resumen'
+      summary.addEventListener('click', async () => {
+        if (summary.classList.contains('busy')) return
+        summary.className = 'summary-button busy'
+        summary.textContent = 'Resumiendo\u2026'
+        const said = await api.summary().catch(() => ({ ok: false, why: 'Groq no contestó' }))
+        summary.className = said && said.ok ? 'summary-button' : 'summary-button failed'
+        summary.textContent = said && said.ok ? 'Resumen' : 'Sin resumen'
+        summary.title = said && said.ok ? '' : (said && said.why) || ''
+      })
+      stage.insertBefore(summary, player)
+    }
     box.append(stage, controls)
     // It plays as it opens, as on Windows: `playing` is what the popup means, said to the mod when it changes.
     media = { player, playing: true, video: view.video }

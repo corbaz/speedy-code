@@ -2405,6 +2405,22 @@ try {
           $stage.Controls.Add($one)
         }
       }
+      # A narration (a sound with its text beside it, a .txt of the same name) has Resumen after the speeds:
+      # Groq sums its text up in points, shown in a popup of their own over this one.
+      $narration = [IO.Path]::ChangeExtension($path, '.txt')
+      if ($kind -eq 'audio' -and (Test-Path -LiteralPath $narration -PathType Leaf)) {
+        $summaryButton = New-Object System.Windows.Forms.Label
+        $summaryButton.Text = 'Resumen'
+        $summaryButton.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+        $summaryButton.TextAlign = 'MiddleCenter'
+        $summaryButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+        $summaryButton.BackColor = $speedOff
+        $summaryButton.ForeColor = $blue
+        $summaryButton.SetBounds(392 + 6 * ($speedWidth + $speedGap) + 8, 13, 92, 24)
+        $summaryButton.Add_Click({ Show-Summary })
+        $stage.Controls.Add($summaryButton)
+        $inner = New-Object System.Drawing.Size(760, $inner.Height)
+      }
       $bar.Add_Resize({
         $w = $bar.ClientSize.Width
         $speeds = if ($kind -eq 'video') { $speedsWidth + 6 } else { 0 }
@@ -2946,6 +2962,144 @@ function Show-Copied {
   $state.CopyFlash = 10
 }
 foreach ($one in $copyLabels) { $one.Add_Click({ Copy-View }) }
+
+# ---- A narration's Resumen ---------------------------------------------------------------------------------
+# Groq is asked by polish.py --summary, away from the popup's thread: the sound goes on meanwhile. The points
+# come back once, and a second press shows them again at once.
+$summary = @{ Text = ''; Asking = $null; Output = $null; Form = $null; Drag = $null; Flash = 0 }
+function Show-Summary {
+  if ($summary.Text) { Open-Summary; return }
+  if ($summary.Asking) { return }
+  $python = if ($env:SPEEDY_PYTHON) { $env:SPEEDY_PYTHON } else { Find-Python }
+  if (-not $python) { $summaryButton.Text = 'Sin Python'; return }
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $python
+  $start.Arguments = '-X utf8 "' + (Join-Path $PSScriptRoot 'polish.py') + '" --summary "' + $narration + '"'
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $start.RedirectStandardOutput = $true
+  try { $summary.Asking = [System.Diagnostics.Process]::Start($start) } catch { $summaryButton.Text = 'Sin Python'; return }
+  $summary.Output = $summary.Asking.StandardOutput.ReadToEndAsync()
+  $summaryButton.Text = (T 'Resumiendo\u2026')
+  $summaryButton.ForeColor = $dim
+}
+# What polish.py said, once it said it: the points shown, or why there are none on the button.
+function Read-Summary {
+  if (-not $summary.Output -or -not $summary.Output.IsCompleted) { return }
+  $said = $summary.Output.Result
+  $summary.Asking = $null
+  $summary.Output = $null
+  $summaryButton.Text = 'Resumen'
+  $summaryButton.ForeColor = $blue
+  $answer = try { $said.Trim() | ConvertFrom-Json } catch { $null }
+  if ($answer -and $answer.text) { $summary.Text = [string]$answer.text; Open-Summary; return }
+  $why = if ($answer -and $answer.error) { [string]$answer.error } else { 'Groq no contest' + [char]0x00F3 }
+  $summaryButton.Text = 'Sin resumen'
+  $summaryButton.ForeColor = $red
+  [System.Windows.Forms.ToolTip]::new().SetToolTip($summaryButton, $why)
+}
+# The points in a popup of their own, framed as this one, standing over it: Copiar, the move mark and the
+# close mark on its top line. Esc or the close mark closes it; the player stays.
+function Open-Summary {
+  if ($summary.Form -and -not $summary.Form.IsDisposed) { $summary.Form.Activate(); return }
+  $popup = New-Object System.Windows.Forms.Form
+  $popup.FormBorderStyle = 'None'
+  $popup.StartPosition = 'Manual'
+  $popup.TopMost = $true
+  $popup.ShowInTaskbar = $false
+  $popup.KeyPreview = $true
+  $popup.BackColor = $black
+  $popup.Padding = New-Object System.Windows.Forms.Padding($contour)
+  $edge = New-Object System.Windows.Forms.Panel
+  $edge.Dock = 'Fill'
+  $edge.BackColor = $blue
+  $edge.Padding = New-Object System.Windows.Forms.Padding($line)
+  $body = New-Object System.Windows.Forms.Panel
+  $body.Dock = 'Fill'
+  $body.BackColor = $black
+  $body.Padding = New-Object System.Windows.Forms.Padding($margin, $band, $margin, $band)
+  $page = New-Object System.Windows.Forms.WebBrowser
+  $page.Dock = 'Fill'
+  $page.ScriptErrorsSuppressed = $true
+  $page.IsWebBrowserContextMenuEnabled = $false
+  $page.DocumentText = New-MarkdownPage $summary.Text
+  $page.Add_PreviewKeyDown({ if ($_.KeyCode -eq 'Escape') { $summary.Form.Close() } })
+  $body.Controls.Add($page)
+  $edge.Controls.Add($body)
+  $popup.Controls.Add($edge)
+  $heading = New-Object System.Windows.Forms.Label
+  $heading.Text = ' Resumen '
+  $heading.AutoSize = $true
+  $heading.Font = $title.Font
+  $heading.ForeColor = $blue
+  $heading.BackColor = $black
+  $shut = New-CloseLabel
+  $shut.Add_Click({ $summary.Form.Close() })
+  $carry = New-Object System.Windows.Forms.Label
+  $carry.Text = " $([string][char]0x2725) "
+  $carry.AutoSize = $true
+  $carry.Font = $move.Font
+  $carry.ForeColor = $blue
+  $carry.BackColor = $black
+  $carry.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+  $carry.Add_MouseDown({
+    if ($_.Button -ne 'Left') { return }
+    $at = [System.Windows.Forms.Cursor]::Position
+    $summary.Drag = @(($at.X - $summary.Form.Left), ($at.Y - $summary.Form.Top))
+  })
+  $carry.Add_MouseMove({
+    if (-not $summary.Drag) { return }
+    $at = [System.Windows.Forms.Cursor]::Position
+    $summary.Form.Location = New-Object System.Drawing.Point(($at.X - $summary.Drag[0]), ($at.Y - $summary.Drag[1]))
+  })
+  $carry.Add_MouseUp({ $summary.Drag = $null })
+  $take = New-TopLabel 'Copiar'
+  $take.Add_Click({
+    try {
+      [System.Windows.Forms.Clipboard]::SetText(($summary.Text -replace "(?<!`r)`n", "`r`n"))
+      Send-Copied $summary.Text
+      $this.Text = ' Copiado '
+      $this.BackColor = $blue
+      $this.ForeColor = $black
+      $summary.Flash = 10
+    } catch { }
+  })
+  $summary.Copy = $take
+  foreach ($label in @($heading, $take, $carry, $shut)) { $popup.Controls.Add($label); $label.BringToFront() }
+  # As wide as a reading line, as tall as its points ask, up to the room; over the player, in its middle.
+  $lines = @($summary.Text -split "`n" | Where-Object { $_.Trim() }).Count
+  $width = [int][Math]::Min($room.Width, 640)
+  $height = [int][Math]::Min($room.Height, 2 * $contour + 2 * $band + 60 + $lines * 44)
+  $popup.ClientSize = New-Object System.Drawing.Size($width, $height)
+  $x = [int]($form.Left + ($form.Width - $width) / 2)
+  $y = [int]($form.Top + ($form.Height - $height) / 2)
+  $x = [Math]::Max($area.X, [Math]::Min($x, $area.Right - $width))
+  $y = [Math]::Max($area.Y, [Math]::Min($y, $area.Bottom - $height))
+  $popup.Location = New-Object System.Drawing.Point($x, $y)
+  $middle = $contour + [int]($line / 2)
+  $heading.Location = New-Object System.Drawing.Point(([int](($width - $heading.PreferredWidth) / 2)), ($middle - [int]($heading.PreferredHeight / 2)))
+  $shut.Location = New-Object System.Drawing.Point(($width - $contour - $shut.PreferredWidth - 12), ($middle - [int]($shut.PreferredHeight / 2)))
+  $carry.Location = New-Object System.Drawing.Point(($shut.Location.X - $carry.PreferredWidth - 2), ($middle - [int]($carry.PreferredHeight / 2)))
+  $take.Location = New-Object System.Drawing.Point(($carry.Location.X - $take.PreferredWidth - 6), ($middle - [int]($take.PreferredHeight / 2)))
+  $popup.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $summary.Form.Close(); $_.Handled = $true } })
+  $summary.Form = $popup
+  $popup.Show($form)
+}
+# Polish.py's answer looked for, and Copiado back to Copiar a second after.
+$summaryTimer = New-Object System.Windows.Forms.Timer
+$summaryTimer.Interval = 100
+$summaryTimer.Add_Tick({
+  if ($summary.Output) { Read-Summary }
+  if ($summary.Flash -gt 0) {
+    $summary.Flash--
+    if ($summary.Flash -eq 0 -and $summary.Copy -and -not $summary.Copy.IsDisposed) {
+      $summary.Copy.Text = ' Copiar '
+      $summary.Copy.BackColor = $black
+      $summary.Copy.ForeColor = $blue
+    }
+  }
+})
+if ($summaryButton) { $summaryTimer.Start() }
 
 Set-PopupSize ($inner.Width + $extraWidth) ($inner.Height + $extraHeight)
 # The view it opens on: the first, or the one SPEEDY_VIEW names when it has it (`Texto` for a PDF's text).

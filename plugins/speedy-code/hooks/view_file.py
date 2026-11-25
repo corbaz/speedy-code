@@ -53,6 +53,44 @@ PDF_GAP = 10
 LETTER, TEXT_LINE = 8.84, 19
 
 
+class Summary:
+    """The points of a narration Groq summed up, in a popup of their own over the player: view_file.html draws
+    them as a Markdown file's Preview, with Copiar, the move mark and the close mark. Closed, the player stays."""
+
+    def __init__(self, owner, text):
+        self._owner = owner
+        self._window = None
+        room = owner._room
+        points = len([line for line in text.splitlines() if line.strip()])
+        inner = (min(room[0], 640), min(room[1], 60 + points * 44))
+        self._doc = {'name': 'Resumen', 'kind': 'markdown', 'views': [{'name': 'Preview', 'type': 'page', 'page': 'summary'}],
+                     'raw': text, 'copy': True, 'room': list(room), 'tables': None, 'pdfText': None, 'area': owner._doc.get('area'),
+                     'width': inner[0] + EXTRA_WIDTH, 'height': inner[1] + EXTRA_HEIGHT, 'open': 'Preview'}
+
+    def asked(self):
+        return self._doc
+
+    def shown(self):
+        popup.front()
+
+    def copy_text(self, text):
+        return self._owner.copy_text(text)
+
+    def resize(self, width, height):
+        popup.resize(self._window, width, height)
+
+    def cover(self, on):
+        pass
+
+    def media(self, state):
+        pass
+
+    def close(self):
+        window, self._window = self._window, None
+        if window is not None:
+            window.destroy()
+
+
 def text_view(name, text, wrap):
     return {'name': name, 'type': 'text', 'text': text.replace('\r\n', '\n'), 'wrap': wrap}
 
@@ -90,6 +128,11 @@ class Popup:
         # The file made again for macOS to play, once `convert` made it.
         self._played = ''
         self._window = None
+        # The page's address and the screen it stands on, for Resumen's popup; the narration's points once asked.
+        self._url = ''
+        self._screen = None
+        self._summary_text = None
+        self._summary = None
         self._doc = self._read()
 
     # ---- What the file is -------------------------------------------------------------------------------
@@ -145,6 +188,10 @@ class Popup:
                 about = f'Audio {extension}  -  {readers.format_size(os.path.getsize(path))}'
                 doc['views'].append({'name': 'Media', 'type': 'media', 'video': kind == 'video', 'about': about})
                 inner = (min(640, room[0]), min(360 + MEDIA_BAR, room[1])) if kind == 'video' else (660, 90)
+                # A narration (a sound with its text beside it, a .txt of the same name) has Resumen after the speeds.
+                if kind == 'audio' and os.path.isfile(os.path.splitext(path)[0] + '.txt'):
+                    doc['narration'] = True
+                    inner = (760, 90)
             else:
                 data = readers.read_bytes(path)
                 text = None
@@ -507,6 +554,32 @@ class Popup:
                 return {'ok': True}
         return {'ok': False, 'why': 'failed'}
 
+    def summary(self):
+        """Resumen: the narration's points, asked of Groq by polish.py --summary once, then shown in a popup of
+        their own over this one. It answers {'ok': True}, or {'ok': False, 'why': ...} for the button to say."""
+        if self._summary_text is None:
+            try:
+                done = subprocess.run([sys.executable, os.path.join(popup.HERE, 'polish.py'), '--summary', os.path.splitext(self._path)[0] + '.txt'],
+                                      capture_output=True, timeout=120, stdin=subprocess.DEVNULL, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+                said = json.loads(done.stdout.decode('utf-8', 'replace').strip().splitlines()[-1])
+            except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+                said = {}
+            if not isinstance(said, dict) or not said.get('text'):
+                return {'ok': False, 'why': (said.get('error') if isinstance(said, dict) else '') or 'Groq no contestó'}
+            self._summary_text = said['text']
+            self._pages['summary'] = readers.markdown_page(self._summary_text)
+        if self._summary is not None and self._summary._window is not None:
+            return {'ok': True}
+        import webview
+        shown = Summary(self, self._summary_text)
+        window = webview.create_window(
+            'Resumen', js_api=shown, url=self._url, width=shown._doc['width'], height=shown._doc['height'], screen=self._screen,
+            frameless=True, easy_drag=False, resizable=False, on_top=True, background_color='#000000')
+        shown._window = window
+        window.events.before_show += lambda: popup.square(window)
+        self._summary = shown
+        return {'ok': True}
+
     def resize(self, width, height):
         """The popup at another size, in the middle of its screen: a video once its own size is known, a text
         grown by its layout."""
@@ -557,7 +630,8 @@ class Popup:
         server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        return f'http://127.0.0.1:{server.server_address[1]}/{self._token}/page'
+        self._url = f'http://127.0.0.1:{server.server_address[1]}/{self._token}/page'
+        return self._url
 
     def _answer(self, request):
         parts = urllib.parse.urlsplit(request.path)
@@ -654,6 +728,7 @@ def main():
     except NoPopup:
         return NO_READER
     shown._doc['area'] = [int(area_width), int(area_height)]
+    shown._screen = screen
     popup.open_window(webview, os.path.basename(path), None, shown, shown._doc['width'], shown._doc['height'], screen, url=shown._serve())
     return 0
 
