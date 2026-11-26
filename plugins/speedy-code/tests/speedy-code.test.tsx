@@ -2980,6 +2980,15 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(PASTE.ran.at(-1)).toBe('move C:\\Users\\test\\proyectos\\facturas -> C:\\Windows\\facturas')
   expect(TOASTS.at(-1)).toBe('speedy-code: facturas se movió a Windows.')
   expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
+  // 📋 and 📥 go one right after the other: another icon of the explorer, or a control of the footer, lets go
+  // of the folder 📋 took, and 📥 is grey again.
+  await doubleClick(pane, 'speedy:explorer-copy:C:/Users/test/proyectos/facturas')
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('📥')
+  await doubleClick(pane, 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt')
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
+  await doubleClick(pane, 'speedy:explorer-copy:C:/Users/test/proyectos/facturas')
+  await footer.post({ isClicked: true }, { in: 'speedy:copy' })
+  expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
   DIALOG.answer = 'cancel'
   // 📁 asks the new folder's name in a dialog: Cancelar makes nothing; Crear makes it, in the folder of the row
   // pressed. A name that is there already makes nothing.

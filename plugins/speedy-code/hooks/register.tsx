@@ -2434,6 +2434,12 @@ export function tipLeft (index: number, width: number, toolsWidth = EXPLORER_TOO
   return Math.min(1 - Math.floor(width / 2), toolsWidth - (1 + 4 * index) - width)
 }
 
+/** Lets go of what 📋 took: 📥 is grey again. 📋 and 📥 go one right after the other. */
+async function dropClip ($: EngineInterface) {
+  const state = await read($, explorer)
+  if (state.clip !== undefined) await update($, explorer, now => ({ ...now, clip: undefined, clipKind: undefined }))
+}
+
 /** The longest wait between the two clicks of a double click, in milliseconds. */
 export const DOUBLE_CLICK_MS = 500
 /** The last tool clicked once, and when: a second click on it in time is a double click. */
@@ -5132,6 +5138,8 @@ export const register: Register = on => {
       return result
     }
     if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result
+    // 📋 and 📥 of the explorer go one right after the other: a control of the footer lets go of what 📋 took.
+    if (!e.element.startsWith('speedy:explorer-')) await dropClip($)
     if (e.element === 'speedy:voice') {
       const active = (await read($, picks)).active ?? DEFAULT_LANG
       await update($, tab, () => active)
@@ -5151,6 +5159,8 @@ export const register: Register = on => {
       const path = rest.slice(rest.indexOf(':') + 1)
       // The seven tools of a row act on a double click: a single one, as the pointer passes, does nothing.
       if (EXPLORER_TOOLS.some(([one]) => one === kind) && !isDoubleClick(e.element, await $.clock.now())) return result
+      // Any other icon of the explorer lets go of what 📋 took: 📥 pastes right after 📋 alone.
+      if (kind !== 'copy' && kind !== 'paste' && kind !== 'folder' && kind !== 'view') await dropClip($)
       await forgetFound($)
       // A disk is not copied, renamed or trashed: those three do nothing on its root but say so.
       if (DISK_IDLE_TOOLS.includes(kind)) {
