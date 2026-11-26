@@ -2407,29 +2407,23 @@ const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> =
   ['paste', '📥', '\uf0ea', '#ffa94d'],
   ['work', '📍', '\uf041', '#51cf66']
 ]
-/** What each tool does, in a word, for the legend under the explorer's filter. */
-export const EXPLORER_LEGEND: Readonly<Record<string, string>> = {
-  mkdir: 'carpeta', copy: 'copiar', path: 'ruta', rename: 'renombrar', trash: 'borrar', paste: 'pegar', work: 'trabajar'
-}
-
 /**
- * The legend's lines in `width` cells: the tools on each, in the rows' order. Each takes its icon's two
- * cells, a space and its word, with two cells between one and the next.
+ * What a tool of a row does, as the pointer on it says, dark on yellow at its left as the footer's controls do
+ * (⚙ → Ver labels): for a file or a folder, and 📥 for what 📋 took. A tool grey on a disk's root says why.
  */
-export function legendLines (width: number): string[][] {
-  const lines: string[][] = [[]]
-  let used = 0
-  for (const [kind] of EXPLORER_TOOLS) {
-    const size = 3 + cells(EXPLORER_LEGEND[kind] ?? kind)
-    if (used > 0 && used + 2 + size > width) {
-      lines.push([kind])
-      used = size
-    } else {
-      lines[lines.length - 1]?.push(kind)
-      used = used > 0 ? used + 2 + size : size
-    }
+export function toolTip (kind: string, isFolder: boolean, clipKind?: 'dir' | 'file', isDisk = false) {
+  const what = isFolder ? 'carpeta' : 'archivo'
+  if (isDisk && DISK_IDLE_TOOLS.includes(kind)) return 'no se hace con un disco'
+  switch (kind) {
+    case 'mkdir': return 'Crear carpeta'
+    case 'copy': return `Copiar ${what}`
+    case 'path': return 'Copiar path'
+    case 'rename': return `Renombrar ${what}`
+    case 'trash': return `Borrar ${what}`
+    case 'paste': return clipKind ? `Pegar ${clipKind === 'dir' ? 'carpeta' : 'archivo'}` : 'Pegar: copiá algo con 📋 antes'
+    case 'work': return 'Cambiar espacio de trabajo'
+    default: return ''
   }
-  return lines
 }
 
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
@@ -2647,11 +2641,8 @@ export function treeRows (state: Explorer): TreeRow[] {
   return rows
 }
 
-/** The explorer's width as last drawn: the legend's lines under the filter depend on it. */
-let explorerWidth = EXPLORER_COLUMNS
-
-/** The tree rows the explorer shows under its header (the disks, the fields, the legend and a rule), in a body of `bodyRows`. */
-const explorerRoom = (bodyRows: number, width = explorerWidth) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS - legendLines(width).length)
+/** The tree rows the explorer shows under its header, in a body of `bodyRows`. */
+const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS)
 
 /**
  * The first tree row the explorer shows: `top` kept within the tree, so its last row stays at the bottom;
@@ -2717,7 +2708,7 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
   const remote = remoteOf(path)
   // A folder of another machine is not brought here to be taken: 📥 brings it where it is pasted.
   if (remote && (await kindAt($, path)) === 'dir') {
-    await update($, explorer, now => ({ ...now, clip: path }))
+    await update($, explorer, now => ({ ...now, clip: path, clipKind: 'dir' }))
     $.ui.toast(`speedy-code: la carpeta ${path.split('/').pop() || remote.host} de ${remote.host} está lista para pegar con 📥.`)
     return
   }
@@ -2731,7 +2722,10 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
   const result = await $.process.run(argv, { env: { SPEEDY_FILE: native } }).catch(() => undefined)
   const name = path.split('/').pop() ?? path
   // 📥 pastes what was taken last: a file or a folder of this machine, or a file of another one.
-  if (result?.stdout.trim() === 'copied') await update($, explorer, now => ({ ...now, clip: path }))
+  if (result?.stdout.trim() === 'copied') {
+    const clipKind = remote ? 'file' : (await kindAt($, path)) === 'dir' ? 'dir' : 'file'
+    await update($, explorer, now => ({ ...now, clip: path, clipKind }))
+  }
   if (remote) {
     await insertInPrompt($, path, ' ')
     $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt y una copia suya en el portapapeles; pegala en una carpeta.` : `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt; no pude copiar el archivo al portapapeles.`)
@@ -2850,7 +2844,7 @@ async function pasteInto ($: EngineInterface, path: string) {
   const kind = await kindAt($, clip)
   if (!kind) {
     $.ui.toast(`speedy-code: ${name} ya no está donde se copió.`)
-    await update($, explorer, now => ({ ...now, clip: undefined }))
+    await update($, explorer, now => ({ ...now, clip: undefined, clipKind: undefined }))
     return
   }
   const folder = (await kindAt($, path)) === 'dir' ? path : folderOf(path)
@@ -2911,7 +2905,7 @@ async function pasteInto ($: EngineInterface, path: string) {
   const reread = await Promise.all(folders.map(async one => [key(one), await readFolder($, one)] as const))
   await update($, explorer, now => {
     const next = { ...now, listed: { ...now.listed, ...Object.fromEntries(reread) }, open: now.open.includes(key(folder)) ? now.open : [...now.open, key(folder)] }
-    return isMoved ? filterMoved({ ...next, clip: undefined }, clip, target) : next
+    return isMoved ? filterMoved({ ...next, clip: undefined, clipKind: undefined }, clip, target) : next
   })
 }
 
@@ -3192,7 +3186,7 @@ async function showExplorer ($: EngineInterface, folder = '') {
   const chain = drive ? chainOf(here, drive) : []
   const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
   // What 📋 took stays taken while the explorer is closed.
-  await update($, explorer, now => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1, clip: now.clip }))
+  await update($, explorer, now => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1, clip: now.clip, clipKind: now.clipKind }))
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
@@ -3468,7 +3462,6 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const Client = 'Client' in elements ? elements.Client : undefined
   const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
-  explorerWidth = width
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   const unfilterLabel = ' × limpiar '
@@ -3478,10 +3471,12 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const pauseColor = state.filter?.isPaused ? FLASH_COLOR : state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
-  const room = explorerRoom(bodyRows, width)
+  const room = explorerRoom(bodyRows)
   const top = windowTop(rows, state.top, room)
   // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
   const thumb = scrollThumb(rows.length, top, room)
+  // ⚙ → Ver labels: what each tool does, when the pointer is on it.
+  const isLabeled = await read($, hasLabels)
   const treeWidth = width - (thumb.size > 0 ? EXPLORER_BAR_WIDTH : 0)
   return (
     <Box flexDirection="column" width={width}>
@@ -3526,19 +3521,6 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           </Box>
           )
         : null}
-      {/* The legend: each tool of the rows, its icon in its color and what it does in a word. */}
-      {legendLines(width).map((line, index) => (
-        <Box key={`explorer-legend:${index}`} flexDirection="row" width={width}>
-          {line.flatMap((kind, at) => {
-            const tool = EXPLORER_TOOLS.find(one => one[0] === kind)
-            return [
-              at > 0 ? <Text key={`legend-gap:${kind}`}>{'  '}</Text> : null,
-              <Text key={`legend-icon:${kind}`} bold color={tool?.[3]}>{toolLabel(isGlyphs ? tool?.[2] ?? '' : tool?.[1] ?? '', isGlyphs)}</Text>,
-              <Text key={`legend-word:${kind}`} dimColor>{` ${EXPLORER_LEGEND[kind] ?? kind}`}</Text>
-            ]
-          })}
-        </Box>
-      ))}
       {state.filter
         ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
         : <Text dimColor>{'─'.repeat(width)}</Text>}
@@ -3594,9 +3576,22 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           // Each tool is a Client of its own two cells, as the footer's are: a Button fills its cell under the
           // pointer. Between them a plain gap takes no press, so a press a little off one does nothing instead
           // of its neighbour's work. A tool is in its row's hover group, and keeps its own color in it.
-          const tool = (kind: string, label: string, color: string) => Client
-            ? <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
-            : <Text key={kind} color={color}>{label}</Text>
+          // With ⚙ → Ver labels, the pointer on a tool shows what it does at its left, on its row, dark on yellow
+          // as on the footer: a keyed Box is its own hover scope, and the tool stays in its row's group too.
+          const tool = (kind: string, label: string, color: string) => {
+            if (!Client) return <Text key={kind} color={color}>{label}</Text>
+            const client = <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
+            const tip = isLabeled ? toolTip(kind, isFolder, state.clipKind, isDisk) : ''
+            if (!tip) return client
+            return (
+              <Box key={`explorer-tip:${kind}:${row.path}`} flexShrink={0}>
+                {client}
+                <Box position="absolute" top={0} right={cells(label)} display="none" hover={{ display: 'flex' }}>
+                  <Text color={LABEL_TEXT} backgroundColor={LABEL_FILL} bold>{` ${tip} `}</Text>
+                </Box>
+              </Box>
+            )
+          }
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
           const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))

@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, legendLines } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2655,15 +2655,15 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
  * The explorer's rows as a pane draws them, in order: its Texts, and each file's name, which is a Client
  * (its label and its look); the file tools are left out.
  */
+/** A tool's label, as toolTip writes it: what the pointer on the tool shows above it. */
+const TOOL_TIP = /^ (Crear carpeta|Copiar (archivo|carpeta|path)|Renombrar (archivo|carpeta)|Borrar (archivo|carpeta)|Pegar[ :]|Cambiar espacio de trabajo|no se hace con un disco)/
+
 async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
-  let isLegend = false
   return (await ui.findAll({})).flatMap(element => {
     // The scroll bar at the tree's right is no row: it is read apart, by explorerBar.
     if (element.type === 'Text' && /^[│█]$/.test(element.text ?? '')) return []
-    // The legend, between the header's last button and the rule, is read apart too, by explorerLegend.
-    if (element.type === 'Text' && (element.text ?? '').startsWith('─')) isLegend = false
-    if (isLegend && element.type === 'Text') return []
-    if (element.type === 'Text' && element.text === ' ↗ abrir en el sistema ') isLegend = true
+    // A tool's label, hidden until the pointer is on the tool, is no row either: dark on yellow.
+    if (element.type === 'Text' && TOOL_TIP.test(element.text ?? '')) return []
     // The blank gaps between a row's tools are left out, as the tools are.
     if (element.type === 'Text') return (element.text ?? '').trim() ? [{ text: element.text ?? '', look: element.props ?? {} }] : []
     if (element.type === 'Client' && /^speedy:explorer-(view|folder):/.test(String(element.key))) {
@@ -2738,13 +2738,16 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
-  // Under the filter, the legend: each tool's icon and its word, on as many lines as the width asks (two at 48).
-  expect(legendLines(48)).toEqual([['mkdir', 'copy', 'path', 'rename'], ['trash', 'paste', 'work']])
-  expect(legendLines(200)).toEqual([['mkdir', 'copy', 'path', 'rename', 'trash', 'paste', 'work']])
-  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 10 } }, surface: 'terminal' })
-  const legendTexts = (await short.findAll({ type: 'Text' })).map(one => one.text ?? '')
-  const legend = legendTexts.slice(legendTexts.indexOf(' ↗ abrir en el sistema ') + 1, legendTexts.findIndex(one => one.startsWith('─')))
-  expect(legend).toEqual(['📁', ' carpeta', '  ', '📋', ' copiar', '  ', '🔗', ' ruta', '  ', '✏ ', ' renombrar', '🗑', ' borrar', '  ', '📥', ' pegar', '  ', '📍', ' trabajar'])
+  const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 8 } }, surface: 'terminal' })
+  // Each tool carries what it does, hidden above it until the pointer is on it, dark on yellow (⚙ → Ver labels):
+  // for a folder or a file, and 📥 for what 📋 took.
+  const tips = (await short.findAll({ type: 'Text' })).filter(one => TOOL_TIP.test(one.text ?? '')).map(one => (one.text ?? '').trim())
+  expect(tips.slice(0, 7)).toEqual(['Crear carpeta', 'Copiar carpeta', 'Copiar path', 'Renombrar carpeta', 'Borrar carpeta', 'Pegar: copiá algo con 📋 antes', 'Cambiar espacio de trabajo'])
+  expect([toolTip('copy', false), toolTip('rename', false), toolTip('trash', false)]).toEqual(['Copiar archivo', 'Renombrar archivo', 'Borrar archivo'])
+  expect(toolTip('paste', false, 'dir')).toBe('Pegar carpeta')
+  expect(toolTip('paste', true, 'file')).toBe('Pegar archivo')
+  expect(toolTip('trash', true, undefined, true)).toBe('no se hace con un disco')
+  expect(toolTip('mkdir', true, undefined, true)).toBe('Crear carpeta')
   expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(48), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas '])
   expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
@@ -2904,6 +2907,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // The prompt already ends in the line break the popup's text left: no space before the mention.
   expect(prompt.fills.at(-1)).toBe('@C:\\Users\\test\\proyectos\\notas.txt ')
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.')
+  // 📥's label then says what it pastes: a file.
+  expect(await pane.find({ type: 'Text', text: ' Pegar archivo ' })).toBeDefined()
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' })
   // The tool pressed turns green for a second, with no fill, then goes back to its color.
   const pathColor = async () => (await pane.find({ type: 'Text', in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' }))?.props
@@ -3019,7 +3024,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.unmount()
   // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
-  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 9 } }, surface: 'terminal' })
+  const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
   await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
   const marked = async () => (await explorerRows(near)).filter(row => row.look.backgroundColor === '#ffd43b').map(row => row.text.trimEnd())
   expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
