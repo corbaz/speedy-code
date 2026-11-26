@@ -2434,6 +2434,18 @@ export function tipLeft (index: number, width: number, toolsWidth = EXPLORER_TOO
   return Math.min(1 - Math.floor(width / 2), toolsWidth - (1 + 4 * index) - width)
 }
 
+/** The longest wait between the two clicks of a double click, in milliseconds. */
+export const DOUBLE_CLICK_MS = 500
+/** The last tool clicked once, and when: a second click on it in time is a double click. */
+let lastToolClick = { key: '', at: 0 }
+
+/** Whether a click on `key` at `now` makes a double click with the one before it; a double click starts over. */
+export function isDoubleClick (key: string, now: number) {
+  const isDouble = lastToolClick.key === key && now - lastToolClick.at <= DOUBLE_CLICK_MS
+  lastToolClick = isDouble ? { key: '', at: 0 } : { key, at: now }
+  return isDouble
+}
+
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
 const PASTE_IDLE_MARK = '↧'
 const PASTE_IDLE_COLOR = '#495057'
@@ -3609,7 +3621,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            kind === 'work' && !isWorkable
+            // 📍 on a folder of this machine alone; 📁 and 📥 on a folder alone: a file's row has none of them.
+            (kind === 'work' && !isWorkable) || (!isFolder && (kind === 'mkdir' || kind === 'paste'))
               ? gap(`none:${kind}`, 2)
               : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color, index)
           ])
@@ -5134,6 +5147,8 @@ export const register: Register = on => {
       const rest = e.element.slice('speedy:explorer-'.length)
       const kind = rest.slice(0, rest.indexOf(':'))
       const path = rest.slice(rest.indexOf(':') + 1)
+      // The seven tools of a row act on a double click: a single one, as the pointer passes, does nothing.
+      if (EXPLORER_TOOLS.some(([one]) => one === kind) && !isDoubleClick(e.element, await $.clock.now())) return result
       await forgetFound($)
       // A disk is not copied, renamed or trashed: those three do nothing on its root but say so.
       if (DISK_IDLE_TOOLS.includes(kind)) {

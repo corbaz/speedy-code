@@ -1139,7 +1139,7 @@ test('📍 on a folder of the explorer opens the + menu for it: a new conversati
   const ask = async () => {
     commands.length = 0
     place.root = HERE
-    await pane.post({ isClicked: true }, { in: `speedy:explorer-work:${folder}` })
+    await doubleClick(pane, `speedy:explorer-work:${folder}`)
     return $.ui.mount(BAND)
   }
   // The menu says where, and names the conversation after the folder unless another name is typed.
@@ -1173,7 +1173,7 @@ test('📍 on a folder of the explorer opens the + menu for it: a new conversati
   // The folder the session already works in opens nothing.
   commands.length = 0
   place.root = THERE
-  await pane.post({ isClicked: true }, { in: `speedy:explorer-work:${folder}` })
+  await doubleClick(pane, `speedy:explorer-work:${folder}`)
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: la sesión ya trabaja en facturas.')
   const same = await $.ui.mount(BAND)
@@ -2658,6 +2658,12 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
 /** A tool's label, as toolTip writes it: what the pointer on the tool shows above it. */
 const TOOL_TIP = /^ (Crear carpeta|Copiar (archivo|carpeta|path)|Renombrar (archivo|carpeta)|Borrar (archivo|carpeta)|Pegar[ :]|Cambiar espacio de trabajo|no se hace con un disco)/
 
+/** A double click on a control, its two clicks at once: the explorer's tools act on one. */
+async function doubleClick (ui: { post: (message: { isClicked: boolean }, target: { in: string }) => Promise<unknown> }, key: string) {
+  await ui.post({ isClicked: true }, { in: key })
+  await ui.post({ isClicked: true }, { in: key })
+}
+
 async function explorerRows (ui: { findAll: (query: { type?: string }) => Promise<Array<{ type?: string; key?: string; text?: string; props?: Record<string, any> }>> }) {
   return (await ui.findAll({})).flatMap(element => {
     // The scroll bar at the tree's right is no row: it is read apart, by explorerBar.
@@ -2870,10 +2876,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await look('speedy:explorer-view:C:/Users/test/proyectos/notas.txt'))?.hover?.scope).not.toBe(nameLook?.hover?.scope)
   // Every file has 📋 🔗 🗑 at its right, the ones the viewer does not show too.
   // They are Clients, as the footer's controls: a Button would fill them under the pointer.
-  for (const tool of ['mkdir', 'copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text?.trimEnd()).toBe({ mkdir: '📁', copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool])
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/setup.exe` }))?.text?.trimEnd()).toBe({ copy: '📋', path: '🔗', rename: '✏', trash: '🗑' }[tool])
   // Each icon is pressed on its own two cells; the cells between them are a plain gap, so a press a little
   // off an icon does nothing instead of the next one's work.
-  for (const tool of ['mkdir', 'copy', 'path', 'rename', 'trash']) expect((await pane.find({ key: `speedy:explorer-${tool}:C:/setup.exe` }))?.props?.width).toBe(2)
+  for (const tool of ['copy', 'path', 'rename', 'trash']) expect((await pane.find({ key: `speedy:explorer-${tool}:C:/setup.exe` }))?.props?.width).toBe(2)
   // A folder has the same four tools, its name a Client in the folders' blue, which fills under the pointer
   // and stays while the pointer is on its tools; a disk's root has none.
   const folderLook = await look('speedy:explorer-folder:C:/Windows')
@@ -2887,8 +2893,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   for (const tool of ['copy', 'rename', 'trash']) expect((await pane.find({ type: 'Text', in: `speedy:explorer-${tool}:C:/` }))?.props).toMatchObject({ color: '#495057' })
   expect((await pane.find({ type: 'Text', in: 'speedy:explorer-path:C:/' }))?.props).toMatchObject({ color: '#63e6be' })
   DIALOG.asked = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/' })
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/' })
+  await doubleClick(pane, 'speedy:explorer-trash:C:/')
+  await doubleClick(pane, 'speedy:explorer-rename:C:/')
   await w.clock.advance(100)
   expect(DIALOG.asked).toEqual([])
   expect(TOASTS.at(-1)).toBe('speedy-code: un disco no se copia, no se renombra ni se borra.')
@@ -2897,14 +2903,14 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
   expect((await pasteLook('C:/Windows'))?.props).toMatchObject({ color: '#495057' })
   DIALOG.asked = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: primero copiá un archivo o una carpeta con 📋.')
   expect(DIALOG.asked).toEqual([])
   // 📋 puts the file itself on the clipboard; 🔗 its path, as Windows writes it.
   FILES.copied = []
   FILES.trashed = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt')
   expect(FILES.copied).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // And attached to the prompt, as Claude Code mentions a file.
   // The prompt already ends in the line break the popup's text left: no space before the mention.
@@ -2912,7 +2918,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.')
   // 📥's label then says what it pastes: a file.
   expect(await pane.find({ type: 'Text', text: ' Pegar archivo ' })).toBeDefined()
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt')
   // The tool pressed turns green for a second, with no fill, then goes back to its color.
   const pathColor = async () => (await pane.find({ type: 'Text', in: 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt' }))?.props
   expect(await pathColor()).toMatchObject({ color: '#51cf66' })
@@ -2922,70 +2928,77 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // The path goes into the prompt as well; the text before it already ends in a space.
   expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
-  // 📥 is lit on every row once 📋 took a file. On a folder's row it asks whether the file is copied or moved
-  // into it, and whether for sure: Cancelar does nothing; Copiar copies it and the file stays taken.
+  // 📥 is lit on every folder's row once 📋 took a file; a file's row has no 📥 nor 📁. On a folder's row it asks
+  // whether the file is copied or moved into it, and whether for sure: Cancelar does nothing; Copiar copies it
+  // and the file stays taken. A tool acts on a double click: a single one does nothing.
   expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('📥')
   expect((await pasteLook('C:/Windows'))?.props).toMatchObject({ color: '#ffa94d' })
-  expect((await pane.find({ key: 'speedy:explorer-paste:C:/setup.exe' }))?.props?.width).toBe(2)
+  const keys = (await pane.findAll({})).map(one => one.key)
+  expect(keys).not.toContain('speedy:explorer-paste:C:/setup.exe')
+  expect(keys).not.toContain('speedy:explorer-mkdir:C:/setup.exe')
+  expect(keys).toContain('speedy:explorer-mkdir:C:/Windows')
+  expect((await pane.find({ key: 'speedy:explorer-copy:C:/setup.exe' }))?.props?.width).toBe(2)
   DIALOG.asked = []
   DIALOG.answer = 'cancel'
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(600)
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await w.clock.advance(100)
+  expect(DIALOG.asked).toEqual([])
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(DIALOG.asked).toEqual(['paste'])
   expect(PASTE.ran).toEqual([])
   DIALOG.answer = 'copy'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(PASTE.ran).toEqual(['copy C:\\Users\\test\\proyectos\\notas.txt -> C:\\Windows\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt se copió a Windows.')
-  // On a file's row it goes into the folder the file is in: a disk's root here. On the root's own row too.
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/setup.exe' })
-  await w.clock.advance(100)
-  expect(PASTE.ran.at(-1)).toBe('copy C:\\Users\\test\\proyectos\\notas.txt -> C:\\notas.txt')
+  // On a disk's root's own row too.
   PASTE.ran = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/')
   await w.clock.advance(100)
   expect(PASTE.ran).toEqual(['copy C:\\Users\\test\\proyectos\\notas.txt -> C:\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt se copió a C:.')
   // Into the folder it is in already, nothing is asked; nor where a file of its name is.
   DIALOG.asked = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Users/test/proyectos')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ya está en esa carpeta.')
   expect(DIALOG.asked).toEqual([])
   // What paste.py could not do is said, and the file stays taken.
   PASTE.says = 'error'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: no pude copiar notas.txt.')
   PASTE.says = 'done'
   // Mover moves it: nothing is taken any more, and 📥 is grey again.
   DIALOG.answer = 'move'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(PASTE.ran.at(-1)).toBe('move C:\\Users\\test\\proyectos\\notas.txt -> C:\\Windows\\notas.txt')
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt se movió a Windows.')
   expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('↧')
   DIALOG.answer = 'cancel'
   // 📁 asks the new folder's name in a dialog: Cancelar makes nothing; Crear makes it, in the folder of the row
-  // pressed, and on a file's row in the folder the file is in. A name that is there already makes nothing.
+  // pressed. A name that is there already makes nothing.
   FILES.made = []
   DIALOG.asked = []
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-mkdir:C:/Windows')
   await w.clock.advance(100)
   expect(DIALOG.asked).toEqual(['mkdir dir'])
   expect(FILES.made).toEqual([])
   DIALOG.answer = 'mkdir QcOxbyAyMDI1'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:C:/Windows' })
+  await doubleClick(pane, 'speedy:explorer-mkdir:C:/Windows')
   await w.clock.advance(100)
   expect(FILES.made).toEqual(['C:\\Windows\\Año 2025'])
   expect(TOASTS.at(-1)).toBe('speedy-code: se creó la carpeta Año 2025 en Windows.')
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-mkdir:C:/Users/test/proyectos')
   await w.clock.advance(100)
   expect(FILES.made.at(-1)).toBe('C:\\Users\\test\\proyectos\\Año 2025')
   expect(TOASTS.at(-1)).toBe('speedy-code: se creó la carpeta Año 2025 en proyectos.')
   DIALOG.answer = 'mkdir ZmFjdHVyYXM='
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:C:/Users/test/proyectos' })
+  await doubleClick(pane, 'speedy:explorer-mkdir:C:/Users/test/proyectos')
   await w.clock.advance(100)
   expect(FILES.made.length).toBe(2)
   expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un facturas en esa carpeta.')
@@ -2994,21 +3007,21 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   FILES.renamed = []
   DIALOG.asked = []
   DIALOG.answer = 'cancel'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt')
   expect(DIALOG.asked).toEqual(['rename'])
   expect(FILES.renamed).toEqual([])
   DIALOG.answer = 'rename YXB1bnRlcy50eHQ='
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-rename:C:/Users/test/proyectos/notas.txt')
   expect(FILES.renamed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt -> apuntes.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ahora se llama apuntes.txt.')
   // 🗑 asks in a dialog: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
   DIALOG.answer = 'cancel'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt')
   expect(DIALOG.asked.at(-1)).toBe('delete')
   expect(FILES.trashed).toEqual([])
   DIALOG.answer = 'delete'
   TREE['C:/Users/test/proyectos'] = [{ name: 'facturas', kind: 'dir' }]
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt' })
+  await doubleClick(pane, 'speedy:explorer-trash:C:/Users/test/proyectos/notas.txt')
   DIALOG.answer = 'cancel'
   expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
@@ -3016,11 +3029,11 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A folder's ✏ asks one name, with no extension; its 🗑 asks too, and the folder goes with what it holds.
   DIALOG.asked = []
   DIALOG.answer = 'rename ZmFjdHVyYXMuMjAyNQ=='
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-rename:C:/Users/test/proyectos/facturas' })
+  await doubleClick(pane, 'speedy:explorer-rename:C:/Users/test/proyectos/facturas')
   expect(DIALOG.asked).toEqual(['rename dir'])
   expect(FILES.renamed.at(-1)).toBe('C:\\Users\\test\\proyectos\\facturas -> facturas.2025')
   DIALOG.answer = 'delete'
-  await pane.post({ isClicked: true }, { in: 'speedy:explorer-trash:C:/Users/test/proyectos/facturas' })
+  await doubleClick(pane, 'speedy:explorer-trash:C:/Users/test/proyectos/facturas')
   DIALOG.answer = 'cancel'
   expect(DIALOG.asked.at(-1)).toBe('delete dir')
   expect(FILES.trashed.at(-1)).toBe('C:\\Users\\test\\proyectos\\facturas')
@@ -3048,7 +3061,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await marked()).toEqual(['  ↪ Documents and Settings'])
   await near.input({ key: 'explorer-goto', text: 'D:\\fotos\\viaje.jpg', kind: 'submit' })
   expect(await marked()).toEqual(['      viaje.jpg'])
-  await near.post({ isClicked: true }, { in: 'speedy:explorer-path:D:/fotos/viaje.jpg' })
+  await doubleClick(near, 'speedy:explorer-path:D:/fotos/viaje.jpg')
   expect(await marked()).toEqual([])
   await near.press({ key: 'explorer-drive:C:/' })
   await near.unmount()
@@ -3164,9 +3177,9 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(REMOTE.asked.at(-1)).toEqual({ mode: 'fetch', host: 'mac', path: '/nota.md' })
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
   // 🔗 copies its path as that machine writes it; 📋 puts the copy on the clipboard and the path there in the prompt.
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-path:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-path:mac:/nota.md')
   expect(copies.at(-1)).toBe('/nota.md')
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-copy:mac:/nota.md')
   expect(FILES.copied.at(-1)).toBe('C:\\Temp\\speedy-remote\\ab12\\nota.md')
   expect(prompt.fills.at(-1)).toContain('mac:/nota.md')
   // 📥 goes across machines, copied or moved as the dialog said. What 📋 took there comes here by remote.py
@@ -3177,7 +3190,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   DIALOG.answer = 'move'
   PASTE.ran = []
   REMOTE.moved = []
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:C:/Windows' })
+  await doubleClick(far, 'speedy:explorer-paste:C:/Windows')
   await w.clock.advance(100)
   expect(DIALOG.asked).toEqual(['paste'])
   expect(REMOTE.moved).toEqual(['pull move mac /nota.md -> C:\\Windows\\nota.md'])
@@ -3185,7 +3198,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(TOASTS.at(-1)).toBe('speedy-code: nota.md se movió a Windows.')
   await far.press({ key: 'explorer-drive:mac:/' })
   await w.clock.advance(100)
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:mac:/Users' })
+  await doubleClick(far, 'speedy:explorer-copy:mac:/Users')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: la carpeta Users de mac está lista para pegar con 📥.')
   // Within the machine (`paste`): into another folder of it.
@@ -3195,21 +3208,21 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
   await far.post({ isClicked: true }, { in: 'speedy:explorer-folder:mac:/' })
   await w.clock.advance(100)
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/tmp' })
+  await doubleClick(far, 'speedy:explorer-paste:mac:/tmp')
   await w.clock.advance(100)
   expect(REMOTE.moved.at(-1)).toBe('paste copy mac /Users -> /tmp/Users')
   // What this machine holds goes there (`push`). What remote.py could not do is said.
   await far.press({ key: 'explorer-drive:C:/' })
   await w.clock.advance(100)
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-copy:C:/setup.exe' })
+  await doubleClick(far, 'speedy:explorer-copy:C:/setup.exe')
   await far.press({ key: 'explorer-drive:mac:/' })
   await w.clock.advance(100)
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/tmp' })
+  await doubleClick(far, 'speedy:explorer-paste:mac:/tmp')
   await w.clock.advance(100)
   expect(REMOTE.moved.at(-1)).toBe('push copy mac C:\\setup.exe -> /tmp/setup.exe')
   expect(TOASTS.at(-1)).toBe('speedy-code: setup.exe se copió a tmp.')
   REMOTE.says = 'error'
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-paste:mac:/Users' })
+  await doubleClick(far, 'speedy:explorer-paste:mac:/Users')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: no pude copiar setup.exe.')
   REMOTE.says = 'done'
@@ -3223,24 +3236,24 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // the dialog shows the file as the explorer writes it.
   REMOTE.moved = []
   DIALOG.answer = `rename ${btoa('notas viejas.md')}`
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-rename:mac:/nota.md')
   await w.clock.advance(100)
   expect(DIALOG.files.at(-1)).toBe('mac:/nota.md')
   expect(REMOTE.moved).toEqual(['rename mac /nota.md -> notas viejas.md'])
   expect(TOASTS.at(-1)).toBe('speedy-code: nota.md ahora se llama notas viejas.md.')
   // A name already there is refused, and nothing is asked of the machine.
   DIALOG.answer = `rename ${btoa('Users')}`
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-rename:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-rename:mac:/nota.md')
   await w.clock.advance(100)
   expect(REMOTE.moved.length).toBe(1)
   expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un archivo Users en esa carpeta.')
   DIALOG.answer = 'delete'
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-trash:mac:/nota.md')
   await w.clock.advance(100)
   expect(REMOTE.moved.at(-1)).toBe('trash mac /nota.md')
   expect(TOASTS.at(-1)).toBe('speedy-code: nota.md fue a la papelera.')
   REMOTE.says = 'error'
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-trash:mac:/nota.md' })
+  await doubleClick(far, 'speedy:explorer-trash:mac:/nota.md')
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: no pude mandar nota.md a la papelera.')
   REMOTE.says = 'done'
@@ -3248,19 +3261,19 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // 📁 makes a folder there too, by remote.py (`mkdir`); the dialog shows the folder as the explorer writes it.
   REMOTE.moved = []
   DIALOG.answer = 'mkdir Rm90b3M='
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/Users' })
+  await doubleClick(far, 'speedy:explorer-mkdir:mac:/Users')
   await w.clock.advance(100)
   expect(DIALOG.asked.at(-1)).toBe('mkdir dir')
   expect(DIALOG.files.at(-1)).toBe('mac:/Users')
   expect(REMOTE.moved).toEqual(['mkdir mac /Users/Fotos'])
   expect(TOASTS.at(-1)).toBe('speedy-code: se creó la carpeta Fotos en Users.')
-  // On a file's row, in the folder it is in; a name taken there is said, and nothing is made.
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/nota.md' })
+  // On its disk's root too; a name taken there is said, and nothing is made.
+  await doubleClick(far, 'speedy:explorer-mkdir:mac:/')
   await w.clock.advance(100)
   expect(DIALOG.files.at(-1)).toBe('mac:/')
   expect(REMOTE.moved.at(-1)).toBe('mkdir mac /Fotos')
   DIALOG.answer = 'mkdir YW5h'
-  await far.post({ isClicked: true }, { in: 'speedy:explorer-mkdir:mac:/Users' })
+  await doubleClick(far, 'speedy:explorer-mkdir:mac:/Users')
   await w.clock.advance(100)
   expect(REMOTE.moved.length).toBe(2)
   expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un ana en esa carpeta.')
