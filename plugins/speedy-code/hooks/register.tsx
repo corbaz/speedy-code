@@ -1618,6 +1618,24 @@ async function insertInPrompt ($: EngineInterface, text: string, separator: ' ' 
   await $.prompt.fill({ text: `${lead}${text}${separator === ' ' ? ' ' : ''}`, mode: 'insert' }).catch(() => undefined)
 }
 
+/**
+ * Whether the prompt's draft holds `text` already, as a word of its own: the explorer's 📋 and 🔗 put a file's
+ * mention or path there once, however many times they are pressed. A path inside a mention (`@path`) is not it.
+ */
+export function isInDraft (draft: string, text: string) {
+  const isEdge = (char: string | undefined) => char === undefined || /\s/.test(char)
+  for (let at = draft.indexOf(text); at >= 0; at = draft.indexOf(text, at + 1)) {
+    if (isEdge(draft[at - 1]) && isEdge(draft[at + text.length])) return true
+  }
+  return false
+}
+
+/** Puts `text` into the prompt as insertInPrompt does, unless the draft holds it already. */
+async function insertOnce ($: EngineInterface, text: string, separator: ' ' | '\n') {
+  const draft = (await $.prompt.read().catch(() => ({ text: '' }))).text
+  if (!isInDraft(draft, text)) await insertInPrompt($, text, separator)
+}
+
 /** What a popup's Copiar puts into the prompt: a line break, the text without its own trailing ones, a line break. */
 export function popupPaste (text: string) {
   return `\n${text.replace(/\n+$/, '')}\n`
@@ -2767,12 +2785,12 @@ async function copyFileToClipboard ($: EngineInterface, path: string) {
     await update($, explorer, now => ({ ...now, clip: path, clipKind }))
   }
   if (remote) {
-    await insertInPrompt($, path, ' ')
+    await insertOnce($, path, ' ')
     $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt y una copia suya en el portapapeles; pegala en una carpeta.` : `speedy-code: la ruta de ${name} en ${remote.host} está en el prompt; no pude copiar el archivo al portapapeles.`)
     return
   }
   // The file is attached to the prompt too, as Claude Code mentions one: @path.
-  await insertInPrompt($, fileMention(native), ' ')
+  await insertOnce($, fileMention(native), ' ')
   $.ui.toast(result?.stdout.trim() === 'copied' ? `speedy-code: ${name} está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.` : `speedy-code: ${name} está adjunto en el prompt; no pude copiarlo al portapapeles.`)
 }
 
@@ -2783,7 +2801,7 @@ async function copyPathToClipboard ($: EngineInterface, path: string, surface: P
   const native = remote ? thereOf(remote.path) : await nativePath($, path)
   const copied = await $.ui.copy({ text: native, surface }).catch(() => ({ isCopied: false }))
   // The path goes into the prompt as well, so it need not be pasted; the clipboard keeps it for elsewhere.
-  await insertInPrompt($, native, ' ')
+  await insertOnce($, native, ' ')
   $.ui.toast(copied.isCopied ? `speedy-code: la ruta ${native} está en el prompt y en el portapapeles` : `speedy-code: la ruta ${native} está en el prompt; no pude copiarla al portapapeles.`)
 }
 

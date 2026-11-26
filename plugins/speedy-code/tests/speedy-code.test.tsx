@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipLeft, freeName } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipLeft, freeName, isInDraft } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2919,6 +2919,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // The prompt already ends in the line break the popup's text left: no space before the mention.
   expect(prompt.fills.at(-1)).toBe('@C:\\Users\\test\\proyectos\\notas.txt ')
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt está adjunto en el prompt y en el portapapeles; pegalo en una carpeta.')
+  // Pressed again, it is in the prompt once: the mention there already is not written twice.
+  const fills = prompt.fills.length
+  await doubleClick(pane, 'speedy:explorer-copy:C:/Users/test/proyectos/notas.txt')
+  expect(prompt.fills.length).toBe(fills)
   // A file taken lights 📥, and its label says what it pastes: a file. It goes into another folder as a folder
   // does: whether to copy or move it, then whether for sure.
   expect((await pasteLook('C:/Windows'))?.text?.trimEnd()).toBe('📥')
@@ -2961,6 +2965,11 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(copies).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   // The path goes into the prompt as well; the text before it already ends in a space.
   expect(prompt.fills.at(-1)).toBe('C:\\Users\\test\\proyectos\\notas.txt ')
+  // Once too: 🔗 pressed again writes nothing more; the path is a word apart from the mention @path.
+  const pathFills = prompt.fills.length
+  await doubleClick(pane, 'speedy:explorer-path:C:/Users/test/proyectos/notas.txt')
+  expect(prompt.fills.length).toBe(pathFills)
+  expect([isInDraft('a @C:/x.md b', 'C:/x.md'), isInDraft('a @C:/x.md', '@C:/x.md'), isInDraft('C:/x.md', 'C:/x.md'), isInDraft('C:/x.mdy', 'C:/x.md'), isInDraft('@"C:/a b.md" ', '@"C:/a b.md"')]).toEqual([false, true, true, false, true])
   // 📥 is lit on every folder's row once 📋 took a folder; a file's row has no 📥 nor 📁. On a folder's row it asks
   // whether the folder is copied or moved into it, and whether for sure: Cancelar does nothing; Copiar copies it
   // and the folder stays taken. A tool acts on a double click: a single one does nothing.
