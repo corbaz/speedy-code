@@ -2427,26 +2427,11 @@ export function toolTip (kind: string, isFolder: boolean, clipKind?: 'dir' | 'fi
 }
 
 /**
- * The hover group a tool of a row joins, which lights its label in the explorer's ribbon: one per tool and,
- * for those whose words change with it, the row's kind (a folder, a file, a disk's root).
+ * Where a tool's label starts, against the tool's own two cells: centered over it, but within the row's tools,
+ * so the last tool's does not run past the explorer's edge. `index` is the tool's place among the seven.
  */
-export function tipScope (kind: string, isFolder: boolean, isDisk = false) {
-  if (isDisk && DISK_IDLE_TOOLS.includes(kind)) return `explorer-tip:${kind}:disk`
-  return ['copy', 'rename', 'trash'].includes(kind) ? `explorer-tip:${kind}:${isFolder ? 'dir' : 'file'}` : `explorer-tip:${kind}`
-}
-
-/**
- * Every label the ribbon holds, hidden until its tool is under the pointer: its hover group, its words, the
- * tool's color as its fill, and the column the tool's icon starts at among the row's tools.
- */
-export function toolTips (clipKind?: 'dir' | 'file') {
-  return EXPLORER_TOOLS.flatMap(([kind, , , color], index) => {
-    const column = 1 + 4 * index
-    const kinds = ['copy', 'rename', 'trash'].includes(kind)
-      ? [[true, false], [false, false], [true, true]] as const
-      : [[true, false]] as const
-    return kinds.map(([isFolder, isDisk]) => ({ scope: tipScope(kind, isFolder, isDisk), text: toolTip(kind, isFolder, clipKind, isDisk), color, column }))
-  })
+export function tipLeft (index: number, width: number, toolsWidth = EXPLORER_TOOLS_WIDTH) {
+  return Math.min(1 - Math.floor(width / 2), toolsWidth - (1 + 4 * index) - width)
 }
 
 /** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
@@ -3544,27 +3529,12 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           </Box>
           )
         : null}
-      {/* The ribbon above the tree: the rule, and over it the label of the tool under the pointer, in its color,
-          above that tool's column; every label is there hidden, and the tool's hover group shows its own. */}
-      <Box width={width}>
-        {state.filter
-          ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
-          : <Text dimColor>{'─'.repeat(width)}</Text>}
-        {isLabeled && Client
-          ? toolTips(state.clipKind).map(one => {
-            const text = ` ${one.text} `
-            const left = Math.max(0, Math.min(width - cells(text), treeWidth - EXPLORER_TOOLS_WIDTH + one.column + 1 - Math.floor(cells(text) / 2)))
-            return (
-              <Box key={`explorer-ribbon:${one.scope}`} position="absolute" top={0} left={left} display="none" hover={{ scope: one.scope, display: 'flex' }}>
-                <Text color={LABEL_TEXT} backgroundColor={one.color} bold>{text}</Text>
-              </Box>
-            )
-          })
-          : null}
-      </Box>
+      {state.filter
+        ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
+        : <Text dimColor>{'─'.repeat(width)}</Text>}
       <Box flexDirection="row" width={width}>
       <Box flexDirection="column" width={treeWidth}>
-      {rows.slice(top, top + room).map(row => {
+      {rows.slice(top, top + room).map((row, shownAt) => {
         const indent = '  '.repeat(row.depth)
         if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
         // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it, 🗑 sends
@@ -3614,13 +3584,23 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           // Each tool is a Client of its own two cells, as the footer's are: a Button fills its cell under the
           // pointer. Between them a plain gap takes no press, so a press a little off one does nothing instead
           // of its neighbour's work. A tool is in its row's hover group, and keeps its own color in it.
-          // With ⚙ → Ver labels, the pointer on a tool lights its label in the ribbon above the tree (the rule
-          // under the filter): the tool joins that label's hover group, and stays in its row's group too.
-          const tool = (kind: string, label: string, color: string) => {
+          // With ⚙ → Ver labels, the pointer on a tool shows what it does on the line above the row (below it, on
+          // the tree's first line shown), over the tool, dark on the tool's own color: no icon of the row is
+          // covered. A keyed Box is its own hover scope, and the tool stays in its row's group too.
+          const tool = (kind: string, label: string, color: string, index: number) => {
             if (!Client) return <Text key={kind} color={color}>{label}</Text>
             const client = <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
-            if (!isLabeled) return client
-            return <Box key={`explorer-tip:${kind}:${row.path}`} flexShrink={0} hover={{ scope: tipScope(kind, isFolder, isDisk) }}>{client}</Box>
+            const tip = isLabeled ? ` ${toolTip(kind, isFolder, state.clipKind, isDisk)} ` : ''
+            if (!tip.trim()) return client
+            const fill = EXPLORER_TOOLS.find(one => one[0] === kind)?.[3] ?? LABEL_FILL
+            return (
+              <Box key={`explorer-tip:${kind}:${row.path}`} flexShrink={0}>
+                {client}
+                <Box position="absolute" top={shownAt === 0 ? 1 : -1} left={tipLeft(index, cells(tip))} display="none" hover={{ display: 'flex' }}>
+                  <Text color={LABEL_TEXT} backgroundColor={fill} bold>{tip}</Text>
+                </Box>
+              </Box>
+            )
           }
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
@@ -3631,7 +3611,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             gap(`gap:${kind}`, index === 0 ? 1 : 2),
             kind === 'work' && !isWorkable
               ? gap(`none:${kind}`, 2)
-              : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color)
+              : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color, index)
           ])
           return (
             <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>

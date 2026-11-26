@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipScope } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipLeft } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2739,17 +2739,13 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(panes).toEqual(['speedy-code-explorer'])
   // A short body shows the rows around the session's folder, under the disks and the field for a path, which stay.
   const short = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 8 } }, surface: 'terminal' })
-  // The ribbon above the tree holds every tool's label, hidden, in the tool's color (⚙ → Ver labels): for a
-  // folder, a file and a disk's root, and 📥 for what 📋 took. A tool joins its label's hover group, so the
-  // pointer on it shows its label there, never over its row.
+  // Each tool carries what it does, hidden on the line above its row until the pointer is on it, dark on the
+  // tool's own color (⚙ → Ver labels): for a folder or a file, and 📥 for what 📋 took.
   const tips = (await short.findAll({ type: 'Text' })).filter(one => TOOL_TIP.test(one.text ?? ''))
-  expect(tips.map(one => (one.text ?? '').trim())).toEqual([
-    'Crear carpeta', 'Copiar carpeta', 'Copiar archivo', 'no se hace con un disco', 'Copiar path',
-    'Renombrar carpeta', 'Renombrar archivo', 'no se hace con un disco', 'Borrar carpeta', 'Borrar archivo', 'no se hace con un disco',
-    'Pegar: copiá algo con 📋 antes', 'Cambiar espacio de trabajo'
-  ])
-  expect(tips.map(one => one.props?.backgroundColor)).toEqual(['#ffd43b', '#74c0fc', '#74c0fc', '#74c0fc', '#63e6be', '#b197fc', '#b197fc', '#b197fc', '#ff8787', '#ff8787', '#ff8787', '#ffa94d', '#51cf66'])
-  expect([tipScope('copy', false), tipScope('copy', true, true), tipScope('mkdir', true, true)]).toEqual(['explorer-tip:copy:file', 'explorer-tip:copy:disk', 'explorer-tip:mkdir'])
+  expect(tips.slice(0, 7).map(one => (one.text ?? '').trim())).toEqual(['Crear carpeta', 'Copiar carpeta', 'Copiar path', 'Renombrar carpeta', 'Borrar carpeta', 'Pegar: copiá algo con 📋 antes', 'Cambiar espacio de trabajo'])
+  expect(tips.slice(0, 7).map(one => one.props?.backgroundColor)).toEqual(['#ffd43b', '#74c0fc', '#63e6be', '#b197fc', '#ff8787', '#ffa94d', '#51cf66'])
+  // Centered over its tool, but the last ones' kept within the row's tools.
+  expect([tipLeft(0, 15), tipLeft(6, 28)]).toEqual([-6, -26])
   expect([toolTip('copy', false), toolTip('rename', false), toolTip('trash', false)]).toEqual(['Copiar archivo', 'Renombrar archivo', 'Borrar archivo'])
   expect(toolTip('paste', false, 'dir')).toBe('Pegar carpeta')
   expect(toolTip('paste', true, 'file')).toBe('Pegar archivo')
