@@ -28,6 +28,9 @@
   body.dir #name { width: 428px !important; }
   body.mkdir .for-delete, body.mkdir .for-rename:not(.for-name), body:not(.mkdir) .for-mkdir { display: none; }
   body.mkdir #problem { top: 114px; }
+  /* What is pasted, under a new name where its own is taken: why it is asked, and the problem under it. */
+  body:not(.pastename) .for-pastename { display: none; }
+  body.pastename #problem { top: 116px; }
 </style>
 </head>
 <body class="rename">
@@ -42,6 +45,7 @@
     <span class="for-mkdir dim one-line" id="folder" style="top:88px"></span>
     <span class="for-rename for-file strong" style="left:319px;top:56px;font-size:17px">.</span>
     <input class="for-rename for-file" id="extension" style="left:330px;width:122px" spellcheck="false" autocomplete="off">
+    <span class="for-pastename one-line" id="taken" style="top:92px"></span>
     <span class="for-rename for-name" id="problem"></span>
     <span class="for-delete strong one-line" style="top:24px">¿Mandar a la papelera?</span>
     <span class="for-delete strong blue one-line" id="doomed" style="top:52px"></span>
@@ -55,7 +59,7 @@
   </div>
 <script>
   const $ = id => document.getElementById(id)
-  let api, fileName = '', isFolder = false, mode = 'rename'
+  let api, fileName = '', isFolder = false, mode = 'rename', isPasteName = false
 
   function finish (answer) { api.finish(answer) }
 
@@ -72,6 +76,7 @@
     if (!name) why = 'El nombre está vacío.'
     else if (wanted === '.' || wanted === '..') why = 'Ese nombre no es válido.'
     else if (/[\\/:*?"<>|]/.test(wanted)) why = 'No puede tener \\ / : * ? " < > |'
+    else if (isPasteName && wanted.toLowerCase() === fileName.toLowerCase()) why = `Ya hay ${wanted} en esa carpeta.`
     else if (wanted !== fileName && wanted.toLowerCase() !== fileName.toLowerCase() && await api.exists(wanted)) why = `Ya hay ${isFolder ? 'una carpeta o un archivo' : 'un archivo'} ${wanted} en esa carpeta.`
     if (why) { $('problem').textContent = why; return }
     finish(wanted === fileName ? 'cancel' : 'rename ' + toBase64(wanted))
@@ -95,8 +100,10 @@
     fileName = asked.name
     isFolder = asked.kind === 'dir'
     mode = asked.mode
-    document.body.className = mode + (isFolder ? ' dir' : '')
-    $('title').textContent = mode === 'delete' ? 'Borrar' : mode === 'paste' ? 'Pegar' : mode === 'mkdir' ? 'Nueva carpeta' : 'Renombrar'
+    // A rename with a folder to paste into: the new name of what is pasted, where its own is taken there.
+    isPasteName = mode === 'rename' && Boolean(asked.target)
+    document.body.className = mode + (isFolder ? ' dir' : '') + (isPasteName ? ' pastename' : '')
+    $('title').textContent = mode === 'delete' ? 'Borrar' : mode === 'paste' || isPasteName ? 'Pegar' : mode === 'mkdir' ? 'Nueva carpeta' : 'Renombrar'
     $('cancel').onclick = () => finish('cancel')
     $('close').onclick = () => finish('cancel')
     if (mode === 'paste') {
@@ -110,7 +117,8 @@
         $('asking').textContent = chosen === 'move' ? '¿Seguro que querés moverlo?' : '¿Seguro que querés copiarlo?'
         $('accept').textContent = chosen === 'move' ? 'Sí, mover' : 'Sí, copiar'
       }
-      $('pasted').textContent = fileName
+      // Pasted under a new name, it is that one that shows.
+      $('pasted').textContent = asked.suggested || fileName
       // The folder it goes into, its end kept when it is too long for the line.
       $('where').textContent = 'a ' + (asked.target.length > 50 ? '\u2026' + asked.target.slice(-49) : asked.target)
       $('accept').textContent = 'Mover'
@@ -136,10 +144,13 @@
       $('accept').onclick = () => finish('delete')
     } else {
       // A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them.
-      const dot = isFolder ? -1 : fileName.lastIndexOf('.')
-      $('name').value = dot > 0 ? fileName.slice(0, dot) : fileName
-      $('extension').value = dot > 0 ? fileName.slice(dot + 1) : ''
-      $('accept').textContent = 'Aceptar'
+      // Pasted under a new name, the fields hold the free one offered.
+      const offered = isPasteName && asked.suggested ? asked.suggested : fileName
+      const dot = isFolder ? -1 : offered.lastIndexOf('.')
+      $('name').value = dot > 0 ? offered.slice(0, dot) : offered
+      $('extension').value = dot > 0 ? offered.slice(dot + 1) : ''
+      $('accept').textContent = isPasteName ? 'Seguir' : 'Aceptar'
+      if (isPasteName) $('taken').textContent = `Ya hay ${fileName} en esa carpeta: cambiá el nombre para pegarlo.`
       $('accept').onclick = tryAccept
       $('name').focus()
       $('name').select()

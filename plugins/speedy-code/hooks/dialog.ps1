@@ -9,7 +9,11 @@
 #   SPEEDY_MODE=delete: asks whether $env:SPEEDY_FILE goes to the Recycle Bin, Si, borrar / Cancelar. Prints `delete` or `cancel`.
 #   SPEEDY_MODE=paste: asks whether $env:SPEEDY_FILE is copied or moved into the folder $env:SPEEDY_TARGET,
 #     Copiar / Mover / Cancelar, and then whether for sure, Si, copiar / Cancelar. Prints `copy`, `move` or `cancel`.
-#     With SPEEDY_ONLY=copy (a file of another machine, which stays there) it only asks whether for sure.
+#     With SPEEDY_ONLY=copy (into the folder it is in, under a new name) it only asks whether for sure. With
+#     SPEEDY_NAME it shows that name, the one it is pasted under.
+#   SPEEDY_MODE=rename with SPEEDY_TARGET: the paste tool's new name, as a rename asks it, where the name is taken in the
+#     folder SPEEDY_TARGET: the fields start at SPEEDY_NAME, the name is checked against that folder, and the
+#     button is Seguir. Prints `rename <base64 of the UTF-8 new name>`, or `cancel`.
 #   SPEEDY_MODE=mkdir: one field, the name of a folder to make in the folder $env:SPEEDY_FILE (the first free of
 #     Nueva carpeta, Nueva carpeta (2)...), and Crear / Cancelar. The name is checked as a rename's is, and no
 #     folder or file of that name may be there. Prints `mkdir <base64 of the UTF-8 name>`, or `cancel`.
@@ -31,6 +35,9 @@ $fileName = [IO.Path]::GetFileName($path)
 # A folder (SPEEDY_KIND=dir) is renamed whole, with no extension, and goes to the trash with what it holds.
 $isFolder = $env:SPEEDY_KIND -eq 'dir'
 $folder = [IO.Path]::GetDirectoryName($path)
+# A rename with a folder to paste into (SPEEDY_TARGET): the paste tool's new name, where the file's own is taken there. The
+# fields start at SPEEDY_NAME, a free one; the name is checked against that folder, not the file's own.
+$isPasteName = $mode -eq 'rename' -and [bool]$env:SPEEDY_TARGET
 # A path of another machine (`mac:/Users/ana`) is not looked into here: the explorer says, once asked, whether
 # a name is taken there. Join-Path would take `mac:` for a drive of this machine.
 $isRemote = $path -match '^[A-Za-z][\w.-]+:[\\/]'
@@ -88,7 +95,7 @@ $form.Controls.Add($frame)
 
 # The title, the move mark and the close mark ride the top line, on black, as the viewer's do.
 $title = New-Object System.Windows.Forms.Label
-$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } elseif ($mode -eq 'paste') { 'Pegar' } elseif ($mode -eq 'mkdir') { 'Nueva carpeta' } else { 'Renombrar' }) + ' '
+$title.Text = ' ' + $(if ($mode -eq 'delete') { 'Borrar' } elseif ($mode -eq 'paste' -or $isPasteName) { 'Pegar' } elseif ($mode -eq 'mkdir') { 'Nueva carpeta' } else { 'Renombrar' }) + ' '
 $title.AutoSize = $true
 $title.Font = $bold
 $title.ForeColor = $frame.BackColor
@@ -189,10 +196,13 @@ $inner = $width - 2 * ($contour + $line + $margin)
 $innerHeight = $height - 2 * ($contour + $line + $band)
 if ($mode -eq 'rename') {
   # A dotfile (.gitignore) or a name with no dot is all name; otherwise the last dot parts them. A folder's
-  # name is all name: one field, as wide as the two.
-  $dot = if ($isFolder) { -1 } else { $fileName.LastIndexOf('.') }
-  $base = if ($dot -gt 0) { $fileName.Substring(0, $dot) } else { $fileName }
-  $extension = if ($dot -gt 0) { $fileName.Substring($dot + 1) } else { '' }
+  # name is all name: one field, as wide as the two. Pasted under a new name, the fields hold the free one.
+  $offeredName = if ($isPasteName -and $env:SPEEDY_NAME) { $env:SPEEDY_NAME } else { $fileName }
+  $dot = if ($isFolder) { -1 } else { $offeredName.LastIndexOf('.') }
+  $base = if ($dot -gt 0) { $offeredName.Substring(0, $dot) } else { $offeredName }
+  $extension = if ($dot -gt 0) { $offeredName.Substring($dot + 1) } else { '' }
+  $checkIn = if ($isPasteName) { [string]$env:SPEEDY_TARGET } else { $folder }
+  $checkRemote = if ($isPasteName) { $checkIn -match '^[A-Za-z][\w.-]+:[\\/]' } else { $isRemote }
   [void](New-Text 'Nombre' $gap $gap $dim $font)
   if ($isFolder) {
     $nameBox = New-Box $base $gap 52 ($inner - 2 * $gap)
@@ -203,8 +213,16 @@ if ($mode -eq 'rename') {
     [void](New-Text '.' 318 54 $ink $bold)
     $extensionBox = New-Box $extension 330 52 ($inner - 330 - $gap)
   }
-  $problem = New-Text '' $gap 92 $red $font
-  $accept = New-Action 'Aceptar' $blue $black 0
+  if ($isPasteName) {
+    # Why a new name is asked: one of this name is there already.
+    $taken = if ($fileName.Length -gt 30) { $fileName.Substring(0, 29) + [char]0x2026 } else { $fileName }
+    [void](New-Text ("Ya hay $taken en esa carpeta: " + (T 'cambi\u00e1 el nombre para pegarlo.')) $gap 92 $ink $font)
+    $problem = New-Text '' $gap 116 $red $font
+    $accept = New-Action 'Seguir' $blue $black 0
+  } else {
+    $problem = New-Text '' $gap 92 $red $font
+    $accept = New-Action 'Aceptar' $blue $black 0
+  }
   $cancel = New-Action 'Cancelar' $field $ink 1
 
   function Try-Accept {
@@ -215,7 +233,8 @@ if ($mode -eq 'rename') {
     if (-not $name) { $why = T 'El nombre est\u00e1 vac\u00edo.' }
     elseif ($wanted -eq '.' -or $wanted -eq '..') { $why = T 'Ese nombre no es v\u00e1lido.' }
     elseif ($wanted.IndexOfAny([char[]]'\/:*?"<>|') -ge 0) { $why = T 'No puede tener \\ / : * ? " < > |' }
-    elseif (-not $isRemote -and $wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $folder $wanted))) { $why = "Ya hay $(if ($isFolder) { 'una carpeta o un archivo' } else { 'un archivo' }) $wanted en esa carpeta." }
+    elseif ($isPasteName -and $wanted.ToLowerInvariant() -eq $fileName.ToLowerInvariant()) { $why = "Ya hay $wanted en esa carpeta." }
+    elseif (-not $checkRemote -and $wanted -ne $fileName -and $wanted.ToLowerInvariant() -ne $fileName.ToLowerInvariant() -and (Test-Path -LiteralPath (Join-Path $checkIn $wanted))) { $why = "Ya hay $(if ($isFolder) { 'una carpeta o un archivo' } else { 'un archivo' }) $wanted en esa carpeta." }
     if ($why) { $problem.Text = $why; return }
     if ($wanted -eq $fileName) { Finish 'cancel'; return }
     Finish ('rename ' + [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($wanted)))
@@ -259,7 +278,9 @@ if ($mode -eq 'rename') {
   # Copiar or Mover first; the one chosen is then asked again, for sure, and only that answers. A press within
   # half a second of the choice is the same press twice, and is not an answer.
   $asking = New-Text (T '\u00bfCopiar o mover?') $gap $gap $ink $bold
-  $shown = if ($fileName.Length -gt 46) { $fileName.Substring(0, 45) + [char]0x2026 } else { $fileName }
+  # Pasted under a new name (SPEEDY_NAME), it is that one that shows.
+  $pastedName = if ($env:SPEEDY_NAME) { [string]$env:SPEEDY_NAME } else { $fileName }
+  $shown = if ($pastedName.Length -gt 46) { $pastedName.Substring(0, 45) + [char]0x2026 } else { $pastedName }
   [void](New-Text $shown $gap 52 $blue $bold)
   # The folder it goes into, its end kept when it is too long for the line.
   $where = [string]$env:SPEEDY_TARGET

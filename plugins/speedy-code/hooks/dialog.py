@@ -32,15 +32,17 @@ class Api:
         self._target = target
 
     def asked(self):
-        return {'name': os.path.basename(self._path), 'folder': self._path, 'mode': self._mode, 'kind': self._kind, 'target': self._target, 'only': os.environ.get('SPEEDY_ONLY', '')}
+        return {'name': os.path.basename(self._path), 'folder': self._path, 'mode': self._mode, 'kind': self._kind, 'target': self._target,
+                'only': os.environ.get('SPEEDY_ONLY', ''), 'suggested': os.environ.get('SPEEDY_NAME', '')}
 
     def exists(self, name):
-        # A new folder's name is looked for in the folder it goes into; a rename's beside the file.
+        # A new folder's name is looked for in the folder it goes into; a rename's beside the file, and the new
+        # name of what is pasted (a rename with a target) in the folder it is pasted into.
         # A path of another machine (`windows:/C:/Users`) is not looked into here: the explorer says, once
         # asked, whether the name is taken there.
-        if re.match(r'[A-Za-z][\w.-]+:/', self._path):
+        folder = self._path if self._mode == 'mkdir' else self._target if self._target else os.path.dirname(self._path)
+        if re.match(r'[A-Za-z][\w.-]+:/', folder):
             return False
-        folder = self._path if self._mode == 'mkdir' else os.path.dirname(self._path)
         return os.path.lexists(os.path.join(folder, name))
 
     def shown(self):

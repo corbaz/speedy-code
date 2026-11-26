@@ -2409,9 +2409,9 @@ const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> =
 ]
 /**
  * What a tool of a row does, as the pointer on it says on the line above the row, dark on the tool's own color
- * (⚙ → Ver labels): for a file or a folder; 📥 pastes a folder alone. A tool grey on a disk's root says why.
+ * (⚙ → Ver labels): for a file or a folder, and 📥 for what 📋 took. A tool grey on a disk's root says why.
  */
-export function toolTip (kind: string, isFolder: boolean, isDisk = false) {
+export function toolTip (kind: string, isFolder: boolean, isDisk = false, clipKind?: 'dir' | 'file') {
   const what = isFolder ? 'carpeta' : 'archivo'
   if (isDisk && DISK_IDLE_TOOLS.includes(kind)) return 'no se hace con un disco'
   switch (kind) {
@@ -2420,7 +2420,7 @@ export function toolTip (kind: string, isFolder: boolean, isDisk = false) {
     case 'path': return 'Copiar path'
     case 'rename': return `Renombrar ${what}`
     case 'trash': return `Borrar ${what}`
-    case 'paste': return 'Pegar carpeta'
+    case 'paste': return clipKind === 'dir' ? 'Pegar carpeta' : clipKind === 'file' ? 'Pegar archivo' : 'Pegar'
     case 'work': return 'Cambiar espacio de trabajo'
     default: return ''
   }
@@ -2432,6 +2432,20 @@ export function toolTip (kind: string, isFolder: boolean, isDisk = false) {
  */
 export function tipLeft (index: number, width: number, toolsWidth = EXPLORER_TOOLS_WIDTH) {
   return Math.min(1 - Math.floor(width / 2), toolsWidth - (1 + 4 * index) - width)
+}
+
+/**
+ * The first name free in a folder for what 📥 pastes there, where its own is taken: `informe (2).txt`,
+ * `informe (3).txt`...; a folder's, `fotos (2)`. `taken` holds the folder's names, in lower case.
+ */
+export function freeName (name: string, isFolder: boolean, taken: ReadonlySet<string>) {
+  const dot = isFolder ? -1 : name.lastIndexOf('.')
+  const base = dot > 0 ? name.slice(0, dot) : name
+  const extension = dot > 0 ? name.slice(dot) : ''
+  for (let number = 2; ; number++) {
+    const one = `${base} (${number})${extension}`
+    if (!taken.has(one.toLowerCase())) return one
+  }
 }
 
 /** Lets go of what 📋 took: 📥 is grey again. 📋 and 📥 go one right after the other. */
@@ -2824,14 +2838,16 @@ export function badFileName (name: string) {
  * the name of a folder to make in the folder `path`, and answers `mkdir <base64 name>` (macOS's own dialog:
  * `name <name>`) or `cancel`.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '') {
+async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '', offered = '', isCopyOnly = false) {
   // A path of another machine is shown as the explorer writes it, `mac:/Users/ana`.
   const shown = async (one: string) => remoteOf(one) ? one : await nativePath($, one)
   const native = await shown(path)
   // A folder is renamed whole, with no extension, and goes to the trash with what it holds.
   const kind = mode === 'mkdir' || (await kindAt($, path)) === 'dir' ? 'dir' : 'file'
   const isWindows = (await osNow($)) === 'windows'
-  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await shown(into) : '' }
+  // A rename with `into`: the new name of what 📥 pastes there, its fields at `offered`. A paste with `offered`
+  // shows that name; `isCopyOnly`, into the folder it is in, asks Copiar alone.
+  const env = { SPEEDY_FILE: native, SPEEDY_MODE: mode, SPEEDY_KIND: kind, SPEEDY_TARGET: into ? await shown(into) : '', SPEEDY_NAME: offered, SPEEDY_ONLY: isCopyOnly ? 'copy' : '' }
   const said = (stdout: string | undefined) => (stdout ?? '').split(/\r?\n/).map(line => line.trim()).find(Boolean)
   // macOS: dialog.py's popup, drawn as dialog.ps1's. With no pywebview it says nothing, and macOS's own dialog asks.
   if (!isWindows) {
@@ -2841,7 +2857,7 @@ async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste
   }
   const argv = isWindows
     ? [await windowsPowerShell($), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/dialog.ps1`]
-    : mode === 'paste' ? MAC.pasteDialog(path.split('/').pop() ?? path, into) : MAC.dialog(mode, path.split('/').pop() ?? path)
+    : mode === 'paste' ? MAC.pasteDialog(offered || (path.split('/').pop() ?? path), into) : MAC.dialog(mode, offered || (path.split('/').pop() ?? path))
   const result = await $.process.run(argv, { env }).catch(() => undefined)
   return said(result?.stdout) ?? 'cancel'
 }
@@ -2862,12 +2878,12 @@ const folderOf = (path: string) => {
 async function pasteInto ($: EngineInterface, path: string) {
   const state = await read($, explorer)
   const clip = state.clip
-  // 📥 pastes a folder alone: a file 📋 took stays on the clipboard, for the system's own paste.
-  if (!clip || state.clipKind !== 'dir') {
-    $.ui.toast('speedy-code: primero copiá una carpeta con 📋.')
+  if (!clip) {
+    $.ui.toast('speedy-code: primero copiá un archivo o una carpeta con 📋.')
     return
   }
-  const name = clip.split('/').pop() ?? clip
+  const own = clip.split('/').pop() ?? clip
+  let name = own
   const kind = await kindAt($, clip)
   if (!kind) {
     $.ui.toast(`speedy-code: ${name} ya no está donde se copió.`)
@@ -2881,21 +2897,34 @@ async function pasteInto ($: EngineInterface, path: string) {
     $.ui.toast(`speedy-code: de ${from.host} a ${to.host} no se pega: traelo primero a esta máquina.`)
     return
   }
-  const target = joinPath(folder, name)
   const key = (one: string) => pathKey(one, state.caseless)
-  if (key(folderOf(clip)) === key(folder)) {
-    $.ui.toast(`speedy-code: ${name} ya está en esa carpeta.`)
-    return
-  }
-  if (kind === 'dir' && isUnder(key(folder), key(clip))) {
+  // Into the folder it is in, it is copied alone: moved there, it would only be renamed, as ✏ does.
+  const isSameFolder = key(folderOf(clip)) === key(folder)
+  if (kind === 'dir' && !isSameFolder && isUnder(key(folder), key(clip))) {
     $.ui.toast(`speedy-code: ${name} no puede ir dentro de sí misma.`)
     return
   }
-  if (await kindAt($, target)) {
-    $.ui.toast(`speedy-code: ya hay un ${name} en esa carpeta.`)
-    return
+  // Where its name is taken (the folder it is in, or another with one of that name), a new name is asked
+  // first, a free one offered; then whether to copy or move it, under that name.
+  if (isSameFolder || await kindAt($, joinPath(folder, name))) {
+    const listed = await readFolder($, folder)
+    const taken = new Set(listed === 'denied' ? [name.toLowerCase()] : [name.toLowerCase(), ...listed.entries.map(entry => entry.name.toLowerCase())])
+    const answer = await askDialog($, 'rename', clip, folder, freeName(name, kind === 'dir', taken))
+    const wanted = (answer.startsWith('rename ') ? fromBase64Utf8(answer.slice('rename '.length)) : answer.startsWith('name ') ? answer.slice('name '.length) : '').trim()
+    if (!wanted) return
+    const why = badFileName(wanted)
+    if (why) {
+      $.ui.toast(`speedy-code: no pegué ${own}: ${why}.`)
+      return
+    }
+    if (wanted.toLowerCase() === own.toLowerCase() || await kindAt($, joinPath(folder, wanted))) {
+      $.ui.toast(`speedy-code: ya hay un ${wanted} en esa carpeta.`)
+      return
+    }
+    name = wanted
   }
-  const verb = await askDialog($, 'paste', clip, folder)
+  const target = joinPath(folder, name)
+  const verb = await askDialog($, 'paste', clip, folder, name === own ? '' : name, isSameFolder)
   if (verb !== 'copy' && verb !== 'move') return
   const isMove = verb === 'move'
   const there = remoteOf(target)
@@ -2919,14 +2948,15 @@ async function pasteInto ($: EngineInterface, path: string) {
     // The word itself.
   }
   if (said !== 'done' && said !== 'kept') {
-    $.ui.toast(`speedy-code: no pude ${isMove ? 'mover' : 'copiar'} ${name}.`)
+    $.ui.toast(`speedy-code: no pude ${isMove ? 'mover' : 'copiar'} ${own}.`)
     return
   }
   // Copied, but what was to move could not be removed where it was.
   const isMoved = isMove && said === 'done'
+  const as = name === own ? '' : ` como ${name}`
   $.ui.toast(said === 'kept'
-    ? `speedy-code: ${name} se copió a ${driveLabel(folder)}, pero no pude quitarlo de donde estaba.`
-    : `speedy-code: ${name} se ${isMove ? 'movió' : 'copió'} a ${driveLabel(folder)}.`)
+    ? `speedy-code: ${own} se copió a ${driveLabel(folder)}${as}, pero no pude quitarlo de donde estaba.`
+    : `speedy-code: ${own} se ${isMove ? 'movió' : 'copió'} a ${driveLabel(folder)}${as}.`)
   // The folder it went into is read again, and opened to show it; moved, the one it left too.
   const folders = isMoved ? [folder, folderOf(clip)] : [folder]
   const reread = await Promise.all(folders.map(async one => [key(one), await readFolder($, one)] as const))
@@ -3609,7 +3639,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const tool = (kind: string, label: string, color: string, index: number) => {
             if (!Client) return <Text key={kind} color={color}>{label}</Text>
             const client = <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
-            const tip = isLabeled ? ` ${toolTip(kind, isFolder, isDisk)} ` : ''
+            const tip = isLabeled ? ` ${toolTip(kind, isFolder, isDisk, state.clip ? state.clipKind : undefined)} ` : ''
             if (!tip.trim()) return client
             const fill = EXPLORER_TOOLS.find(one => one[0] === kind)?.[3] ?? LABEL_FILL
             return (
@@ -3623,8 +3653,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           }
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
-          // 📥 is lit only while 📋 has taken a folder: it pastes folders alone.
-          const isIdle = (kind: string) => (kind === 'paste' && !(state.clip && state.clipKind === 'dir')) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
+          // 📥 is lit while 📋 has taken a file or a folder, right before.
+          const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
           // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
           const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
