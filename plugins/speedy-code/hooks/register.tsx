@@ -2401,17 +2401,17 @@ const EXPLORER_TOOLS_WIDTH = 27
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['mkdir', '📁', '\uea80', '#ffd43b'],
   ['copy', '📋', '\uf0c5', '#74c0fc'],
+  ['paste', '📥', '\uf0ea', '#ffa94d'],
   ['path', '🔗', '\uf0c1', '#63e6be'],
   ['rename', '✏', '\uf044', '#b197fc'],
   ['trash', '🗑', '\uf1f8', '#ff8787'],
-  ['paste', '📥', '\uf0ea', '#ffa94d'],
   ['work', '📍', '\uf041', '#51cf66']
 ]
 /**
- * What a tool of a row does, as the pointer on it says, dark on yellow at its left as the footer's controls do
- * (⚙ → Ver labels): for a file or a folder, and 📥 for what 📋 took. A tool grey on a disk's root says why.
+ * What a tool of a row does, as the pointer on it says on the line above the row, dark on the tool's own color
+ * (⚙ → Ver labels): for a file or a folder; 📥 pastes a folder alone. A tool grey on a disk's root says why.
  */
-export function toolTip (kind: string, isFolder: boolean, clipKind?: 'dir' | 'file', isDisk = false) {
+export function toolTip (kind: string, isFolder: boolean, isDisk = false) {
   const what = isFolder ? 'carpeta' : 'archivo'
   if (isDisk && DISK_IDLE_TOOLS.includes(kind)) return 'no se hace con un disco'
   switch (kind) {
@@ -2420,7 +2420,7 @@ export function toolTip (kind: string, isFolder: boolean, clipKind?: 'dir' | 'fi
     case 'path': return 'Copiar path'
     case 'rename': return `Renombrar ${what}`
     case 'trash': return `Borrar ${what}`
-    case 'paste': return clipKind ? `Pegar ${clipKind === 'dir' ? 'carpeta' : 'archivo'}` : 'Pegar: copiá algo con 📋 antes'
+    case 'paste': return 'Pegar carpeta'
     case 'work': return 'Cambiar espacio de trabajo'
     default: return ''
   }
@@ -2856,8 +2856,9 @@ const folderOf = (path: string) => {
 async function pasteInto ($: EngineInterface, path: string) {
   const state = await read($, explorer)
   const clip = state.clip
-  if (!clip) {
-    $.ui.toast('speedy-code: primero copiá un archivo o una carpeta con 📋.')
+  // 📥 pastes a folder alone: a file 📋 took stays on the clipboard, for the system's own paste.
+  if (!clip || state.clipKind !== 'dir') {
+    $.ui.toast('speedy-code: primero copiá una carpeta con 📋.')
     return
   }
   const name = clip.split('/').pop() ?? clip
@@ -3602,7 +3603,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           const tool = (kind: string, label: string, color: string, index: number) => {
             if (!Client) return <Text key={kind} color={color}>{label}</Text>
             const client = <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
-            const tip = isLabeled ? ` ${toolTip(kind, isFolder, state.clipKind, isDisk)} ` : ''
+            const tip = isLabeled ? ` ${toolTip(kind, isFolder, isDisk)} ` : ''
             if (!tip.trim()) return client
             const fill = EXPLORER_TOOLS.find(one => one[0] === kind)?.[3] ?? LABEL_FILL
             return (
@@ -3616,7 +3617,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           }
           const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
           // 📥 is lit only while 📋 has taken a file or a folder to paste.
-          const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
+          // 📥 is lit only while 📋 has taken a folder: it pastes folders alone.
+          const isIdle = (kind: string) => (kind === 'paste' && !(state.clip && state.clipKind === 'dir')) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
           // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
           const isWorkable = isFolder && !remoteOf(row.path)
           const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
