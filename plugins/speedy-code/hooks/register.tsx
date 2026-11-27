@@ -2665,6 +2665,44 @@ export function filterPattern (text: string) {
   return text.trim().replace(/^["']+|["']+$/g, '').trim()
 }
 
+/**
+ * Whether a file's name matches the filter's pattern, as find_files.py matches it: `*` any text, `?` any one
+ * character, whatever the case; a pattern with neither is a part of the name.
+ */
+export function filterMatches (pattern: string, name: string) {
+  const text = pattern.trim()
+  const glob = (text.includes('*') || text.includes('?') ? text : `*${text}*`).toLowerCase()
+  const word = name.toLowerCase()
+  let at = 0
+  let from = 0
+  let star = -1
+  let mark = 0
+  while (from < word.length) {
+    if (at < glob.length && (glob[at] === '?' || glob[at] === word[from])) {
+      at++
+      from++
+    } else if (at < glob.length && glob[at] === '*') {
+      star = at++
+      mark = from
+    } else if (star >= 0) {
+      at = star + 1
+      from = ++mark
+    } else {
+      return false
+    }
+  }
+  while (glob[at] === '*') at++
+  return at === glob.length
+}
+
+/** The explorer after a file was pasted to `path`: with a filter on, it shows in the filter's tree when its name matches. */
+export function filterAdded (state: Explorer, path: string): Explorer {
+  if (!state.filter || !filterMatches(state.filter.pattern, path.split('/').pop() ?? path)) return state
+  const key = pathKey(path, state.caseless)
+  if (state.filter.paths.some(one => pathKey(one, state.caseless) === key)) return state
+  return { ...state, filter: { ...state.filter, paths: [...state.filter.paths, path] } }
+}
+
 /** The explorer after a file or a folder was renamed (`to`) or sent to the trash: a filter's files follow it. */
 export function filterMoved (state: Explorer, from: string, to?: string): Explorer {
   if (!state.filter) return state
@@ -2698,6 +2736,9 @@ export function treeRows (state: Explorer): TreeRow[] {
   walk(state.drive, label, 'dir', 0)
   return rows
 }
+
+/** The tree's first row as last drawn: where the tree stays when the path found stops being marked. */
+let explorerShownTop = 0
 
 /** The tree rows the explorer shows under its header, in a body of `bodyRows`. */
 const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS)
@@ -2980,7 +3021,9 @@ async function pasteInto ($: EngineInterface, path: string) {
   const reread = await Promise.all(folders.map(async one => [key(one), await readFolder($, one)] as const))
   await update($, explorer, now => {
     const next = { ...now, listed: { ...now.listed, ...Object.fromEntries(reread) }, open: now.open.includes(key(folder)) ? now.open : [...now.open, key(folder)] }
-    return isMoved ? filterMoved({ ...next, clip: undefined, clipKind: undefined }, clip, target) : next
+    const placed = isMoved ? filterMoved({ ...next, clip: undefined, clipKind: undefined }, clip, target) : next
+    // With a filter on, a file pasted shows in its tree when its name matches.
+    return kind === 'file' ? filterAdded(placed, target) : placed
   })
 }
 
@@ -3383,8 +3426,10 @@ export function hoverScope (path: string) {
  * the pointer's alone, and follows it.
  */
 async function forgetFound ($: EngineInterface) {
-  const { found, viewed } = await read($, explorer)
-  if (found !== undefined || viewed !== undefined) await update($, explorer, now => ({ ...now, found: undefined, viewed: undefined }))
+  const { found, viewed, top } = await read($, explorer)
+  // The tree stood around the path found: it stays where it was drawn, not sent back to the session's folder.
+  const stays = found !== undefined && top < 0 ? { top: explorerShownTop } : {}
+  if (found !== undefined || viewed !== undefined) await update($, explorer, now => ({ ...now, found: undefined, viewed: undefined, ...stays }))
 }
 
 /** A folder of the tree pressed: open, it closes; closed, it opens and is read afresh. */
@@ -3548,6 +3593,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const rows = treeRows(state)
   const room = explorerRoom(bodyRows)
   const top = windowTop(rows, state.top, room)
+  explorerShownTop = top
   // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
   const thumb = scrollThumb(rows.length, top, room)
   // ⚙ → Ver labels: what each tool does, when the pointer is on it.

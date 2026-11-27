@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipLeft, freeName, isInDraft } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, tipLeft, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -3114,6 +3114,8 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // Any press in the explorer takes the mark off: the yellow fill is the pointer's again, and follows it.
   await near.post({ isClicked: true }, { in: 'speedy:explorer-folder:C:/Users/Public' })
   expect(await marked()).toEqual([])
+  // The tree stays where the path took it: a folder opened next to it does not send it back to the session's.
+  expect((await explorerRows(near)).map(row => row.text.trimEnd()).slice(4)).toEqual(['    ▾ Public', '      (sin acceso)', '    ▾ test'])
   // A link is marked too, as a macOS app in /Applications often is one.
   await near.input({ key: 'explorer-goto', text: 'C:\\Documents and Settings', kind: 'submit' })
   expect(await marked()).toEqual(['  ↪ Documents and Settings'])
@@ -3401,6 +3403,12 @@ test('filterRows, filterNote, filterLine, filterPattern and filterMoved: a filte
   expect(filterMoved({ ...state, filter }, '/Users/ana/b', '/Users/ana/c').filter?.paths).toEqual(['/Users/ana/c/acta 10.docx', '/Users/ana/c/acta 2.docx', '/Users/ana/Acta.docx'])
   expect(filterMoved({ ...state, filter }, '/Users/ana/Acta.docx').filter?.paths).toEqual(['/Users/ana/b/acta 10.docx', '/Users/ana/b/acta 2.docx'])
   expect(filterMoved(state, '/Users/ana/Acta.docx')).toBe(state)
+  // A file pasted shows in the filter's tree when its name matches the pattern, as find_files.py matches it.
+  expect(filterAdded({ ...state, filter }, '/Users/ana/acta 3.docx').filter?.paths).toEqual([...filter.paths, '/Users/ana/acta 3.docx'])
+  expect(filterAdded({ ...state, filter }, '/Users/ana/foto.jpg').filter?.paths).toEqual(filter.paths)
+  expect(filterAdded({ ...state, filter }, filter.paths[0] ?? '').filter?.paths).toEqual(filter.paths)
+  expect(filterAdded(state, '/Users/ana/acta 3.docx')).toBe(state)
+  expect([filterMatches('*.dll', 'SyncFusion.XlsIO.Base (2).DLL'), filterMatches('sync', 'SyncFusion.dll'), filterMatches('a?c.txt', 'abc.txt'), filterMatches('*.pdf', 'a.pdf.txt')]).toEqual([true, true, true, false])
 })
 
 test('gotoHint: the explorer’s field shows a path as the system writes one', () => {
