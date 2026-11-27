@@ -13,7 +13,8 @@ import type { ClientModule } from 'claude-code'
  * A row as register.tsx hands it: its text, cut and filled to the tree's width, and its look. `fill`, on a
  * file or a folder alone, is the color its row takes under the pointer and while selected; `backgroundColor`,
  * a mark the hooks module put on it (found, viewed, just pressed), which stays whatever the pointer does.
- * `at` is the cell of a folder's ▸ or ▾; `menu`, which of `menus` is the row's.
+ * `at` is the cell of a folder's ▸ or ▾; `menu`, which of `menus` is the row's. `marks`, with a filter on: what of
+ * the name the pattern matched, as `[start, end]` in the text, drawn white and bold.
  */
 type Row = {
   path: string
@@ -27,6 +28,7 @@ type Row = {
   fill?: string
   at?: number
   menu?: string
+  marks?: Array<[number, number]>
 }
 /** A tool of a menu: what it posts, its icon on two cells, what it does, its color; `isIdle`: grey, it only says why. */
 type Item = { kind: string; icon: string; text: string; color: string; isIdle?: boolean }
@@ -45,6 +47,8 @@ type State = { selected?: string; menu?: { path: string; at: number; x: number }
 
 /** The text of a row filled: dark on the row's color. */
 const DARK = '#1a1a1a'
+/** What a filter's pattern matched of a name: white and bold; on a row filled, dark as the rest, and bold. */
+const MATCH_COLOR = '#ffffff'
 /** A tool that does nothing here, and the menu's frame. */
 const IDLE_COLOR = '#495057'
 const FRAME_COLOR = '#868e96'
@@ -111,6 +115,34 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
     <Box flexDirection="column" width={props.width} height={props.room}>
       {props.rows.map((row, index) => {
         const isFilled = row.backgroundColor !== undefined || index === selectedAt
+        // The pointer on a file or a folder fills its row, in its color; a row filled already stays as it is.
+        const hover = row.fill !== undefined && !isFilled && !props.isHeld ? { scope: `speedy-tree:${index}`, backgroundColor: row.fill, color: DARK } : undefined
+        // With a filter on, the name is drawn in pieces, what the pattern matched white and bold: one hover group for them all.
+        if (row.marks && row.marks.length > 0) {
+          const pieces: Array<{ text: string; isMatch: boolean }> = []
+          let from = 0
+          for (const [start, end] of row.marks) {
+            if (start > from) pieces.push({ text: row.text.slice(from, start), isMatch: false })
+            pieces.push({ text: row.text.slice(start, end), isMatch: true })
+            from = end
+          }
+          if (from < row.text.length) pieces.push({ text: row.text.slice(from), isMatch: false })
+          return (
+            <Box key={`row:${index}`} flexDirection="row">
+              {pieces.map((piece, at) => (
+                <Text
+                  key={`piece:${at}`}
+                  color={isFilled ? DARK : piece.isMatch ? MATCH_COLOR : row.color}
+                  backgroundColor={row.backgroundColor ?? (index === selectedAt ? row.fill : undefined)}
+                  bold={piece.isMatch || row.bold === true || (isFilled && row.marks === undefined)}
+                  hover={hover}
+                >
+                  {piece.text}
+                </Text>
+              ))}
+            </Box>
+          )
+        }
         return (
           <Text
             key={`row:${index}`}
@@ -119,8 +151,7 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
             bold={isFilled || row.bold === true}
             dimColor={row.isDim === true && !isFilled}
             italic={row.isItalic === true}
-            // The pointer on a file or a folder fills its row, in its color; a row filled already stays as it is.
-            hover={row.fill !== undefined && !isFilled && !props.isHeld ? { scope: `speedy-tree:${index}`, backgroundColor: row.fill, color: DARK } : undefined}
+            hover={hover}
             wrap="truncate-end"
           >
             {row.text}

@@ -2715,6 +2715,34 @@ export function filterPattern (text: string) {
 }
 
 /**
+ * What of a file's name a filter's pattern matched, for the tree to mark: each run of the pattern's own letters,
+ * as `[start, end]` in the name, not what `*` and `?` stood for. A pattern with neither is a part of the name:
+ * where it first is. Whatever the case. Nothing where the name does not match.
+ */
+export function matchSpans (pattern: string, name: string): Array<[number, number]> {
+  const text = pattern.trim()
+  if (!text) return []
+  if (!text.includes('*') && !text.includes('?')) {
+    const at = name.toLowerCase().indexOf(text.toLowerCase())
+    return at < 0 ? [] : [[at, at + text.length]]
+  }
+  // Each piece of the pattern is a group, one after the other from the name's start to its end: where each
+  // one starts is the sum of those before it.
+  const pieces = text.split(/([*?])/).filter(Boolean)
+  const letters = (piece: string) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const found = new RegExp(`^${pieces.map(piece => piece === '*' ? '(.*?)' : piece === '?' ? '(.)' : `(${letters(piece)})`).join('')}$`, 'iu').exec(name)
+  if (!found) return []
+  const spans: Array<[number, number]> = []
+  let at = 0
+  pieces.forEach((piece, index) => {
+    const length = (found[index + 1] ?? '').length
+    if (piece !== '*' && piece !== '?' && length > 0) spans.push([at, at + length])
+    at += length
+  })
+  return spans
+}
+
+/**
  * Whether a file's name matches the filter's pattern, as find_files.py matches it: `*` any text, `?` any one
  * character, whatever the case; a pattern with neither is a part of the name.
  */
@@ -3696,9 +3724,10 @@ async function pickDrive ($: EngineInterface, drive: string) {
  * selected (yellow for a file, blue for a folder), `menu`, the name of its tools' menu, and a folder `at`, the
  * cell of its ▸ or ▾. `backgroundColor` is a mark that stays whatever the pointer does: green on the row just
  * pressed, yellow on the path found and on the file the viewer was last opened on. A note and a link are dim,
- * and take no press.
+ * and take no press. With a filter on, a file has `marks`: what of its name the pattern matched, as `[start,
+ * end]` in its text, for the tree to mark.
  */
-export type TreeLine = { path: string; text: string; kind: TreeRow['kind']; color?: string; bold?: true; backgroundColor?: string; isDim?: true; isItalic?: true; fill?: string; at?: number; menu?: string }
+export type TreeLine = { path: string; text: string; kind: TreeRow['kind']; color?: string; bold?: true; backgroundColor?: string; isDim?: true; isItalic?: true; fill?: string; at?: number; menu?: string; marks?: Array<[number, number]> }
 
 function treeLine (row: TreeRow, state: Explorer, flashed: string, width: number): TreeLine {
   const indent = '  '.repeat(row.depth)
@@ -3710,6 +3739,12 @@ function treeLine (row: TreeRow, state: Explorer, flashed: string, width: number
   }
   const isFolder = row.kind === 'dir'
   const cut = cutCells(isFolder ? `${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}` : `${indent}  ${row.name}`, width)
+  // What the filter's pattern matched of a file's name, from where the name starts in its row; none past where it is cut.
+  const nameAt = indent.length + 2
+  const shown = cut.length < nameAt + row.name.length ? cut.length - 1 : cut.length
+  const marks = isFolder || !state.filter
+    ? []
+    : matchSpans(state.filter.pattern, row.name).map(([start, end]): [number, number] => [start + nameAt, Math.min(end + nameAt, shown)]).filter(([start, end]) => start < end)
   const mark = flashed === `speedy:explorer-view:${row.path}`
     ? FLASH_COLOR
     : row.isFound || (state.viewed !== undefined && state.viewed === pathKey(row.path, state.caseless)) ? EXPLORER_VIEWABLE_COLOR : undefined
@@ -3722,6 +3757,7 @@ function treeLine (row: TreeRow, state: Explorer, flashed: string, width: number
     ...(mark ? { backgroundColor: mark } : {}),
     fill: isFolder ? EXPLORER_DIR_COLOR : EXPLORER_VIEWABLE_COLOR,
     ...(isFolder ? { at: cells(indent) } : {}),
+    ...(marks.length > 0 ? { marks } : {}),
     // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
     menu: !isFolder ? 'file' : `${remoteOf(row.path) ? 'far' : ''}${row.depth === 0 ? 'disk' : 'dir'}`
   }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Explorer: with a filter on, what of each file's name the pattern matched is drawn white and bold: the pattern's own letters, not what `*` and `?` stood for.
 - Explorer: its header, made over. The disks are tabs, the one shown filled. Under them, the path: each folder from the disk down to the row selected, or to the session's folder, and one pressed is gone to (`crumbs.tsx`). One field in place of two: a path is gone to, anything else filters. `‖` and `×` stand at the field's right only while a filter is on, and they, ⊟ and ↗ are icons alone, each with its name under the pointer (⚙ → Ver labels).
 - Explorer: while a popup of its own is up, a dialog's or the viewer a file of the tree opened, the explorer holds still: no row fills under the pointer, none is selected or opened, and its header, its scroll bar and the wheel move nothing. The one row filled is the one the popup is about.
 - Explorer: a click selects a file or a folder, and a double click opens it: a file in the viewer, a folder open or closed, which one click on its ▸ or ▾ does too. A row's tools are a menu inside the explorer, one under the other, each with what it does at its right: the right button on the row, Ctrl and a click, or ⋯ at the end of the row selected open it; a press on a tool does it, a grey one says why, and a press anywhere else closes it. The seven icons at each row's right, and their labels, are gone.

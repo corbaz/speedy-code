@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2657,7 +2657,7 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
 
 /** The explorer's tree: one Client, which draws the rows shown and posts what a press on one asks for. */
 const TREE_KEY = 'speedy:explorer-tree'
-type TreeRowDrawn = { path: string, text: string, kind: string, color?: string, bold?: boolean, backgroundColor?: string, fill?: string, at?: number, menu?: string }
+type TreeRowDrawn = { path: string, text: string, kind: string, color?: string, bold?: boolean, backgroundColor?: string, fill?: string, at?: number, menu?: string, marks?: number[][] }
 type TreeMenuItem = { kind: string, icon: string, text: string, color: string, isIdle?: boolean }
 type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Record<string, { width: number, items: TreeMenuItem[] }>, more: string, isHeld?: true }
 type Finds = { find: (query: { key?: string }) => Promise<{ props?: Record<string, any> } | undefined> }
@@ -3376,6 +3376,11 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     '    apuntes.pdf'
   ])
   expect((await fieldOf(tree))?.props).toMatchObject({ value: '*.pdf' })
+  // What of each name the pattern matched is marked: the tree's Client is told where, and draws it white and bold.
+  expect((await rowLook(tree, 'C:/Users/test/proyectos/informe.pdf'))?.marks).toEqual([[17, 21]])
+  expect((await rowLook(tree, 'C:/Users/Public/Guía.PDF'))?.marks).toEqual([[12, 16]])
+  expect((await rowLook(tree, 'C:/Users/test'))?.marks).toBeUndefined()
+  expect((await tree.findAll({ type: 'Text', in: TREE_KEY })).filter(one => one.props?.color === '#ffffff' && one.props?.bold).map(one => one.text)).toEqual(['.PDF', '.pdf', '.pdf'])
   // A filter on: × at the field's right clears it, and ‖ before it holds a search that runs; each an icon
   // alone, its name hidden until the pointer is on it.
   expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × ', color: '#ff6b6b' })
@@ -3622,6 +3627,19 @@ test('filterRows, filterNote, filterLine, filterPattern and filterMoved: a filte
   expect(filterAdded({ ...state, filter }, filter.paths[0] ?? '').filter?.paths).toEqual(filter.paths)
   expect(filterAdded(state, '/Users/ana/acta 3.docx')).toBe(state)
   expect([filterMatches('*.dll', 'SyncFusion.XlsIO.Base (2).DLL'), filterMatches('sync', 'SyncFusion.dll'), filterMatches('a?c.txt', 'abc.txt'), filterMatches('*.pdf', 'a.pdf.txt')]).toEqual([true, true, true, false])
+})
+
+test('matchSpans: what of a name a filter’s pattern matched, for the tree to mark', () => {
+  // The pattern's own letters, not what `*` and `?` stood for; whatever the case.
+  expect(matchSpans('*.pdf', 'informe.pdf')).toEqual([[7, 11]])
+  expect(matchSpans('*.PDF', 'Guía.pdf')).toEqual([[4, 8]])
+  expect(matchSpans('a*.docx', 'acta final.docx')).toEqual([[0, 1], [10, 15]])
+  expect(matchSpans('a?c', 'abc')).toEqual([[0, 1], [2, 3]])
+  // A pattern with neither is a part of the name: where it first is.
+  expect(matchSpans('nota', 'mis notas y notas.txt')).toEqual([[4, 8]])
+  expect(matchSpans(' (v2).txt ', 'informe (v2).txt')).toEqual([[8, 16]])
+  // A name the pattern does not match has nothing marked; nor has any name with an empty pattern, or with * alone.
+  expect([matchSpans('*.pdf', 'informe.txt'), matchSpans('', 'informe.txt'), matchSpans('*', 'informe.txt')]).toEqual([[], [], []])
 })
 
 test('isPathText and crumbsOf: the explorer’s one field tells a path from a pattern; the path’s row fits its folders to its width', () => {
