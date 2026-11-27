@@ -97,6 +97,7 @@ plugins/speedy-code/              the plugin: what Claude Code copies and runs
   hooks/control.tsx                 a footer control with no hover background
   hooks/tree.tsx                    the explorer's tree: its rows, the row selected, a row's menu
   hooks/scrollbar.tsx               the explorer's scroll bar
+  hooks/crumbs.tsx                  the explorer's path: each folder down to the row selected
   hooks/speak.ps1, tts.py           the voice: Edge TTS in parts, played with pause and resume
   hooks/speak.py, play.py, player.py  the voice on macOS (afplay)
   hooks/listen.py                   dictation: microphone, pauses, streamed words

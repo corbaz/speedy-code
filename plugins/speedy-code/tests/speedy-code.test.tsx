@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, gotoHint, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2663,6 +2663,23 @@ type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Rec
 type Finds = { find: (query: { key?: string }) => Promise<{ props?: Record<string, any> } | undefined> }
 type Posts = { post: (message: Record<string, string | boolean>, target: { in: string }) => Promise<unknown> }
 
+/** The path's row: one Client, which draws each folder down to the row selected and posts the one pressed. */
+const CRUMBS_KEY = 'speedy:explorer-crumbs'
+type CrumbDrawn = { text: string, width: number, at: number, path?: string }
+
+/** The explorer's one field, as it is drawn now: its key changes each time it is emptied. */
+async function fieldOf (ui: { find: (query: { type?: string }) => Promise<{ key?: string, props?: Record<string, any> } | undefined> }) {
+  return ui.find({ type: 'Input' })
+}
+
+/** Text typed in the explorer's field, and Enter. */
+async function typeField (ui: { find: (query: { type?: string }) => Promise<{ key?: string } | undefined>, input: (target: { key: string, text: string, kind: 'submit' }) => Promise<unknown> }, text: string) {
+  await ui.input({ key: String((await fieldOf(ui))?.key), text, kind: 'submit' })
+}
+
+/** The name of a header control, hidden until the pointer is on it (⚙ → Ver labels). */
+const HEADER_TIP = /^ (colapsar|abrir en el sistema|pausar|seguir|limpiar filtro) $/
+
 /** What the tree's Client is given to draw: its rows, its menus. */
 async function treeProps (ui: Finds) {
   return (await ui.find({ key: TREE_KEY }))?.props?.props as TreeDrawn | undefined
@@ -2697,6 +2714,10 @@ async function explorerRows (ui: { findAll: (query: { type?: string }) => Promis
   return (await ui.findAll({})).flatMap(element => {
     // The scroll bar at the tree's right is no row: it is read apart, by explorerBar.
     if (element.type === 'Text' && /^[│█]$/.test(element.text ?? '')) return []
+    // Nor is the field's mark, nor a header control's name, hidden until the pointer is on it.
+    if (element.type === 'Text' && (/^ ?🔎 ?$/.test(element.text ?? '') || HEADER_TIP.test(element.text ?? ''))) return []
+    // The path's row, as its Client is given it: each folder down to the row selected.
+    if (element.type === 'Client' && element.key === CRUMBS_KEY) return [{ text: ((element.props?.props?.parts ?? []) as CrumbDrawn[]).map(part => part.text).join(''), look: {} as Record<string, any> }]
     if (element.type === 'Text') return (element.text ?? '').trim() ? [{ text: element.text ?? '', look: element.props ?? {} }] : []
     if (element.type === 'Client' && element.key === TREE_KEY) return ((element.props?.props as TreeDrawn | undefined)?.rows ?? []).map(row => ({ text: row.text, look: row as Record<string, any> }))
     return []
@@ -2788,8 +2809,9 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect([freeName('notas.txt', false, new Set(['notas.txt', 'notas (2).txt'])), freeName('.gitignore', false, new Set()), freeName('v1.2', true, new Set())]).toEqual(['notas (3).txt', '.gitignore (2)', 'v1.2 (2)'])
   expect(toolTip('trash', true, true)).toBe('no se hace con un disco')
   expect(toolTip('mkdir', true, true)).toBe('Crear carpeta')
-  expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(48), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
-  expect((await short.find({ type: 'Input' }))?.key).toBe('explorer-goto')
+  expect((await explorerRows(short)).map(row => row.text.replace(/ {2,}$/, ''))).toEqual([' C: › Users › test › proyectos', ' C: ', ' D: ', '─'.repeat(48), '    ▸ Public', '    ▾ test', '      ▾ proyectos ●', '        ▸ facturas'])
+  expect((await fieldOf(short))?.key).toBe('explorer-field:0')
+  expect((await fieldOf(short))?.props).toMatchObject({ placeholder: 'filtrar *.pdf o pegar una ruta' })
   // The tree is taller than its four rows: a scroll bar at its right, its thumb where the window is in the tree.
   expect(await explorerBar(short)).toBe('│██│')
   // An empty cell parts the bar from the tree's tools: it is two cells wide.
@@ -2842,7 +2864,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A file's name is filled with spaces up to its tools: the rows are read without that fill.
   const texts = async () => (await explorerRows(pane)).map(row => row.text.replace(/ {2,}$/, ''))
   expect(await texts()).toEqual([
-    ' C: ', ' D: ', ' ↗ abrir en el sistema ', '─'.repeat(48),
+    ' C: › Users › test › proyectos', ' C: ', ' D: ', '─'.repeat(48),
     '▾ C:\\',
     '  ↪ Documents and Settings',
     '  ▾ Users',
@@ -2857,6 +2879,25 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // The tree fits its room: the bar's column stays, its track alone, so the rows are as wide as when it does not.
   expect(await explorerBar(pane)).toBe('│'.repeat(26))
   expect((await treeProps(pane))?.width).toBe(46)
+  // Under the disks, the path: each folder from the disk down to the session's, the last one in bold.
+  const crumbs = async () => (await pane.find({ key: CRUMBS_KEY }))?.props?.props as { width: number, parts: CrumbDrawn[] } | undefined
+  expect((await crumbs())?.parts.filter(part => part.path).map(part => [part.text, part.path, part.at])).toEqual([['C:', 'C:/', 1], ['Users', 'C:/Users', 6], ['test', 'C:/Users/test', 14], ['proyectos', 'C:/Users/test/proyectos', 21]])
+  expect((await pane.findAll({ type: 'Text', in: CRUMBS_KEY })).find(one => one.text === 'proyectos')?.props).toMatchObject({ bold: true })
+  // A row selected is the path shown; let go of, the session's folder is again.
+  const crumbText = async () => ((await crumbs())?.parts ?? []).map(part => part.text).join('')
+  await pane.pointer({ type: 'down', x: 8, y: 9, button: 'left', in: TREE_KEY })
+  expect(await crumbText()).toBe(' C: › setup.exe')
+  await pane.pointer({ type: 'down', x: 8, y: 20, button: 'left', in: TREE_KEY })
+  expect(await crumbText()).toBe(' C: › Users › test › proyectos')
+  // A folder of the path pressed: the tree goes to it, and marks it.
+  await pane.pointer({ type: 'down', x: 7, y: 0, button: 'left', in: CRUMBS_KEY })
+  expect((await rowLook(pane, 'C:/Users'))?.backgroundColor).toBe('#ffd43b')
+  expect(await crumbText()).toBe(' C: › Users')
+  // A press between two folders does nothing.
+  await pane.pointer({ type: 'down', x: 4, y: 0, button: 'left', in: CRUMBS_KEY })
+  expect(await crumbText()).toBe(' C: › Users')
+  await pane.pointer({ type: 'down', x: 8, y: 20, button: 'left', in: TREE_KEY })
+  expect((await rowLook(pane, 'C:/Users'))?.backgroundColor).toBeUndefined()
   // A folder closed opens, read then; pressed again, it closes.
   await toggle(pane, 'C:/Windows')
   expect((await texts()).slice(-3)).toEqual(['  ▾ Windows', '    ▸ System32', '    setup.exe'])
@@ -2883,7 +2924,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await pane.press({ key: 'explorer-drive:C:/' })
   expect(await texts()).toContain('      ▾ proyectos ●')
   // The system's file manager is still a press away, and opens the session's folder.
-  await pane.press({ key: 'explorer-system' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-system:' })
   await w.clock.advance(100)
   expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos'])
   // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
@@ -2920,7 +2961,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await rowLook(pane, 'C:/Windows')).toMatchObject({ kind: 'dir', menu: 'dir', color: '#74c0fc', fill: '#74c0fc', at: 2 })
   expect(await rowLook(pane, 'C:/')).toMatchObject({ kind: 'dir', menu: 'disk', at: 0 })
   // The whole tree is one Client and the scroll bar another: no Client for each row, none for each tool.
-  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual(['speedy:explorer-collapse:', 'speedy:explorer-unfilter:', 'speedy:explorer-pause:', TREE_KEY, 'speedy:explorer-bar'])
+  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual([CRUMBS_KEY, 'speedy:explorer-collapse:', 'speedy:explorer-system:', TREE_KEY, 'speedy:explorer-bar'])
   // What the tree's Client draws, a Text for each row. Under the pointer a file's fills yellow and a folder's
   // blue, each row by itself, the row's `fill`: the test kit does not report a hover inside a Client's drawing.
   const rowAt = async (path: string) => (await treeProps(pane))?.rows.findIndex(row => row.path === path) ?? -1
@@ -3265,16 +3306,16 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // A path pasted in the field under the disks, Enter: the tree opens down to it, on its disk, and marks it in
   // the middle; a file, in its folder. Quotes and the case do not matter, as in Windows.
   const near = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48, scroll: { offset: 0, bodyRows: 7 } }, surface: 'terminal' })
-  await near.input({ key: 'explorer-goto', text: ' "D:\\FOTOS\\Viaje.JPG" ', kind: 'submit' })
+  await typeField(near, ' "D:\\FOTOS\\Viaje.JPG" ')
   const marked = async () => (await explorerRows(near)).filter(row => row.look.backgroundColor === '#ffd43b').map(row => row.text.trimEnd())
-  expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
+  expect((await near.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ backgroundColor: '#5fd7ff', color: '#1a1a1a' })
   expect(await marked()).toEqual(['      viaje.jpg'])
   // A folder is marked the same way, and the tree shows it in the middle of a short body.
-  await near.input({ key: 'explorer-goto', text: 'C:\\Users\\test\\', kind: 'submit' })
+  await typeField(near, 'C:\\Users\\test\\')
   expect(await marked()).toEqual(['    ▾ test'])
   expect((await explorerRows(near)).map(row => row.text.trimEnd()).slice(4)).toEqual(['    ▸ Public', '    ▾ test', '      ▾ proyectos ●'])
   // A path that is not there says so, and the tree stays.
-  await near.input({ key: 'explorer-goto', text: 'C:\\nada\\falta.txt', kind: 'submit' })
+  await typeField(near, 'C:\\nada\\falta.txt')
   expect(TOASTS.at(-1)).toBe('speedy-code: no existe C:/nada/falta.txt.')
   expect(await marked()).toEqual(['    ▾ test'])
   // Any press in the explorer takes the mark off: the yellow fill is the pointer's again, and follows it.
@@ -3283,9 +3324,9 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // The tree stays where the path took it: a folder opened next to it does not send it back to the session's.
   expect((await explorerRows(near)).map(row => row.text.trimEnd()).slice(4)).toEqual(['    ▾ Public', '      (sin acceso)', '    ▾ test'])
   // A link is marked too, as a macOS app in /Applications often is one.
-  await near.input({ key: 'explorer-goto', text: 'C:\\Documents and Settings', kind: 'submit' })
+  await typeField(near, 'C:\\Documents and Settings')
   expect(await marked()).toEqual(['  ↪ Documents and Settings'])
-  await near.input({ key: 'explorer-goto', text: 'D:\\fotos\\viaje.jpg', kind: 'submit' })
+  await typeField(near, 'D:\\fotos\\viaje.jpg')
   expect(await marked()).toEqual(['      viaje.jpg'])
   await menuAct(near, 'path', 'D:/fotos/viaje.jpg')
   expect(await marked()).toEqual([])
@@ -3298,7 +3339,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await tree.press({ key: 'explorer-drive:D:/' })
   expect((await explorerRows(tree)).map(row => row.text.trimEnd())).toContain('  ▾ fotos')
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
-  expect((await tree.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ underline: true })
+  expect((await tree.find({ type: 'Text', text: ' D: ' }))?.props).toMatchObject({ backgroundColor: '#5fd7ff', color: '#1a1a1a' })
   const onD = (await explorerRows(tree)).map(row => row.text.trimEnd())
   expect(onD).toContain('▾ D:\\')
   expect(onD).toContain('  ▸ fotos')
@@ -3317,10 +3358,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     JSON.stringify({ paths: ['C:/Users/Public/Guía.PDF', 'C:/apuntes.pdf'], seen: 90, done: true, cut: false })
   ]
   const filtered = async () => (await explorerRows(tree)).map(row => row.text.replace(/ {2,}$/, '')).slice(3)
-  expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × limpiar ', color: '#868e96' })
-  // Beside it, the one that stops a search that still runs: grey while none does.
-  expect((await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props).toMatchObject({ label: ' ‖ pausar ', color: '#868e96' })
-  await tree.input({ key: 'explorer-filter:0', text: ' *.pdf ', kind: 'submit' })
+  // With no filter the field's row is the field alone: × and ‖ come with a filter.
+  expect(await tree.find({ key: 'speedy:explorer-unfilter:' })).toBeUndefined()
+  expect(await tree.find({ key: 'speedy:explorer-pause:' })).toBeUndefined()
+  await typeField(tree, ' *.pdf ')
   await w.clock.advance(100)
   expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'C:\\', SPEEDY_FIRST: 'C:\\Users\\test\\proyectos', SPEEDY_PATTERN: '*.pdf', SPEEDY_MOST: '50000' })
   expect(await filtered()).toEqual([
@@ -3334,8 +3375,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
     '          informe.pdf',
     '    apuntes.pdf'
   ])
-  expect((await tree.find({ key: 'explorer-filter:0' }))?.props).toMatchObject({ value: '*.pdf' })
-  expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ color: '#ff6b6b' })
+  expect((await fieldOf(tree))?.props).toMatchObject({ value: '*.pdf' })
+  // A filter on: × at the field's right clears it, and ‖ before it holds a search that runs; each an icon
+  // alone, its name hidden until the pointer is on it.
+  expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × ', color: '#ff6b6b' })
+  expect((await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props).toMatchObject({ label: ' ‖ ', color: '#868e96' })
+  expect((await tree.findAll({ type: 'Text' })).map(one => one.text ?? '').filter(text => HEADER_TIP.test(text))).toEqual([' colapsar ', ' abrir en el sistema ', ' pausar ', ' limpiar filtro '])
   // A folder of a filter's tree closes with a press, and opens with another.
   await toggle(tree, 'C:/Users/test')
   expect(await filtered()).toContain('    ▸ test')
@@ -3350,28 +3395,30 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await filtered()).toEqual(['─ *.pdf: 0 archivos ────────────────────────────', '▾ D:\\', '  (ningún archivo coincide)'])
   // ‖ pausar holds a search that runs, by the file it was started with, and ▶ seguir lets it go on from there.
   FINDER.isLong = true
-  await tree.input({ key: 'explorer-filter:0', text: '*.pdf', kind: 'submit' })
+  await typeField(tree, '*.pdf')
   await w.clock.advance(100)
   const pause = async () => (await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props
   const held = FINDER.asked.at(-1)?.SPEEDY_PAUSE ?? ''
   expect(held).toContain('find-')
-  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#ffd43b' })
+  expect(await pause()).toMatchObject({ label: ' ‖ ', color: '#ffd43b' })
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-pause:' })
   expect(WRITTEN.at(-1)).toEqual([held.split('\\').join('/'), '1'])
-  expect(await pause()).toMatchObject({ label: ' ▸ seguir ', color: '#51cf66' })
+  expect(await pause()).toMatchObject({ label: ' ▸ ', color: '#51cf66' })
+  expect(await tree.find({ type: 'Text', text: ' seguir ' })).toBeDefined()
   expect((await filtered())[0]).toContain('en pausa')
   await w.clock.advance(300)
   expect((await filtered())[0]).toContain('en pausa')
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-pause:' })
   expect(WRITTEN.at(-1)).toEqual([held.split('\\').join('/'), '0'])
-  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#ffd43b' })
+  expect(await pause()).toMatchObject({ label: ' ‖ ', color: '#ffd43b' })
   expect((await filtered())[0]).toContain('buscando…')
   FINDER.isLong = false
   await w.clock.advance(300)
-  expect(await pause()).toMatchObject({ label: ' ‖ pausar ', color: '#868e96' })
+  expect(await pause()).toMatchObject({ label: ' ‖ ', color: '#868e96' })
   // × clears the filter: the field empties and the whole tree is back.
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-unfilter:' })
-  expect((await tree.find({ key: 'explorer-filter:1' }))?.props).toMatchObject({ value: '' })
+  expect((await fieldOf(tree))?.props).toMatchObject({ value: '' })
+  expect(await tree.find({ key: 'speedy:explorer-unfilter:' })).toBeUndefined()
   expect(await filtered()).toEqual(['─'.repeat(48), '▾ D:\\', '  ▸ fotos'])
   await tree.press({ key: 'explorer-drive:C:/' })
   await tree.unmount()
@@ -3385,7 +3432,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   const far = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48 }, surface: 'terminal' })
   const farRows = async () => (await explorerRows(far)).map(row => row.text.replace(/ {2,}$/, ''))
-  expect((await farRows()).slice(0, 3)).toEqual([' C: ', ' D: ', ' mac '])
+  expect((await farRows()).slice(1, 4)).toEqual([' C: ', ' D: ', ' mac '])
   // Its disk pressed: its root is read there, and a folder of it when opened.
   await far.press({ key: 'explorer-drive:mac:/' })
   await w.clock.advance(100)
@@ -3517,12 +3564,12 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(TOASTS.at(-1)).toBe('speedy-code: ya hay un ana en esa carpeta.')
   DIALOG.answer = 'cancel'
   // A path of it pasted in the field opens the tree down to it.
-  await far.input({ key: 'explorer-goto', text: 'mac:/Users/ana', kind: 'submit' })
+  await typeField(far, 'mac:/Users/ana')
   await w.clock.advance(100)
   expect(REMOTE.asked.some(one => one.mode === 'stat' && one.path === '/Users/ana')).toBe(true)
   // The filter searches that machine: remote.py is asked, and what it found is drawn under the machine's disk.
   FINDER.lines = [JSON.stringify({ paths: ['mac:/Users/ana/informe.pdf'], seen: 12, done: true, cut: false })]
-  await far.input({ key: 'explorer-filter:0', text: '*.pdf', kind: 'submit' })
+  await typeField(far, '*.pdf')
   await w.clock.advance(100)
   expect(REMOTE.asked.at(-1)).toEqual({ mode: 'find', host: 'mac', pattern: '*.pdf' })
   expect((await farRows()).slice(5)).toEqual(['▾ mac:/', '  ▾ Users', '    ▾ ana', '        informe.pdf'])
@@ -3577,9 +3624,23 @@ test('filterRows, filterNote, filterLine, filterPattern and filterMoved: a filte
   expect([filterMatches('*.dll', 'SyncFusion.XlsIO.Base (2).DLL'), filterMatches('sync', 'SyncFusion.dll'), filterMatches('a?c.txt', 'abc.txt'), filterMatches('*.pdf', 'a.pdf.txt')]).toEqual([true, true, true, false])
 })
 
-test('gotoHint: the explorer’s field shows a path as the system writes one', () => {
-  expect(gotoHint(true)).toBe('pegá una ruta y Enter: D:\\carpeta\\archivo')
-  expect(gotoHint(false)).toBe('pegá una ruta y Enter: /Users/carpeta/archivo')
+test('isPathText and crumbsOf: the explorer’s one field tells a path from a pattern; the path’s row fits its folders to its width', () => {
+  // A path has a separator, or is a disk: the tree goes to it. Anything else is a filter's pattern.
+  expect(['D:\\Excel\\rand.xlsx', ' "C:/Users/ana" ', 'src/app.ts', 'D:', 'mac:', 'mac:/Users/ana', '@C:\\x.md', '/Users/ana'].map(isPathText)).toEqual([true, true, true, true, true, true, true, true])
+  expect(['*.pdf', 'a*.docx', 'notas', 'notas.txt', '', '  '].map(isPathText)).toEqual([false, false, false, false, false, false])
+  // Each folder from the disk down, ` › ` between them, each with the cell it starts at.
+  const all = crumbsOf('C:/Users/ana/docs', 'C:/', 40)
+  expect(all.map(part => part.text).join('')).toBe(' C: › Users › ana › docs')
+  expect(all.filter(part => part.path).map(part => [part.path, part.at, part.width])).toEqual([['C:/', 1, 2], ['C:/Users', 6, 5], ['C:/Users/ana', 14, 3], ['C:/Users/ana/docs', 20, 4]])
+  // Too long for its row: the disk, …, and the last folders that fit.
+  expect(crumbsOf('C:/Users/ana/docs/informes/2025', 'C:/', 30).map(part => part.text).join('')).toBe(' C: › … › informes › 2025')
+  expect(crumbsOf('C:/Users/ana/docs/informes/2025', 'C:/', 30).filter(part => part.path).map(part => part.path)).toEqual(['C:/', 'C:/Users/ana/docs/informes', 'C:/Users/ana/docs/informes/2025'])
+  // Not even the last one fits: it is cut.
+  expect(crumbsOf('C:/Users/un_nombre_muy_largo_de_carpeta', 'C:/', 20).map(part => part.text).join('')).toBe(' C: › … › un_nombre…')
+  expect(crumbsOf('C:/un_nombre_muy_largo_de_carpeta', 'C:/', 16).map(part => part.text).join('')).toBe(' C: › un_nombre…')
+  // A disk's root is the disk alone; another machine's path starts at its disk.
+  expect(crumbsOf('D:/', 'D:/', 40).map(part => part.text).join('')).toBe(' D:')
+  expect(crumbsOf('mac:/Users/ana', 'mac:/', 40).map(part => part.text).join('')).toBe(' mac › Users › ana')
 })
 
 test('pastedPath: a path as pasted in the explorer’s field, quotes, spaces and a mention’s @ off, with / for \\', () => {

@@ -2415,6 +2415,8 @@ function followDock ($: EngineInterface, width: number) {
 const EXPLORER_TREE = 'speedy:explorer-tree'
 /** At the end of the row selected: a press on it opens the row's menu. */
 const EXPLORER_MORE = ' ⋯ '
+/** The path's Client, crumbs.tsx: each folder from the disk down to the row selected. */
+const EXPLORER_CRUMBS = 'speedy:explorer-crumbs'
 /** Each row's tools, in its menu: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ →
  * Usar Nerd Fonts) and its color. 📁, the first, makes a folder there; 📍, the last, is a folder's alone: the
  * session goes to work there. Both are for this machine's folders alone. */
@@ -3381,7 +3383,61 @@ async function showExplorer ($: EngineInterface, folder = '') {
 }
 
 /** What the filter's field says while empty. */
-export const FILTER_HINT = 'filtro: *.pdf, a*.docx'
+/** What the explorer's one field says while empty: it takes a filter's pattern, or a path to go to. */
+export const FIELD_HINT = 'filtrar *.pdf o pegar una ruta'
+
+/**
+ * Whether what was typed in the explorer's field is a path to go to, not a filter's pattern: it has a folder
+ * separator, or it is a disk (`D:`, `mac:`). A pattern matches names, which hold neither.
+ */
+export function isPathText (text: string) {
+  return pastedPath(text).includes('/')
+}
+
+/** The field's Enter: a path is gone to, anything else filters the disk shown. */
+async function submitField ($: EngineInterface, text: string) {
+  if (isPathText(text)) await goToPath($, text)
+  else await filterExplorer($, text)
+}
+
+/** A piece of the path's row: its text, its cells and the cell it starts at; `path`, on a folder alone. */
+export type Crumb = { text: string; width: number; at: number; path?: string }
+
+/**
+ * The path's row, under the disks: each folder from the disk down to `path`, ` › ` between them, after one
+ * empty cell. Where they do not fit `width`: the disk, `…` for the folders left out, and the last ones that
+ * fit; where not even the last one does, it is cut.
+ */
+export function crumbsOf (path: string, drive: string, width: number): Crumb[] {
+  const chain = chainOf(path, drive)
+  const names = chain.map((one, index) => index === 0 ? driveLabel(drive) : one.slice(one.lastIndexOf('/') + 1))
+  const between = ' › '
+  const lead = 1 + cells(names[0] ?? '')
+  // How many of the last folders are shown, the disk aside; the others are left out.
+  const taken = (tail: number) => {
+    const left = names.length - 1 - tail
+    return lead + (left > 0 ? cells(between) + 1 : 0) + names.slice(names.length - tail).reduce((sum, name) => sum + cells(between) + cells(name), 0)
+  }
+  let tail = names.length - 1
+  while (tail > 1 && taken(tail) > width) tail--
+  const left = names.length - 1 - tail
+  const parts: Crumb[] = []
+  let at = 0
+  const add = (text: string, crumb?: string) => {
+    parts.push({ text, width: cells(text), at, ...(crumb === undefined ? {} : { path: crumb }) })
+    at += cells(text)
+  }
+  add(' ')
+  add(names[0] ?? '', chain[0] ?? drive)
+  if (left > 0) { add(between); add('…') }
+  for (let index = names.length - tail; index < names.length; index++) {
+    add(between)
+    // The last one alone, too long for what is left of the row: cut.
+    const name = names[index] ?? ''
+    add(tail === 1 && taken(1) > width ? cutCells(name, Math.max(1, width - at)) : name, chain[index] ?? drive)
+  }
+  return parts
+}
 
 /** The search a filter runs, while it does: aborted, it ends at its next line. */
 let filtering: AbortController | undefined
@@ -3475,10 +3531,6 @@ async function pauseFilter ($: EngineInterface) {
   else await $.process.run([await python($), `${$.plugin.root}/hooks/remote.py`, 'pause'], { env: { SPEEDY_HOST: hold.host ?? '', SPEEDY_TOKEN: hold.token ?? '', SPEEDY_PAUSED: isHeld ? '1' : '0' } }).catch(() => undefined)
 }
 
-/** What the explorer's field says while empty: a path as the system writes one. */
-export function gotoHint (isWindows: boolean) {
-  return `pegá una ruta y Enter: ${isWindows ? 'D:\\carpeta\\archivo' : '/Users/carpeta/archivo'}`
-}
 
 /** A tool's icon on exactly two cells: an emoji, or a Nerd Fonts glyph with the cell it spills over. */
 export function toolLabel (icon: string, isGlyph: boolean) {
@@ -3606,7 +3658,9 @@ async function goToPath ($: EngineInterface, text: string) {
   await update($, explorer, now => ({
     ...now,
     filter: undefined,
-    cleared: now.filter ? (now.cleared ?? 0) + 1 : now.cleared,
+    // The field empties: it is the filter's too.
+    cleared: (now.cleared ?? 0) + 1,
+    picked: path,
     drive,
     open: [...now.open.filter(one => !opened.includes(one)), ...opened],
     listed: { ...now.listed, ...listed },
@@ -3688,12 +3742,34 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   // on the header does nothing.
   const isHeld = explorerHolds > 0
   const unlessHeld = (run: () => unknown) => () => { if (explorerHolds === 0) void run() }
+  // ⚙ → Ver labels: a header control's name shows while the pointer is on it.
+  const isLabeled = await read($, hasLabels)
+  // A control of the header: its icon alone. With ⚙ → Ver labels its name is carried hidden, a row under it
+  // (`tipTop` 1, the disks' row) or over it (-1, the field's), ending where the control ends, and the pointer
+  // on the control reveals it: the two share a hover group, so nothing runs and nothing moves. A name covers
+  // no other control, so the pointer goes from one control to the next with nothing in its way.
+  const headerControl = (key: string, label: string, color: string, tip: string, tipTop: number, bold = true) => {
+    if (!Client) return null
+    const scope = `tip:${key}`
+    const client = <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold, ...(isLabeled ? { hover: { scope, color } } : {}) }} />
+    if (!isLabeled) return client
+    return (
+      <Box key={`tipped:${key}`} flexShrink={0}>
+        {client}
+        <Box key={scope} position="absolute" top={tipTop} left={cells(label) - cells(` ${tip} `)} display="none" hover={{ scope, display: 'flex' }}>
+          <Text color={LABEL_TEXT} backgroundColor={LABEL_FILL} bold>{` ${tip} `}</Text>
+        </Box>
+      </Box>
+    )
+  }
+  // The field's mark: a magnifier, two cells.
+  const fieldMark = ` ${toolLabel(isGlyphs ? '\uf002' : '🔎', isGlyphs)}`
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
-  const unfilterLabel = ' × limpiar '
-  // Beside it: stops a search that still runs. Lit only while one does.
-  // Held, it is the one that lets it go on from where it was.
-  const pauseLabel = state.filter?.isPaused ? ' ▸ seguir ' : ' ‖ pausar '
+  // With a filter on, at the field's right: × clears it, and before it ‖ holds a search that still runs, lit
+  // only while one does; held, it is ▸, which lets it go on from where it was.
+  const unfilterLabel = ' × '
+  const pauseLabel = state.filter?.isPaused ? ' ▸ ' : ' ‖ '
   const pauseColor = state.filter?.isPaused ? FLASH_COLOR : state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
   const rows = treeRows(state)
@@ -3707,6 +3783,9 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const hasBar = Client !== undefined || thumb.size > 0
   const treeWidth = width - (hasBar ? EXPLORER_BAR_WIDTH : 0)
   const lines = rows.slice(top, top + room).map(row => treeLine(row, state, flashed, treeWidth))
+  // The path shown under the disks: the row selected, or else the session's folder, on the disk shown; else the disk.
+  const isOnDisk = (one: string | undefined): one is string => one !== undefined && isUnder(pathKey(one, state.caseless), pathKey(state.drive, state.caseless))
+  const crumbs = state.drive ? crumbsOf([state.picked, state.here].find(isOnDisk) ?? state.drive, state.drive, width) : []
   // The menus of a row's tools, by the name each row carries: a file's, a folder's, a disk's root's, and the
   // last two for another machine, where the session does not go to work.
   const clip = state.clip ? { kind: state.clipKind } : undefined
@@ -3719,44 +3798,52 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   }
   return (
     <Box flexDirection="column" width={width}>
-      <Box flexDirection="row" columnGap={1}>
-        {state.drives.map(drive => {
-          const isShown = drive === state.drive
-          return (
-            <Button key={`explorer-drive:${drive}`} plain onPress={unlessHeld(() => pickDrive($, drive))}>
-              <Text bold={isShown} underline={isShown} color={isShown ? FOLDER_COLOR : undefined} dimColor={!isShown}>{` ${driveLabel(drive)} `}</Text>
-            </Button>
-          )
-        })}
+      {/* The disks' row stands over the path's, and is drawn after it: a name the pointer reveals under a
+          control of the disks' row is then over the path, not under it. */}
+      <Box flexDirection="column-reverse" width={width}>
+        {/* The path: each folder from the disk down to the row selected, or to the session's; one pressed is gone to. */}
         {Client
-          ? <Client key="speedy:explorer-collapse:" module="./control.tsx" width={cells(collapseLabel)} props={{ label: collapseLabel, color: flashed === 'speedy:explorer-collapse:' ? FLASH_COLOR : EXPLORER_DIR_COLOR, bold: true }} />
-          : <Button key="explorer-collapse" plain onPress={unlessHeld(() => collapseExplorer($))}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
-        <Box flexGrow={1} />
-        <Button key="explorer-system" plain onPress={() => { void openFolder($) }}>
-          <Text dimColor>{' ↗ abrir en el sistema '}</Text>
-        </Button>
+          ? <Client key={EXPLORER_CRUMBS} module="./crumbs.tsx" width={width} height={1} props={{ width, parts: crumbs, ...(isHeld ? { isHeld: true } : {}) }} />
+          : <Text dimColor wrap="truncate-end">{crumbs.map(part => part.text).join('')}</Text>}
+        {/* The disks, as tabs: the one shown filled. At the row's end, two icons alone: ⊟ collapses every disk,
+            ↗ opens the session's folder in the system's file manager. */}
+        <Box flexDirection="row" columnGap={1}>
+          {state.drives.map(drive => {
+            const isShown = drive === state.drive
+            return (
+              <Button key={`explorer-drive:${drive}`} plain onPress={unlessHeld(() => pickDrive($, drive))}>
+                <Text bold={isShown} color={isShown ? LABEL_TEXT : undefined} backgroundColor={isShown ? FOLDER_COLOR : undefined} dimColor={!isShown}>{` ${driveLabel(drive)} `}</Text>
+              </Button>
+            )
+          })}
+          <Box flexGrow={1} />
+          {Client
+            ? headerControl('speedy:explorer-collapse:', collapseLabel, flashed === 'speedy:explorer-collapse:' ? FLASH_COLOR : EXPLORER_DIR_COLOR, 'colapsar', 1)
+            : <Button key="explorer-collapse" plain onPress={unlessHeld(() => collapseExplorer($))}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
+          {Client
+            ? headerControl('speedy:explorer-system:', ' ↗ ', UNFILTER_IDLE_COLOR, 'abrir en el sistema', 1)
+            : <Button key="explorer-system" plain onPress={() => { void openFolder($) }}><Text dimColor>{' ↗ abrir en el sistema '}</Text></Button>}
+        </Box>
       </Box>
-      {/* A path pasted here, Enter, and the tree opens down to it: a folder, or a file in its folder. */}
-      {Input
-        ? (
-          <Box width={width}>
-            <Input key="explorer-goto" placeholder={gotoHint(state.caseless)} submitLabel="ir" onSubmit={value => { if (explorerHolds === 0) void goToPath($, value) }} />
-          </Box>
-          )
-        : null}
-      {/* The filter: a pattern, Enter, and the tree holds only the disk's files that match; × brings the whole tree back. */}
+      {/* The one field: a pattern, Enter, and the tree holds only the disk's files that match; a path, and the
+          tree opens down to it. With a filter on, ‖ holds its search and × brings the whole tree back. */}
       {Input
         ? (
           <Box flexDirection="row" width={width}>
-            <Box width={Math.max(4, width - cells(unfilterLabel) - cells(pauseLabel))}>
-              <Input key={`explorer-filter:${state.cleared ?? 0}`} placeholder={FILTER_HINT} value={state.filter?.pattern ?? ''} submitLabel="filtrar" onSubmit={value => { if (explorerHolds === 0) void filterExplorer($, value) }} />
+            <Text dimColor>{fieldMark}</Text>
+            <Box width={Math.max(4, width - cells(fieldMark) - (state.filter ? cells(pauseLabel) + cells(unfilterLabel) : 0))}>
+              <Input key={`explorer-field:${state.cleared ?? 0}`} placeholder={FIELD_HINT} value={state.filter?.pattern ?? ''} submitLabel="buscar" onSubmit={value => { if (explorerHolds === 0) void submitField($, value) }} />
             </Box>
-            {Client
-              ? <Client key="speedy:explorer-unfilter:" module="./control.tsx" width={cells(unfilterLabel)} props={{ label: unfilterLabel, color: state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR, bold: Boolean(state.filter) }} />
-              : <Button key="explorer-unfilter" plain onPress={unlessHeld(() => clearFilter($))}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
-            {Client
-              ? <Client key="speedy:explorer-pause:" module="./control.tsx" width={cells(pauseLabel)} props={{ label: pauseLabel, color: pauseColor, bold: Boolean(state.filter?.isBusy || state.filter?.isPaused) }} />
-              : <Button key="explorer-pause" plain onPress={unlessHeld(() => pauseFilter($))}><Text color={pauseColor}>{pauseLabel}</Text></Button>}
+            {!state.filter
+              ? null
+              : Client
+                ? headerControl('speedy:explorer-pause:', pauseLabel, pauseColor, state.filter.isPaused ? 'seguir' : 'pausar', -1, Boolean(state.filter.isBusy || state.filter.isPaused))
+                : <Button key="explorer-pause" plain onPress={unlessHeld(() => pauseFilter($))}><Text color={pauseColor}>{state.filter.isPaused ? ' ▸ seguir ' : ' ‖ pausar '}</Text></Button>}
+            {!state.filter
+              ? null
+              : Client
+                ? headerControl('speedy:explorer-unfilter:', unfilterLabel, UNFILTER_COLOR, 'limpiar filtro', -1)
+                : <Button key="explorer-unfilter" plain onPress={unlessHeld(() => clearFilter($))}><Text color={UNFILTER_COLOR}>{' × limpiar '}</Text></Button>}
           </Box>
           )
         : null}
@@ -5274,12 +5361,26 @@ export const register: Register = on => {
       return result
     }
     // The explorer's tree: a click on a row, on a folder's ▸ or ▾, or on a tool of a row's menu.
+    // A folder of the path's row pressed: the tree goes to it.
+    if (e.element === EXPLORER_CRUMBS) {
+      const to = (e.data as { go?: unknown } | null)?.go
+      if (typeof to === 'string') await goToPath($, to)
+      return result
+    }
     if (e.element === EXPLORER_TREE) {
-      const said = e.data as { pick?: unknown, toggle?: unknown, act?: unknown, path?: unknown, isFolder?: unknown, isMenu?: unknown } | null
-      if (typeof said?.toggle === 'string') {
+      const said = e.data as { pick?: unknown, toggle?: unknown, act?: unknown, path?: unknown, isFolder?: unknown, isMenu?: unknown, drop?: unknown } | null
+      const pick = (path: string | undefined) => update($, explorer, now => now.picked === path ? now : { ...now, picked: path })
+      if (said?.drop === true) {
+        // The row selected was let go of: the path's row shows the session's folder again.
         await forgetFound($)
+        await pick(undefined)
+      } else if (typeof said?.toggle === 'string') {
+        await forgetFound($)
+        await pick(said.toggle)
         await toggleTreeFolder($, said.toggle)
       } else if (typeof said?.pick === 'string') {
+        // The row selected is the path shown under the disks.
+        await pick(said.pick)
         // Any press in the tree takes the mark off the path found. A click selects, which the tree draws by
         // itself; the second one in time opens: a folder opens or closes, a file goes to the viewer.
         await forgetFound($)
@@ -5312,6 +5413,7 @@ export const register: Register = on => {
       await dropClip($)
       await forgetFound($)
       if (kind === 'unfilter') await clearFilter($)
+      else if (kind === 'system') await openFolder($)
       else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)

@@ -1,6 +1,6 @@
 // The surface module of the explorer's tree: the rows shown, one line each, drawn by one instance. A click
 // selects a file or a folder; a second one in time opens it, which the hooks module tells by its clock, so
-// every click on a name is posted as `{ pick, isFolder }`. A folder's ▸ or ▾ opens or closes it with one
+// every click on a name is posted as `{ pick, isFolder }`, and the row let go of as `{ drop }`. A folder's ▸ or ▾ opens or closes it with one
 // click: `{ toggle }`. The right button, Ctrl with a click, or ⋯ at the end of the row selected open the
 // row's menu inside the tree: its tools one under the other, each with what it does at its right; a press
 // on one posts `{ act, path }`, a press anywhere else closes the menu. Selection and menu are kept here, so
@@ -91,6 +91,8 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
     // Only a file or a folder is selected: a press on a note, a link or the room left under the tree lets go.
     if (!row || row.fill === undefined) {
       if (state.selected !== undefined || state.menu) surface.setState({})
+      // The hooks module hears it: the path's row shows the session's folder again, and the path found is no longer marked.
+      surface.post({ drop: true })
       return
     }
     if (asksMenu || (state.selected === row.path && event.x >= props.width - props.more.length)) {
