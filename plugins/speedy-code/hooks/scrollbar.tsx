@@ -1,5 +1,6 @@
-// The surface module of the explorer's scroll bar: an empty cell that parts it from the tree's tools, then a
-// column of one cell, its track dark and its thumb in color. Held down with the left button, the thumb
+// The surface module of the explorer's scroll bar: an empty cell that parts it from the tree's rows, then a
+// column of one cell, its track dark and its thumb in color; a tree that fits its room has the track alone,
+// so the bar keeps its column whatever is open. Held down with the left button, the thumb
 // follows the pointer, past the bar's ends too, and the tree's first row it asks for is posted as
 // `{ scrollTo }`; a press on the track brings the thumb's middle there. While held the thumb is drawn where
 // the pointer has it, at once: the tree comes after, when the hooks module has moved it. Each first row is
@@ -34,11 +35,17 @@ function thumbOf (total: number, top: number, room: number) {
 const ScrollBar: ClientModule<Props, State> = (props, surface) => {
   const thumb = thumbOf(props.total, props.top, props.room)
   surface.onPointer(event => {
-    if (event.type === 'up') { asked = undefined; surface.setState({}); return }
-    if (event.button !== 'left' || (event.type !== 'down' && event.type !== 'move')) return
+    const held = surface.state ?? {}
+    // Let go. A move with no button is one too: the button came up where no release is reported, outside the
+    // window, and the thumb would stay where it was held while the tree went elsewhere.
+    if (event.type === 'up' || (event.type === 'move' && event.button === undefined)) {
+      if (event.type === 'up' || held.grab !== undefined) { asked = undefined; surface.setState({}) }
+      return
+    }
+    // A tree that fits has no thumb to hold.
+    if (thumb.size === 0 || event.button !== 'left' || (event.type !== 'down' && event.type !== 'move')) return
     // The row under the pointer, with its fraction where the terminal reports it, else the row's middle.
     const y = event.fine?.y ?? event.y + 0.5
-    const held = surface.state ?? {}
     const isDown = event.type === 'down'
     const grab = isDown ? (y >= thumb.start && y < thumb.start + thumb.size ? y - thumb.start : thumb.size / 2) : held.grab
     if (grab === undefined) return
@@ -52,8 +59,8 @@ const ScrollBar: ClientModule<Props, State> = (props, surface) => {
     if (top !== sent) surface.post({ scrollTo: top })
   })
   const { Box, Text } = surface.elements
-  // Held, the thumb is where the pointer has it; else where the tree's first row puts it.
-  const start = surface.state?.start ?? thumb.start
+  // Held, the thumb is where the pointer has it, within the bar as it is now; else where the tree's first row puts it.
+  const start = Math.min(surface.state?.start ?? thumb.start, Math.max(0, props.room - thumb.size))
   return (
     <Box flexDirection="column">
       {Array.from({ length: props.room }, (_, index) => {

@@ -2411,11 +2411,13 @@ function followDock ($: EngineInterface, width: number) {
   explorerDock = width
   $.ui.invalidate('ui.render')
 }
-/** The cells each row's seven tools take at its right: each on its own two, a gap of two between them and one before the first. */
-const EXPLORER_TOOLS_WIDTH = 27
-/** Each file's tools: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ → Usar Nerd
- * Fonts) and its color. 📁, the first, makes a folder there; 📍, the last, is a folder's alone: the session
- * goes to work there. Both are for this machine's folders alone. */
+/** The tree's Client, tree.tsx: every row shown, the row selected and the menu of its tools. */
+const EXPLORER_TREE = 'speedy:explorer-tree'
+/** At the end of the row selected: a press on it opens the row's menu. */
+const EXPLORER_MORE = ' ⋯ '
+/** Each row's tools, in its menu: what a press does, its emoji, its Nerd Fonts glyph (as the footer's, with ⚙ →
+ * Usar Nerd Fonts) and its color. 📁, the first, makes a folder there; 📍, the last, is a folder's alone: the
+ * session goes to work there. Both are for this machine's folders alone. */
 const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> = [
   ['mkdir', '📁', '\uea80', '#ffd43b'],
   ['copy', '📋', '\uf0c5', '#74c0fc'],
@@ -2426,8 +2428,8 @@ const EXPLORER_TOOLS: ReadonlyArray<readonly [string, string, string, string]> =
   ['work', '📍', '\uf041', '#51cf66']
 ]
 /**
- * What a tool of a row does, as the pointer on it says on the line above the row, dark on the tool's own color
- * (⚙ → Ver labels): for a file or a folder, and 📥 for what 📋 took. A tool grey on a disk's root says why.
+ * What a tool of a row does, as its menu says at the tool's right: for a file or a folder, and 📥 for what 📋
+ * took. A tool grey on a disk's root says why.
  */
 export function toolTip (kind: string, isFolder: boolean, isDisk = false, clipKind?: 'dir' | 'file') {
   const what = isFolder ? 'carpeta' : 'archivo'
@@ -2444,12 +2446,31 @@ export function toolTip (kind: string, isFolder: boolean, isDisk = false, clipKi
   }
 }
 
+/** A tool as a row's menu lists it: what it posts, its icon on two cells, what it does, and its color; `isIdle`: grey, it only says why. */
+export type ToolItem = { kind: string; icon: string; text: string; color: string; isIdle?: true }
+
 /**
- * Where a tool's label starts, against the tool's own two cells: centered over it, but within the row's tools,
- * so the last tool's does not run past the explorer's edge. `index` is the tool's place among the seven.
+ * The menu of a row's tools, one under the other, each with what it does: a file's four; a folder's seven, 📍
+ * on this machine alone (`isFar`: a folder of another one); a disk's root as a folder's, 📋, ✏ and 🗑 grey there.
+ * 📥 is grey until 📋 took a file or a folder (`clip`, and which of the two). A grey one says why at its right. `width` is the cells of the
+ * longest text, which all are filled to, so the menu's lines are one width.
  */
-export function tipLeft (index: number, width: number, toolsWidth = EXPLORER_TOOLS_WIDTH) {
-  return Math.min(1 - Math.floor(width / 2), toolsWidth - (1 + 4 * index) - width)
+export function toolMenu (row: { isFolder: boolean, isDisk?: boolean, isFar?: boolean }, clip: { kind?: 'dir' | 'file' } | undefined, isGlyph: boolean) {
+  const { isFolder } = row
+  const clipKind = clip?.kind
+  const items = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color]): ToolItem[] => {
+    if (!isFolder && (kind === 'mkdir' || kind === 'paste' || kind === 'work')) return []
+    if (kind === 'work' && row.isFar) return []
+    const isOff = row.isDisk === true && DISK_IDLE_TOOLS.includes(kind)
+    const isEmpty = kind === 'paste' && !clip
+    const text = isOff
+      ? `${toolTip(kind, true).split(' ')[0]}: ${toolTip(kind, true, true)}`
+      : isEmpty ? 'Pegar: primero copiá algo' : toolTip(kind, isFolder, false, clipKind)
+    const icon = toolLabel(isGlyph ? glyph : isEmpty ? PASTE_IDLE_MARK : emoji, isGlyph)
+    return [{ kind, icon, text, color, ...(isOff || isEmpty ? { isIdle: true as const } : {}) }]
+  })
+  const width = Math.max(0, ...items.map(item => cells(item.text)))
+  return { width, items: items.map(item => ({ ...item, text: item.text + ' '.repeat(width - cells(item.text)) })) }
 }
 
 /**
@@ -2474,19 +2495,18 @@ async function dropClip ($: EngineInterface) {
 
 /** The longest wait between the two clicks of a double click, in milliseconds. */
 export const DOUBLE_CLICK_MS = 500
-/** The last tool clicked once, and when: a second click on it in time is a double click. */
-let lastToolClick = { key: '', at: 0 }
+/** The last row of the tree clicked once, and when: a second click on it in time is a double click. */
+let lastRowClick = { key: '', at: 0 }
 
 /** Whether a click on `key` at `now` makes a double click with the one before it; a double click starts over. */
 export function isDoubleClick (key: string, now: number) {
-  const isDouble = lastToolClick.key === key && now - lastToolClick.at <= DOUBLE_CLICK_MS
-  lastToolClick = isDouble ? { key: '', at: 0 } : { key, at: now }
+  const isDouble = lastRowClick.key === key && now - lastRowClick.at <= DOUBLE_CLICK_MS
+  lastRowClick = isDouble ? { key: '', at: 0 } : { key, at: now }
   return isDouble
 }
 
-/** 📥 while 📋 took nothing: grey, and with emoji a plain mark, as an emoji keeps its own colors. */
+/** 📥 in a menu while 📋 took nothing: with emoji a plain mark, as an emoji keeps its own colors. */
 const PASTE_IDLE_MARK = '↧'
-const PASTE_IDLE_COLOR = '#495057'
 /** The tools that are grey on a disk's root, and do nothing there: a disk is not copied, renamed or trashed. */
 const DISK_IDLE_TOOLS = ['copy', 'rename', 'trash']
 
@@ -2495,7 +2515,34 @@ const explorerFlash = atom({ plugin: 'speedy-code', key: 'explorerFlash' } as co
 const FLASH_MS = 1000
 const FLASH_COLOR = '#51cf66'
 
-/** Turns a pressed tool green, with no fill, and back to its color a second later. */
+/**
+ * A tool of a row's menu pressed, on the row's file or folder: one press does it. 🗑, ✏, 📁 and 📥 ask first, in
+ * a dialog. The row is green for a second where the tool only takes something or starts a dialog.
+ */
+async function runExplorerTool ($: EngineInterface, kind: string, path: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']) {
+  if (!EXPLORER_TOOLS.some(([one]) => one === kind)) return
+  // Any tool but 📋 and 📥 lets go of what 📋 took: 📥 pastes right after 📋 alone.
+  if (kind !== 'copy' && kind !== 'paste') await dropClip($)
+  await forgetFound($)
+  // A disk is not copied, renamed or trashed: those three do nothing on its root but say so.
+  if (DISK_IDLE_TOOLS.includes(kind)) {
+    const { drives, caseless } = await read($, explorer)
+    if (drives.some(drive => pathKey(drive, caseless) === pathKey(path, caseless))) {
+      $.ui.toast('speedy-code: un disco no se copia, no se renombra ni se borra.')
+      return
+    }
+  }
+  if (kind === 'copy' || kind === 'path' || kind === 'mkdir' || kind === 'work') void flashTool($, `speedy:explorer-view:${path}`)
+  if (kind === 'copy') await copyFileToClipboard($, path)
+  else if (kind === 'path') await copyPathToClipboard($, path, surface)
+  else if (kind === 'trash') void askTrash($, path)
+  else if (kind === 'rename') void askRename($, path)
+  else if (kind === 'paste') void pasteInto($, path)
+  else if (kind === 'mkdir') void askNewFolder($, path)
+  else if (kind === 'work') await openNewIn($, path)
+}
+
+/** Turns what was pressed green, a row of the tree or a control, and back to its look a second later. */
 async function flashTool ($: EngineInterface, key: string) {
   try {
     await update($, explorerFlash, () => key)
@@ -3414,13 +3461,6 @@ export function toolLabel (icon: string, isGlyph: boolean) {
   return text + ' '.repeat(Math.max(0, 2 - cells(text)))
 }
 
-/** A file row's hover group: its name and tools light together. A path may be long; a group name is 64 at most. */
-export function hoverScope (path: string) {
-  let hash = 5381
-  for (const char of path) hash = ((hash * 33) ^ char.codePointAt(0)!) >>> 0
-  return `explorer:${hash.toString(36)}:${path.length}`
-}
-
 /**
  * Any press in the explorer takes the mark off the path the field found: from then on the yellow fill is
  * the pointer's alone, and follows it.
@@ -3571,14 +3611,51 @@ async function pickDrive ($: EngineInterface, drive: string) {
   if (where && where !== '/' && (await read($, explorer)).drive === drive) await goToPath($, `${drive.slice(0, -1)}${where}`)
 }
 
+/**
+ * A row as tree.tsx draws it: its text, and its look. A file or a folder is cut to the tree's width and filled
+ * to it, so its fill runs the whole row; it has `fill`, the color its row takes under the pointer and while
+ * selected (yellow for a file, blue for a folder), `menu`, the name of its tools' menu, and a folder `at`, the
+ * cell of its ▸ or ▾. `backgroundColor` is a mark that stays whatever the pointer does: green on the row just
+ * pressed, yellow on the path found and on the file the viewer was last opened on. A note and a link are dim,
+ * and take no press.
+ */
+export type TreeLine = { path: string; text: string; kind: TreeRow['kind']; color?: string; bold?: true; backgroundColor?: string; isDim?: true; isItalic?: true; fill?: string; at?: number; menu?: string }
+
+function treeLine (row: TreeRow, state: Explorer, flashed: string, width: number): TreeLine {
+  const indent = '  '.repeat(row.depth)
+  if (row.kind === 'note') return { path: row.path, kind: row.kind, text: cutCells(`${indent}${row.name}`, width), isDim: true, isItalic: true }
+  if (row.kind === 'link') {
+    // A link, found by the field, is marked as any row found.
+    const text = cutCells(`${indent}↪ ${row.name}`, width)
+    return row.isFound ? { path: row.path, kind: row.kind, text, backgroundColor: EXPLORER_VIEWABLE_COLOR } : { path: row.path, kind: row.kind, text, isDim: true }
+  }
+  const isFolder = row.kind === 'dir'
+  const cut = cutCells(isFolder ? `${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}` : `${indent}  ${row.name}`, width)
+  const mark = flashed === `speedy:explorer-view:${row.path}`
+    ? FLASH_COLOR
+    : row.isFound || (state.viewed !== undefined && state.viewed === pathKey(row.path, state.caseless)) ? EXPLORER_VIEWABLE_COLOR : undefined
+  return {
+    path: row.path,
+    kind: row.kind,
+    text: cut + ' '.repeat(Math.max(0, width - cells(cut))),
+    color: isFolder ? (row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR) : EXPLORER_VIEWABLE_COLOR,
+    ...(isFolder && row.isHere ? { bold: true as const } : {}),
+    ...(mark ? { backgroundColor: mark } : {}),
+    fill: isFolder ? EXPLORER_DIR_COLOR : EXPLORER_VIEWABLE_COLOR,
+    ...(isFolder ? { at: cells(indent) } : {}),
+    // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
+    menu: !isFolder ? 'file' : `${remoteOf(row.path) ? 'far' : ''}${row.depth === 0 ? 'disk' : 'dir'}`
+  }
+}
+
 /** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●.
- * A file the viewer shows is drawn yellow and opens it when pressed; the others are dim. */
+ * A file is drawn yellow and a folder blue: a click selects one, a double click opens it, and its tools are its menu. */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const flashed = await read($, explorerFlash)
   const elements = $.ui.resolve(e)
   const { Box, Button, Text } = elements
-  // The file tools are Clients where the surface draws one; elsewhere, their labels alone.
+  // The tree, its scroll bar and the header's controls are Clients where the surface draws one.
   const Client = 'Client' in elements ? elements.Client : undefined
   const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
@@ -3594,11 +3671,23 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const room = explorerRoom(bodyRows)
   const top = windowTop(rows, state.top, room)
   explorerShownTop = top
-  // A tree taller than its room has a scroll bar in its last column, and its rows are a cell narrower.
+  // The scroll bar's column is the tree's last. Where the surface draws a Client it is kept whether the tree
+  // fits or not, its track alone when it does: the rows are one width whatever is open, and the bar is one
+  // instance from the pane's start to its end. Elsewhere a tree that fits has none.
   const thumb = scrollThumb(rows.length, top, room)
-  // ⚙ → Ver labels: what each tool does, when the pointer is on it.
-  const isLabeled = await read($, hasLabels)
-  const treeWidth = width - (thumb.size > 0 ? EXPLORER_BAR_WIDTH : 0)
+  const hasBar = Client !== undefined || thumb.size > 0
+  const treeWidth = width - (hasBar ? EXPLORER_BAR_WIDTH : 0)
+  const lines = rows.slice(top, top + room).map(row => treeLine(row, state, flashed, treeWidth))
+  // The menus of a row's tools, by the name each row carries: a file's, a folder's, a disk's root's, and the
+  // last two for another machine, where the session does not go to work.
+  const clip = state.clip ? { kind: state.clipKind } : undefined
+  const menus = {
+    file: toolMenu({ isFolder: false }, clip, isGlyphs),
+    dir: toolMenu({ isFolder: true }, clip, isGlyphs),
+    disk: toolMenu({ isFolder: true, isDisk: true }, clip, isGlyphs),
+    fardir: toolMenu({ isFolder: true, isFar: true }, clip, isGlyphs),
+    fardisk: toolMenu({ isFolder: true, isDisk: true, isFar: true }, clip, isGlyphs)
+  }
   return (
     <Box flexDirection="column" width={width}>
       <Box flexDirection="row" columnGap={1}>
@@ -3646,109 +3735,31 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         ? <Text color={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`─${cutCells(filterNote(state.filter), Math.max(1, width - 2))}`.padEnd(width, '─')}</Text>
         : <Text dimColor>{'─'.repeat(width)}</Text>}
       <Box flexDirection="row" width={width}>
-      <Box flexDirection="column" width={treeWidth}>
-      {rows.slice(top, top + room).map((row, shownAt) => {
-        const indent = '  '.repeat(row.depth)
-        if (row.kind === 'note') return <Text key={`explorer-note:${row.path}`} dimColor italic wrap="truncate-end">{`${indent}${row.name}`}</Text>
-        // A file or a folder: its name, and at its right 📋 copies it, 🔗 its path, ✏ renames it, 🗑 sends
-        // it to the trash and 📥 pastes here what 📋 took, each of the last three after a dialog. A file's name
-        // is yellow and opens the viewer; a folder's is blue and opens or closes it. A disk's root has them too,
-        // to paste into it and to copy its path: 📋, ✏ and 🗑 are grey there, as a disk is not copied, renamed or trashed.
-        const isFolder = row.kind === 'dir'
-        const isDisk = isFolder && row.depth === 0
-        if (row.kind === 'file' || isFolder) {
-          const toolsWidth = EXPLORER_TOOLS_WIDTH
-          // The name is cut to its room, then filled with spaces up to the tools: the fill under the pointer
-          // runs to them, so it is plain which tools are the row's, and a long name keeps to its row.
-          const nameRoom = Math.max(4, treeWidth - toolsWidth)
-          const text = isFolder ? `${indent}${row.isOpen ? '▾' : '▸'} ${row.name}${row.isHere ? ' ●' : ''}` : `${indent}  ${row.name}`
-          const cut = cutCells(text, nameRoom)
-          const label = cut + ' '.repeat(Math.max(0, nameRoom - cells(cut)))
-          // The row's hover group: its name and its tools. While the pointer is anywhere on them the name
-          // takes the fill, yellow for a file and blue for a folder; the tools take none.
-          const scope = hoverScope(row.path)
-          const tint = isFolder ? (row.isHere ? FOLDER_COLOR : EXPLORER_DIR_COLOR) : EXPLORER_VIEWABLE_COLOR
-          const fill = isFolder ? EXPLORER_DIR_COLOR : EXPLORER_VIEWABLE_COLOR
-          // The name is a Client, as the tools are: a Button under the pointer inverts its cells, a grey bar
-          // over the color. A press reaches the ui.message hook by its key.
-          const name = Client
-            ? (
-              <Client
-                key={`speedy:explorer-${isFolder ? 'folder' : 'view'}:${row.path}`}
-                module="./control.tsx"
-                width={cells(label)}
-                // A file just pressed is green for a second, in place of the pointer's yellow: the press was taken.
-                props={flashed === `speedy:explorer-view:${row.path}`
-                  ? { label, color: '#1a1a1a', bold: true, backgroundColor: FLASH_COLOR }
-                  : row.isFound || (state.viewed !== undefined && state.viewed === pathKey(row.path, state.caseless))
-                  ? { label, color: '#1a1a1a', bold: true, backgroundColor: EXPLORER_VIEWABLE_COLOR }
-                  : { label, color: tint, bold: isFolder && row.isHere, hover: { scope, backgroundColor: fill, color: '#1a1a1a' } }}
-              />
-              )
-            : (
-              <Button
-                key={`${isFolder ? 'explorer' : 'explorer-file'}:${row.path}`}
-                plain
-                onPress={() => { if (isFolder) void toggleTreeFolder($, row.path); else { void forgetFound($); void viewTreeFile($, row.path) } }}
-              >
-                <Text color={tint} wrap="truncate-end">{label}</Text>
-              </Button>
-              )
-          // Each tool is a Client of its own two cells, as the footer's are: a Button fills its cell under the
-          // pointer. Between them a plain gap takes no press, so a press a little off one does nothing instead
-          // of its neighbour's work. A tool is in its row's hover group, and keeps its own color in it.
-          // With ⚙ → Ver labels, the pointer on a tool shows what it does on the line above the row (below it, on
-          // the tree's first line shown), over the tool, dark on the tool's own color: no icon of the row is
-          // covered. A keyed Box is its own hover scope, and the tool stays in its row's group too.
-          const tool = (kind: string, label: string, color: string, index: number) => {
-            if (!Client) return <Text key={kind} color={color}>{label}</Text>
-            const client = <Client key={`speedy:explorer-${kind}:${row.path}`} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true, hover: { scope, color } }} />
-            const tip = isLabeled ? ` ${toolTip(kind, isFolder, isDisk, state.clip ? state.clipKind : undefined)} ` : ''
-            if (!tip.trim()) return client
-            const fill = EXPLORER_TOOLS.find(one => one[0] === kind)?.[3] ?? LABEL_FILL
-            return (
-              <Box key={`explorer-tip:${kind}:${row.path}`} flexShrink={0}>
-                {client}
-                <Box position="absolute" top={shownAt === 0 ? 1 : -1} left={tipLeft(index, cells(tip))} display="none" hover={{ display: 'flex' }}>
-                  <Text color={LABEL_TEXT} backgroundColor={fill} bold>{tip}</Text>
-                </Box>
-              </Box>
-            )
-          }
-          const gap = (key: string, size: number) => <Text key={key} hover={{ scope, color: tint }}>{' '.repeat(size)}</Text>
-          // 📥 is lit only while 📋 has taken a file or a folder to paste.
-          // 📥 is lit while 📋 has taken a file or a folder, right before.
-          const isIdle = (kind: string) => (kind === 'paste' && !state.clip) || (isDisk && DISK_IDLE_TOOLS.includes(kind))
-          // 📍 is on a folder of this machine alone: the session works on no file, nor on another machine.
-          const isWorkable = isFolder && !remoteOf(row.path)
-          const tools = EXPLORER_TOOLS.flatMap(([kind, emoji, glyph, color], index) => [
-            gap(`gap:${kind}`, index === 0 ? 1 : 2),
-            // 📍 on a folder of this machine alone; 📁 and 📥 on a folder alone: a file's row has none of them.
-            (kind === 'work' && !isWorkable) || (!isFolder && (kind === 'mkdir' || kind === 'paste'))
-              ? gap(`none:${kind}`, 2)
-              : tool(kind, toolLabel(isGlyphs ? glyph : kind === 'paste' && isIdle(kind) ? PASTE_IDLE_MARK : emoji, isGlyphs), flashed === `speedy:explorer-${kind}:${row.path}` ? FLASH_COLOR : isIdle(kind) ? PASTE_IDLE_COLOR : color, index)
-          ])
-          return (
-            <Box key={`explorer-row:${row.path}`} flexDirection="row" width={treeWidth}>
-              <Box flexGrow={1} flexShrink={1} overflow="hidden">{name}</Box>
-              <Box flexDirection="row" flexShrink={0} width={toolsWidth}>{tools}</Box>
-            </Box>
-          )
-        }
-        if (row.kind !== 'dir') {
-          const mark = row.kind === 'link' ? '↪ ' : '  '
-          // A link, found by the field, is marked as any row found.
-          return row.isFound
-            ? <Text key={`explorer-entry:${row.path}`} bold color="#1a1a1a" backgroundColor={EXPLORER_VIEWABLE_COLOR} wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
-            : <Text key={`explorer-entry:${row.path}`} dimColor wrap="truncate-end">{`${indent}${mark}${row.name}`}</Text>
-        }
-        return null
-      })}
-      </Box>
-      {/* The scroll bar, an empty cell away from the tools: its track dark, its thumb in the folders' color, a
+      {/* The tree: where the surface draws a Client it is one, tree.tsx, whatever rows it shows. It draws them,
+          the row selected and the menu of a row's tools, and posts what a press asks for: one instance, so
+          the tree moves and its names change with nothing mounted or let go. Elsewhere, each name a Button:
+          a press opens a file in the viewer and opens or closes a folder. */}
+      {Client
+        ? <Client key={EXPLORER_TREE} module="./tree.tsx" width={treeWidth} height={room} props={{ width: treeWidth, room, rows: lines, menus, more: EXPLORER_MORE }} />
+        : (
+          <Box flexDirection="column" width={treeWidth}>
+            {lines.map(line => line.fill === undefined
+              ? <Text key={`explorer-${line.kind === 'note' ? 'note' : 'entry'}:${line.path}`} bold={line.backgroundColor !== undefined} color={line.backgroundColor ? LABEL_TEXT : undefined} backgroundColor={line.backgroundColor} dimColor={line.isDim} italic={line.isItalic} wrap="truncate-end">{line.text}</Text>
+              : (
+                <Button
+                  key={`${line.kind === 'dir' ? 'explorer' : 'explorer-file'}:${line.path}`}
+                  plain
+                  onPress={() => { if (line.kind === 'dir') void toggleTreeFolder($, line.path); else { void forgetFound($); void viewTreeFile($, line.path) } }}
+                >
+                  <Text color={line.color} wrap="truncate-end">{line.text}</Text>
+                </Button>
+                ))}
+          </Box>
+          )}
+      {/* The scroll bar, an empty cell away from the rows: its track dark, its thumb in the folders' color, a
           row each. Where the surface draws a Client it is one, scrollbar.tsx: held down, its thumb follows the
           pointer and the tree with it. */}
-      {thumb.size > 0 && Client
+      {Client
         ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={EXPLORER_BAR_WIDTH} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR }} />
         : thumb.size > 0
         ? (
@@ -5231,6 +5242,24 @@ export const register: Register = on => {
       }
       return result
     }
+    // The explorer's tree: a click on a row, on a folder's ▸ or ▾, or on a tool of a row's menu.
+    if (e.element === EXPLORER_TREE) {
+      const said = e.data as { pick?: unknown, toggle?: unknown, act?: unknown, path?: unknown, isFolder?: unknown, isMenu?: unknown } | null
+      if (typeof said?.toggle === 'string') {
+        await forgetFound($)
+        await toggleTreeFolder($, said.toggle)
+      } else if (typeof said?.pick === 'string') {
+        // Any press in the tree takes the mark off the path found. A click selects, which the tree draws by
+        // itself; the second one in time opens: a folder opens or closes, a file goes to the viewer.
+        await forgetFound($)
+        if (said.isMenu === true || !isDoubleClick(`${EXPLORER_TREE}:${said.pick}`, await $.clock.now())) return result
+        if (said.isFolder === true) await toggleTreeFolder($, said.pick)
+        else void viewTreeFile($, said.pick)
+      } else if (typeof said?.act === 'string' && typeof said.path === 'string') {
+        await runExplorerTool($, said.act, said.path, e.surface)
+      }
+      return result
+    }
     if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result
     // 📋 and 📥 of the explorer go one right after the other: a control of the footer lets go of what 📋 took.
     if (!e.element.startsWith('speedy:explorer-')) await dropClip($)
@@ -5247,40 +5276,11 @@ export const register: Register = on => {
       await closeMenu($, 'more')
       await openMenu($, 'sessions')
     } else if (e.element.startsWith('speedy:explorer-')) {
-      // A file tool of the explorer: what it does, then the file's path, which may hold `:` itself.
-      const rest = e.element.slice('speedy:explorer-'.length)
-      const kind = rest.slice(0, rest.indexOf(':'))
-      const path = rest.slice(rest.indexOf(':') + 1)
-      // The seven tools of a row act on a double click: a single one, as the pointer passes, does nothing.
-      if (EXPLORER_TOOLS.some(([one]) => one === kind) && !isDoubleClick(e.element, await $.clock.now())) return result
-      // Any other icon of the explorer lets go of what 📋 took: 📥 pastes right after 📋 alone.
-      if (kind !== 'copy' && kind !== 'paste' && kind !== 'folder' && kind !== 'view') await dropClip($)
+      // A control of the explorer's header, by its key: it lets go of what 📋 took and of the path found.
+      const kind = e.element.slice('speedy:explorer-'.length).replace(/:.*$/, '')
+      await dropClip($)
       await forgetFound($)
-      // A disk is not copied, renamed or trashed: those three do nothing on its root but say so.
-      if (DISK_IDLE_TOOLS.includes(kind)) {
-        const { drives, caseless } = await read($, explorer)
-        if (drives.some(drive => pathKey(drive, caseless) === pathKey(path, caseless))) {
-          $.ui.toast('speedy-code: un disco no se copia, no se renombra ni se borra.')
-          return result
-        }
-      }
-      if (kind === 'view') void viewTreeFile($, path)
-      if (kind === 'folder') await toggleTreeFolder($, path)
-      if (kind === 'copy' || kind === 'path') void flashTool($, e.element)
-      if (kind === 'copy') await copyFileToClipboard($, path)
-      else if (kind === 'path') await copyPathToClipboard($, path, e.surface)
-      else if (kind === 'trash') void askTrash($, path)
-      else if (kind === 'rename') void askRename($, path)
-      else if (kind === 'paste') void pasteInto($, path)
-      else if (kind === 'mkdir') {
-        void flashTool($, e.element)
-        void askNewFolder($, path)
-      }
-      else if (kind === 'work') {
-        void flashTool($, e.element)
-        await openNewIn($, path)
-      }
-      else if (kind === 'unfilter') await clearFilter($)
+      if (kind === 'unfilter') await clearFilter($)
       else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
