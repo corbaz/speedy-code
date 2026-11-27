@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Explorer: while a popup of its own is up, a dialog's or the viewer a file of the tree opened, the explorer holds still: no row fills under the pointer, none is selected or opened, and its header, its scroll bar and the wheel move nothing. The one row filled is the one the popup is about.
 - Explorer: a click selects a file or a folder, and a double click opens it: a file in the viewer, a folder open or closed, which one click on its ▸ or ▾ does too. A row's tools are a menu inside the explorer, one under the other, each with what it does at its right: the right button on the row, Ctrl and a click, or ⋯ at the end of the row selected open it; a press on a tool does it, a grey one says why, and a press anywhere else closes it. The seven icons at each row's right, and their labels, are gone.
 - Explorer: the whole tree is drawn by one surface module (`tree.tsx`) in place of eight for each row shown (a name and seven tools), so it moves and its names change with nothing mounted or let go: in a terminal of 190 by 45, 30 wheel steps sent in 0.3 s are all drawn 0.05 s after the last one, where it took 0.28 s; a row's name has the whole width.
 - Explorer: the scroll bar keeps its column whether the tree fits its room or not, its track alone when it does, so the rows are one width and the bar is not taken away and put back as folders open. A thumb whose release was lost (the button let go outside the window) is let go at the next move, where it stayed held and the tree no longer moved; held while the room gets shorter, it keeps within the bar.

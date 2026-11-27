@@ -2787,6 +2787,26 @@ export function treeRows (state: Explorer): TreeRow[] {
 /** The tree's first row as last drawn: where the tree stays when the path found stops being marked. */
 let explorerShownTop = 0
 
+/**
+ * The popups of the explorer that are up: a dialog (rename, delete, paste, new folder) or the viewer a file of
+ * the tree opened. While one is, the explorer holds still: its tree takes no press, fills no row under the
+ * pointer and opens no menu, and its bar, the wheel and its header move nothing. So the one row marked is the
+ * one the popup is about. Kept here, not in the state: a mod loaded again starts with none.
+ */
+let explorerHolds = 0
+
+/** Runs what shows a popup of the explorer and waits for it to be gone, the explorer held still meanwhile. */
+async function holdingExplorer<T> ($: EngineInterface, show: () => Promise<T>): Promise<T> {
+  explorerHolds++
+  $.ui.invalidate('ui.render')
+  try {
+    return await show()
+  } finally {
+    explorerHolds--
+    try { $.ui.invalidate('ui.render') } catch { /* The mod unloaded meanwhile: nothing is left to draw. */ }
+  }
+}
+
 /** The tree rows the explorer shows under its header, in a body of `bodyRows`. */
 const explorerRoom = (bodyRows: number) => Math.max(1, bodyRows - EXPLORER_HEADER_ROWS)
 
@@ -2944,7 +2964,12 @@ export function badFileName (name: string) {
  * the name of a folder to make in the folder `path`, and answers `mkdir <base64 name>` (macOS's own dialog:
  * `name <name>`) or `cancel`.
  */
-async function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '', offered = '', isCopyOnly = false) {
+function askDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into = '', offered = '', isCopyOnly = false) {
+  // The explorer holds still while the dialog is up.
+  return holdingExplorer($, () => showDialog($, mode, path, into, offered, isCopyOnly))
+}
+
+async function showDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'paste' | 'mkdir', path: string, into: string, offered: string, isCopyOnly: boolean) {
   // A path of another machine is shown as the explorer writes it, `mac:/Users/ana`.
   const shown = async (one: string) => remoteOf(one) ? one : await nativePath($, one)
   const native = await shown(path)
@@ -3274,7 +3299,7 @@ async function viewTreeFile ($: EngineInterface, path: string) {
   void $.clock.sleep(OPENING_MOST_MS).then(() => isOver(false), () => undefined)
   try {
     const file = await localFile($, path)
-    if (file) await runViewer($, 'view_file.ps1', file, '', () => { void isOver(true) })
+    if (file) await holdingExplorer($, () => runViewer($, 'view_file.ps1', file, '', () => { void isOver(true) }))
   } finally {
     await isOver(false).catch(() => undefined)
   }
@@ -3659,6 +3684,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const Client = 'Client' in elements ? elements.Client : undefined
   const Input = 'Input' in elements ? elements.Input : undefined
   const width = Math.max(12, columns || EXPLORER_COLUMNS)
+  // While a popup of the explorer is up the explorer holds still: the tree and its bar are told, and a press
+  // on the header does nothing.
+  const isHeld = explorerHolds > 0
+  const unlessHeld = (run: () => unknown) => () => { if (explorerHolds === 0) void run() }
   // Beside the disks: collapse every disk; the session's stays open down to its folder.
   const collapseLabel = ` ${isGlyphs ? '\uf066' : '⊟'} `
   const unfilterLabel = ' × limpiar '
@@ -3694,14 +3723,14 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         {state.drives.map(drive => {
           const isShown = drive === state.drive
           return (
-            <Button key={`explorer-drive:${drive}`} plain onPress={() => { void pickDrive($, drive) }}>
+            <Button key={`explorer-drive:${drive}`} plain onPress={unlessHeld(() => pickDrive($, drive))}>
               <Text bold={isShown} underline={isShown} color={isShown ? FOLDER_COLOR : undefined} dimColor={!isShown}>{` ${driveLabel(drive)} `}</Text>
             </Button>
           )
         })}
         {Client
           ? <Client key="speedy:explorer-collapse:" module="./control.tsx" width={cells(collapseLabel)} props={{ label: collapseLabel, color: flashed === 'speedy:explorer-collapse:' ? FLASH_COLOR : EXPLORER_DIR_COLOR, bold: true }} />
-          : <Button key="explorer-collapse" plain onPress={() => { void collapseExplorer($) }}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
+          : <Button key="explorer-collapse" plain onPress={unlessHeld(() => collapseExplorer($))}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
         <Box flexGrow={1} />
         <Button key="explorer-system" plain onPress={() => { void openFolder($) }}>
           <Text dimColor>{' ↗ abrir en el sistema '}</Text>
@@ -3711,7 +3740,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {Input
         ? (
           <Box width={width}>
-            <Input key="explorer-goto" placeholder={gotoHint(state.caseless)} submitLabel="ir" onSubmit={value => { void goToPath($, value) }} />
+            <Input key="explorer-goto" placeholder={gotoHint(state.caseless)} submitLabel="ir" onSubmit={value => { if (explorerHolds === 0) void goToPath($, value) }} />
           </Box>
           )
         : null}
@@ -3720,14 +3749,14 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
         ? (
           <Box flexDirection="row" width={width}>
             <Box width={Math.max(4, width - cells(unfilterLabel) - cells(pauseLabel))}>
-              <Input key={`explorer-filter:${state.cleared ?? 0}`} placeholder={FILTER_HINT} value={state.filter?.pattern ?? ''} submitLabel="filtrar" onSubmit={value => { void filterExplorer($, value) }} />
+              <Input key={`explorer-filter:${state.cleared ?? 0}`} placeholder={FILTER_HINT} value={state.filter?.pattern ?? ''} submitLabel="filtrar" onSubmit={value => { if (explorerHolds === 0) void filterExplorer($, value) }} />
             </Box>
             {Client
               ? <Client key="speedy:explorer-unfilter:" module="./control.tsx" width={cells(unfilterLabel)} props={{ label: unfilterLabel, color: state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR, bold: Boolean(state.filter) }} />
-              : <Button key="explorer-unfilter" plain onPress={() => { void clearFilter($) }}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
+              : <Button key="explorer-unfilter" plain onPress={unlessHeld(() => clearFilter($))}><Text color={state.filter ? UNFILTER_COLOR : UNFILTER_IDLE_COLOR}>{unfilterLabel}</Text></Button>}
             {Client
               ? <Client key="speedy:explorer-pause:" module="./control.tsx" width={cells(pauseLabel)} props={{ label: pauseLabel, color: pauseColor, bold: Boolean(state.filter?.isBusy || state.filter?.isPaused) }} />
-              : <Button key="explorer-pause" plain onPress={() => { void pauseFilter($) }}><Text color={pauseColor}>{pauseLabel}</Text></Button>}
+              : <Button key="explorer-pause" plain onPress={unlessHeld(() => pauseFilter($))}><Text color={pauseColor}>{pauseLabel}</Text></Button>}
           </Box>
           )
         : null}
@@ -3740,7 +3769,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           the tree moves and its names change with nothing mounted or let go. Elsewhere, each name a Button:
           a press opens a file in the viewer and opens or closes a folder. */}
       {Client
-        ? <Client key={EXPLORER_TREE} module="./tree.tsx" width={treeWidth} height={room} props={{ width: treeWidth, room, rows: lines, menus, more: EXPLORER_MORE }} />
+        ? <Client key={EXPLORER_TREE} module="./tree.tsx" width={treeWidth} height={room} props={{ width: treeWidth, room, rows: lines, menus, more: EXPLORER_MORE, ...(isHeld ? { isHeld: true } : {}) }} />
         : (
           <Box flexDirection="column" width={treeWidth}>
             {lines.map(line => line.fill === undefined
@@ -3760,7 +3789,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           row each. Where the surface draws a Client it is one, scrollbar.tsx: held down, its thumb follows the
           pointer and the tree with it. */}
       {Client
-        ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={EXPLORER_BAR_WIDTH} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR }} />
+        ? <Client key="speedy:explorer-bar" module="./scrollbar.tsx" width={EXPLORER_BAR_WIDTH} height={room} props={{ total: rows.length, top, room, color: EXPLORER_DIR_COLOR, ...(isHeld ? { isHeld: true } : {}) }} />
         : thumb.size > 0
         ? (
           <Box flexDirection="column" width={EXPLORER_BAR_WIDTH}>
@@ -5222,6 +5251,8 @@ export const register: Register = on => {
     const result = await next(e)
     const data = e.data as { isClicked?: unknown, scrollTo?: unknown } | null
     // The explorer's scroll bar, held and moved: the tree's first row it asks for.
+    // A popup of the explorer is up: the explorer holds still, whatever its tree, its bar or its header say.
+    if (explorerHolds > 0 && (e.element === EXPLORER_TREE || e.element.startsWith('speedy:explorer-'))) return result
     if (e.element === 'speedy:explorer-bar') {
       const to = data?.scrollTo
       if (typeof to !== 'number' || !Number.isFinite(to)) return result
@@ -5473,7 +5504,8 @@ export const register: Register = on => {
     return result
   })
   on('ui.scroll', { requestId: EXPLORER_PANE }, async ($, e) => {
-    await scrollExplorer($, e.by, e.bodyRows)
+    // The wheel moves nothing while a popup of the explorer is up.
+    if (explorerHolds === 0) await scrollExplorer($, e.by, e.bodyRows)
     return {}
   })
 }

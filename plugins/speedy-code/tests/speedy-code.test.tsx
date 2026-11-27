@@ -20,7 +20,7 @@ const PASTE = { ran: [] as string[], says: 'done' }
 /** The clipboard's text when a test changes it midway; undefined: the one its world was given. */
 const CLIPBOARD = { now: undefined as string | undefined }
 /** What the explorer's dialog answers (dialog.ps1), and the modes it was asked in. */
-const DIALOG = { answer: 'cancel', asked: [] as string[], files: [] as string[], names: [] as string[], queue: [] as string[] }
+const DIALOG = { answer: 'cancel', asked: [] as string[], files: [] as string[], names: [] as string[], queue: [] as string[], isLate: false }
 /** What the file viewer says after `shown`: a `copied <base64>` line when its Copiar is pressed. */
 /** Whether the speaker makes a narration asked to be only made; tests that look at what is spoken leave it off. */
 const SPEAKER = { makes: false }
@@ -290,6 +290,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       DIALOG.files.push(e.init?.env?.SPEEDY_FILE ?? '')
       DIALOG.asked.push([e.init?.env?.SPEEDY_MODE ?? '', e.init?.env?.SPEEDY_KIND === 'dir' ? 'dir' : '', e.init?.env?.SPEEDY_ONLY === 'copy' ? 'only copy' : ''].filter(Boolean).join(' '))
       DIALOG.names.push(e.init?.env?.SPEEDY_NAME ?? '')
+      // A dialog left up answers nothing until the test lets it.
+      while (DIALOG.isLate) await clock.sleep(100)
       // Answers given one after the other, for a dialog that follows another; then the one answer.
       return { value: { exitCode: 0, stdout: `${DIALOG.queue.shift() ?? DIALOG.answer}\r\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -2657,7 +2659,7 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
 const TREE_KEY = 'speedy:explorer-tree'
 type TreeRowDrawn = { path: string, text: string, kind: string, color?: string, bold?: boolean, backgroundColor?: string, fill?: string, at?: number, menu?: string }
 type TreeMenuItem = { kind: string, icon: string, text: string, color: string, isIdle?: boolean }
-type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Record<string, { width: number, items: TreeMenuItem[] }>, more: string }
+type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Record<string, { width: number, items: TreeMenuItem[] }>, more: string, isHeld?: true }
 type Finds = { find: (query: { key?: string }) => Promise<{ props?: Record<string, any> } | undefined> }
 type Posts = { post: (message: Record<string, string | boolean>, target: { in: string }) => Promise<unknown> }
 
@@ -3019,6 +3021,54 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await press('C:/Documents and Settings', 6)
   expect((await drawn('C:/Windows'))?.props?.backgroundColor).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: ' ⋯ ', in: TREE_KEY })).toBeUndefined()
+  // While a popup of the explorer is up, a dialog's or the viewer's, the explorer holds still: the tree is told
+  // so and takes no press, fills no row and opens no menu; its bar and its header move nothing. The popup
+  // gone, it is as before.
+  const isHeld = async () => (await treeProps(pane))?.isHeld === true
+  const barHeld = async () => (await pane.find({ key: 'speedy:explorer-bar' }))?.props?.props?.isHeld === true
+  expect([await isHeld(), await barHeld()]).toEqual([false, false])
+  await press('C:/Windows', 8)
+  DIALOG.isLate = true
+  DIALOG.asked = []
+  await menuAct(pane, 'rename', 'C:/Windows')
+  await w.clock.advance(100)
+  expect(DIALOG.asked).toEqual(['rename dir'])
+  expect([await isHeld(), await barHeld()]).toEqual([true, true])
+  // The row the dialog asks about stays the one selected; no other is, and none opens or closes.
+  await press('C:/setup.exe', 8)
+  expect((await drawn('C:/setup.exe'))?.props?.backgroundColor).toBeUndefined()
+  expect((await drawn('C:/Windows'))?.props).toMatchObject({ backgroundColor: '#74c0fc' })
+  await press('C:/setup.exe', 8, { button: 'right' })
+  expect(await menu()).toBeUndefined()
+  await toggle(pane, 'C:/Windows')
+  await openRow(pane, 'C:/Windows', true)
+  expect(await texts()).toContain('  ▸ Windows')
+  await pane.post({ scrollTo: 3 }, { in: 'speedy:explorer-bar' })
+  await pane.press({ key: 'explorer-drive:D:/' })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-collapse:' })
+  await w.clock.advance(100)
+  expect((await texts())[4]).toBe('▾ C:\\')
+  expect(DIALOG.asked).toEqual(['rename dir'])
+  DIALOG.isLate = false
+  await w.clock.advance(200)
+  expect([await isHeld(), await barHeld()]).toEqual([false, false])
+  await press('C:/setup.exe', 8)
+  expect((await drawn('C:/setup.exe'))?.props).toMatchObject({ backgroundColor: '#ffd43b' })
+  // The viewer's popup holds it too, from the press that opens it until it is closed: no other file opens meanwhile.
+  await w.clock.advance(600)
+  const shownBefore = viewers()
+  VIEWER.stays = true
+  await openRow(pane, 'C:/setup.exe')
+  await w.clock.advance(100)
+  expect(viewers()).toBe(shownBefore + 1)
+  expect(await isHeld()).toBe(true)
+  await openRow(pane, 'C:/Users/test/proyectos/notas.txt')
+  await w.clock.advance(100)
+  expect(viewers()).toBe(shownBefore + 1)
+  VIEWER.stays = false
+  await w.clock.advance(300)
+  expect(await isHeld()).toBe(false)
+  await press('C:/Documents and Settings', 6)
   // A disk's 📋, ✏ and 🗑 do nothing but say so.
   DIALOG.asked = []
   await menuAct(pane, 'trash', 'C:/')

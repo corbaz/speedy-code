@@ -4,7 +4,9 @@
 // click: `{ toggle }`. The right button, Ctrl with a click, or ⋯ at the end of the row selected open the
 // row's menu inside the tree: its tools one under the other, each with what it does at its right; a press
 // on one posts `{ act, path }`, a press anywhere else closes the menu. Selection and menu are kept here, so
-// they are drawn at once, with no word to the hooks module and back.
+// they are drawn at once, with no word to the hooks module and back. While a popup of the explorer is up
+// (`isHeld`) the tree holds still: it takes no press, fills no row under the pointer and shows no menu, so the
+// one row filled is the one the popup is about.
 import type { ClientModule } from 'claude-code'
 
 /**
@@ -30,8 +32,11 @@ type Row = {
 type Item = { kind: string; icon: string; text: string; color: string; isIdle?: boolean }
 /** A menu: its tools, and the cells the longest of their texts takes, which all are filled to. */
 type Menu = { width: number; items: Item[] }
-/** The tree's width and rows of room, the rows shown, the menus by name, and the mark that opens one. */
-type Props = { width: number; room: number; rows: Row[]; menus: Record<string, Menu>; more: string }
+/**
+ * The tree's width and rows of room, the rows shown, the menus by name, and the mark that opens one. `isHeld`:
+ * a popup of the explorer is up, and the tree holds still.
+ */
+type Props = { width: number; room: number; rows: Row[]; menus: Record<string, Menu>; more: string; isHeld?: true }
 /**
  * The path of the row selected; and the row whose menu is open: its path, its place among the rows shown when
  * it was asked, and the cell it was asked at.
@@ -66,11 +71,11 @@ function menuBox (props: Props, state: State) {
 
 const Tree: ClientModule<Props, State> = (props, surface) => {
   const state = surface.state ?? {}
-  const box = menuBox(props, state)
+  const box = props.isHeld ? undefined : menuBox(props, state)
   // A menu whose row moved away is closed for good: it does not come back when the row does.
   if (state.menu && !box) surface.setState({ selected: state.selected })
   surface.onPointer(event => {
-    if (event.type !== 'down' || (event.button !== 'left' && event.button !== 'right')) return
+    if (props.isHeld || event.type !== 'down' || (event.button !== 'left' && event.button !== 'right')) return
     const asksMenu = event.button === 'right' || event.ctrl === true
     if (box && event.x >= box.left && event.x < box.left + box.width && event.y >= box.top && event.y < box.top + box.height) {
       // On a tool: it is done, and the menu closes. On the frame, nothing.
@@ -113,7 +118,7 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
             dimColor={row.isDim === true && !isFilled}
             italic={row.isItalic === true}
             // The pointer on a file or a folder fills its row, in its color; a row filled already stays as it is.
-            hover={row.fill !== undefined && !isFilled ? { scope: `speedy-tree:${index}`, backgroundColor: row.fill, color: DARK } : undefined}
+            hover={row.fill !== undefined && !isFilled && !props.isHeld ? { scope: `speedy-tree:${index}`, backgroundColor: row.fill, color: DARK } : undefined}
             wrap="truncate-end"
           >
             {row.text}

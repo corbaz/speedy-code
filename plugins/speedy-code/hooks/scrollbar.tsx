@@ -7,8 +7,8 @@
 // asked for once, however many moves a terminal that reports pixels says within a cell.
 import type { ClientModule } from 'claude-code'
 
-/** The tree's rows, the first one shown, the rows of room, and the thumb's color. */
-type Props = { total: number; top: number; room: number; color: string }
+/** The tree's rows, the first one shown, the rows of room, and the thumb's color; `isHeld`: a popup of the explorer is up, and the bar moves nothing. */
+type Props = { total: number; top: number; room: number; color: string; isHeld?: true }
 /**
  * While the thumb is held: where on it the pointer took it, in rows from the thumb's top; and the row its top
  * is drawn at. Empty while it is not held.
@@ -42,8 +42,8 @@ const ScrollBar: ClientModule<Props, State> = (props, surface) => {
       if (event.type === 'up' || held.grab !== undefined) { asked = undefined; surface.setState({}) }
       return
     }
-    // A tree that fits has no thumb to hold.
-    if (thumb.size === 0 || event.button !== 'left' || (event.type !== 'down' && event.type !== 'move')) return
+    // A tree that fits has no thumb to hold, and nothing is held while a popup of the explorer is up.
+    if (props.isHeld || thumb.size === 0 || event.button !== 'left' || (event.type !== 'down' && event.type !== 'move')) return
     // The row under the pointer, with its fraction where the terminal reports it, else the row's middle.
     const y = event.fine?.y ?? event.y + 0.5
     const isDown = event.type === 'down'
