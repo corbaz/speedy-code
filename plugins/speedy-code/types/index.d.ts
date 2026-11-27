@@ -57,8 +57,10 @@ export type ExplorerListing = { entries: ExplorerEntry[]; left: number }
  * last, which 📥 copies or moves into another folder; absent: none, and 📥 is grey. `viewed` is the key of
  * the file the viewer was last opened on, marked yellow until another press. `clipKind` says whether `clip` is a
  * folder or a file, for 📥's label. `picked` is the file or the folder last selected in the tree, or gone to by
- * the field: the path's row under the disks shows it; absent, it shows the session's folder. */
-export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string; filter?: ExplorerFilter; cleared?: number; clip?: string; clipKind?: 'dir' | 'file'; viewed?: string; picked?: string }
+ * the field: the path's row under the disks shows it; absent, it shows the session's folder. `pickTurn` counts
+ * the times the explorer picked that row by itself (after 🗑, the folder that held what went; after ✏, the file
+ * under its new name): the tree takes `picked` as its row selected each time it goes up. */
+export type Explorer = { drives: string[]; drive: string; open: string[]; listed: Record<string, ExplorerListing | 'denied'>; here: string; caseless: boolean; top: number; found?: string; filter?: ExplorerFilter; cleared?: number; clip?: string; clipKind?: 'dir' | 'file'; viewed?: string; picked?: string; pickTurn?: number }
 
 /** The explorer's filter, while one is on: the pattern typed (`*.pdf`), the files of the disk shown found
  * so far, the entries looked at, whether the search still runs, whether it stopped at the most files it

@@ -2673,7 +2673,7 @@ test('treeRows: the disk, then what each open folder holds under it; a folder no
 const TREE_KEY = 'speedy:explorer-tree'
 type TreeRowDrawn = { path: string, text: string, kind: string, color?: string, bold?: boolean, backgroundColor?: string, fill?: string, at?: number, menu?: string, marks?: number[][] }
 type TreeMenuItem = { kind: string, icon: string, text: string, color: string, isIdle?: boolean }
-type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Record<string, { width: number, items: TreeMenuItem[] }>, more: string, isHeld?: true }
+type TreeDrawn = { width: number, room: number, rows: TreeRowDrawn[], menus: Record<string, { width: number, items: TreeMenuItem[] }>, more: string, isHeld?: true, pick?: { path: string, turn: number } }
 type Finds = { find: (query: { key?: string }) => Promise<{ props?: Record<string, any> } | undefined> }
 type Posts = { post: (message: Record<string, string | boolean>, target: { in: string }) => Promise<unknown> }
 
@@ -3312,9 +3312,17 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(DIALOG.asked).toEqual(['rename'])
   expect(FILES.renamed).toEqual([])
   DIALOG.answer = 'rename YXB1bnRlcy50eHQ='
+  // The path's row, under the disks, and the row the tree is told to take as its selected one.
+  const pathRow = async () => (((await pane.find({ key: CRUMBS_KEY }))?.props?.props?.parts ?? []) as CrumbDrawn[]).map(part => part.text).join('').trimEnd()
+  const told = async () => (await treeProps(pane))?.pick?.path
+  await press('C:/Users/test/proyectos/notas.txt', 12)
+  expect(await pathRow()).toMatch(/notas\.txt$/)
   await menuAct(pane, 'rename', 'C:/Users/test/proyectos/notas.txt')
   expect(FILES.renamed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt -> apuntes.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt ahora se llama apuntes.txt.')
+  // Renamed, the row selected is the file under its new name: the path's row shows no path that is gone.
+  expect(await pathRow()).toMatch(/apuntes\.txt$/)
+  expect(await told()).toBe('C:/Users/test/proyectos/apuntes.txt')
   // 🗑 asks in a dialog: No leaves the file; Sí sends it to the Recycle Bin and the folder is read again.
   DIALOG.answer = 'cancel'
   await menuAct(pane, 'trash', 'C:/Users/test/proyectos/notas.txt')
@@ -3322,11 +3330,34 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(FILES.trashed).toEqual([])
   DIALOG.answer = 'delete'
   TREE['C:/Users/test/proyectos'] = [{ name: 'facturas', kind: 'dir' }]
+  await w.clock.advance(1000)
+  await press('C:/Users/test/proyectos/notas.txt', 12)
+  expect(await pathRow()).toMatch(/notas\.txt$/)
+  const firstRow = (await treeProps(pane))?.rows[0]?.path
   await menuAct(pane, 'trash', 'C:/Users/test/proyectos/notas.txt')
   DIALOG.answer = 'cancel'
   expect(FILES.trashed).toEqual(['C:\\Users\\test\\proyectos\\notas.txt'])
   expect(TOASTS.at(-1)).toBe('speedy-code: notas.txt fue a la papelera.')
   expect(await texts()).not.toContain('          notas.txt')
+  // Gone, the folder that held it is the row selected, filled with ⋯ at its end, and the one the path's row
+  // shows; the tree stays where it was.
+  expect(await pathRow()).toMatch(/proyectos$/)
+  expect(await told()).toBe('C:/Users/test/proyectos')
+  expect((await drawn('C:/Users/test/proyectos'))?.props).toMatchObject({ backgroundColor: '#74c0fc', bold: true })
+  expect(await pane.find({ type: 'Text', text: ' ⋯ ', in: TREE_KEY })).toBeDefined()
+  expect((await treeProps(pane))?.rows[0]?.path).toBe(firstRow)
+  // A row selected by hand after that is the tree's own again, and one sent to the trash while another row
+  // is the one selected leaves that one selected.
+  await press('C:/setup.exe', 8)
+  expect((await drawn('C:/Users/test/proyectos'))?.props?.backgroundColor).toBeUndefined()
+  expect((await drawn('C:/setup.exe'))?.props).toMatchObject({ backgroundColor: '#ffd43b' })
+  DIALOG.answer = 'delete'
+  await menuAct(pane, 'trash', 'C:/Users/test/proyectos/facturas')
+  DIALOG.answer = 'cancel'
+  expect(await pathRow()).toMatch(/setup\.exe$/)
+  expect((await drawn('C:/setup.exe'))?.props).toMatchObject({ backgroundColor: '#ffd43b' })
+  FILES.trashed = ['C:\\Users\\test\\proyectos\\notas.txt']
+  await press('C:/Documents and Settings', 6)
   // A folder's ✏ asks one name, with no extension; its 🗑 asks too, and the folder goes with what it holds.
   DIALOG.asked = []
   DIALOG.answer = 'rename ZmFjdHVyYXMuMjAyNQ=='
@@ -3583,6 +3614,39 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(TOASTS.at(-1)).toBe('speedy-code: no pude mandar nota.md a la papelera.')
   REMOTE.says = 'done'
+  DIALOG.answer = 'cancel'
+  // A machine with Windows shows its disks under its root, `mac:/D:`: a file in a disk's root goes to the
+  // trash, and that disk's root is read again, the file's row gone, as in any other folder; renamed, too.
+  REMOTE.tree['/'].push({ name: 'D:', kind: 'dir', isLink: false })
+  REMOTE.tree['/D:'] = [{ name: '.DS_Store', kind: 'file', isLink: false }, { name: 'fotos.zip', kind: 'file', isLink: false }]
+  await toggle(far, 'mac:/')
+  await toggle(far, 'mac:/')
+  await toggle(far, 'mac:/D:')
+  await w.clock.advance(100)
+  expect(await farRows()).toContain('      .DS_Store')
+  await far.pointer({ type: 'down', x: 10, y: (await treeProps(far))?.rows.findIndex(row => row.path === 'mac:/D:/.DS_Store') ?? -1, button: 'left', in: TREE_KEY })
+  REMOTE.tree['/D:'] = [{ name: 'fotos.zip', kind: 'file', isLink: false }]
+  DIALOG.answer = 'delete'
+  await menuAct(far, 'trash', 'mac:/D:/.DS_Store')
+  await w.clock.advance(100)
+  expect(REMOTE.moved.at(-1)).toBe('trash mac /D:/.DS_Store')
+  expect(REMOTE.asked.at(-1)).toEqual({ mode: 'list', host: 'mac', path: '/D:' })
+  expect(await farRows()).toContain('      fotos.zip')
+  expect(await farRows()).not.toContain('      .DS_Store')
+  // The disk that held it is the row selected, and the one the path's row shows.
+  expect((await farRows())[0]).toMatch(/D:$/)
+  expect((await treeProps(far))?.pick?.path).toBe('mac:/D:')
+  DIALOG.answer = `rename ${btoa('viaje.zip')}`
+  await menuAct(far, 'rename', 'mac:/D:/fotos.zip')
+  await w.clock.advance(100)
+  expect(REMOTE.moved.at(-1)).toBe('rename mac /D:/fotos.zip -> viaje.zip')
+  expect(REMOTE.asked.at(-1)).toEqual({ mode: 'list', host: 'mac', path: '/D:' })
+  await toggle(far, 'mac:/D:')
+  REMOTE.tree['/'].pop()
+  delete REMOTE.tree['/D:']
+  await toggle(far, 'mac:/')
+  await toggle(far, 'mac:/')
+  await w.clock.advance(100)
   DIALOG.answer = 'cancel'
   // 📁 makes a folder there too, by remote.py (`mkdir`); the dialog shows the folder as the explorer writes it.
   REMOTE.moved = []

@@ -6,7 +6,8 @@
 // on one posts `{ act, path }`, a press anywhere else closes the menu. Selection and menu are kept here, so
 // they are drawn at once, with no word to the hooks module and back. While a popup of the explorer is up
 // (`isHeld`) the tree holds still: it takes no press, fills no row under the pointer and shows no menu, so the
-// one row filled is the one the popup is about.
+// one row filled is the one the popup is about. The hooks module picks the row selected by itself too (`pick`):
+// after a file went to the trash, the folder that held it; after a rename, the file under its new name.
 import type { ClientModule } from 'claude-code'
 
 /**
@@ -36,14 +37,15 @@ type Item = { kind: string; icon: string; text: string; color: string; isIdle?: 
 type Menu = { width: number; items: Item[] }
 /**
  * The tree's width and rows of room, the rows shown, the menus by name, and the mark that opens one. `isHeld`:
- * a popup of the explorer is up, and the tree holds still.
+ * a popup of the explorer is up, and the tree holds still. `pick`: the row the hooks module picked as the one
+ * selected, and its turn, one more each time it picks one: the tree takes it once, when the turn is new.
  */
-type Props = { width: number; room: number; rows: Row[]; menus: Record<string, Menu>; more: string; isHeld?: true }
+type Props = { width: number; room: number; rows: Row[]; menus: Record<string, Menu>; more: string; isHeld?: true; pick?: { path: string; turn: number } }
 /**
- * The path of the row selected; and the row whose menu is open: its path, its place among the rows shown when
- * it was asked, and the cell it was asked at.
+ * The path of the row selected; the row whose menu is open: its path, its place among the rows shown when it
+ * was asked, and the cell it was asked at; and `turn`, the last `pick` taken.
  */
-type State = { selected?: string; menu?: { path: string; at: number; x: number } }
+type State = { selected?: string; menu?: { path: string; at: number; x: number }; turn?: number }
 
 /** The text of a row filled: dark on the row's color. */
 const DARK = '#1a1a1a'
@@ -74,10 +76,15 @@ function menuBox (props: Props, state: State) {
 }
 
 const Tree: ClientModule<Props, State> = (props, surface) => {
-  const state = surface.state ?? {}
+  const kept = surface.state ?? {}
+  // A row the hooks module picked is the one selected from now on, drawn at once; a press selects another.
+  const isPicked = props.pick !== undefined && props.pick.turn !== kept.turn
+  const state: State = isPicked ? { selected: props.pick?.path, turn: props.pick?.turn } : kept
+  // What is kept from here on: the selection and the menu given, and the last pick taken.
+  const keep = (next: State) => surface.setState({ ...next, turn: state.turn })
   const box = props.isHeld ? undefined : menuBox(props, state)
   // A menu whose row moved away is closed for good: it does not come back when the row does.
-  if (state.menu && !box) surface.setState({ selected: state.selected })
+  if (isPicked || (state.menu && !box)) keep({ selected: state.selected })
   surface.onPointer(event => {
     if (props.isHeld || event.type !== 'down' || (event.button !== 'left' && event.button !== 'right')) return
     const asksMenu = event.button === 'right' || event.ctrl === true
@@ -85,26 +92,26 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
       // On a tool: it is done, and the menu closes. On the frame, nothing.
       const item = box.items[event.y - box.top - 1]
       if (!item || asksMenu || event.x === box.left || event.x === box.left + box.width - 1) return
-      surface.setState({ selected: state.selected })
+      keep({ selected: state.selected })
       surface.post({ act: item.kind, path: box.path })
       return
     }
     const row = props.rows[event.y]
     // A press outside the menu closes it, and does nothing else.
-    if (box && !asksMenu) { surface.setState({ selected: state.selected }); return }
+    if (box && !asksMenu) { keep({ selected: state.selected }); return }
     // Only a file or a folder is selected: a press on a note, a link or the room left under the tree lets go.
     if (!row || row.fill === undefined) {
-      if (state.selected !== undefined || state.menu) surface.setState({})
+      if (state.selected !== undefined || state.menu) keep({})
       // The hooks module hears it: the path's row shows the session's folder again, and the path found is no longer marked.
       surface.post({ drop: true })
       return
     }
     if (asksMenu || (state.selected === row.path && event.x >= props.width - props.more.length)) {
-      surface.setState({ selected: row.path, menu: { path: row.path, at: event.y, x: asksMenu ? event.x : props.width } })
+      keep({ selected: row.path, menu: { path: row.path, at: event.y, x: asksMenu ? event.x : props.width } })
       surface.post({ pick: row.path, isFolder: row.kind === 'dir', isMenu: true })
       return
     }
-    surface.setState({ selected: row.path })
+    keep({ selected: row.path })
     if (row.at !== undefined && event.x >= row.at && event.x < row.at + 2) surface.post({ toggle: row.path })
     else surface.post({ pick: row.path, isFolder: row.kind === 'dir' })
   })

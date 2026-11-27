@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explorer: after 🗑 the folder that held what went is the row selected, and the one the path's row shows; after ✏, the file under its new name. The path's row kept the path that was gone, and no row was selected. The tree stays where it was.
+- Explorer: a file in the root of a disk of Windows seen from another machine (`pc:/D:`) is gone from the tree once sent to the trash, and shows its new name once renamed. That root was read again under a name the tree does not use, so the row stayed as it was.
 - Viewer: a file looked at no longer closes what is sounding. The popup that sounds (a narration, a sound, a video) and the one that shows (a text, a page, a picture) are two kinds, one of each at a time: another of its kind takes its place, and one of the other kind leaves it. Any file shown closed the popup of a sound.
 - Explorer: ↗ is named by the system's own file manager, Abrir con Explorer or Abrir con Finder, and opens in it the folder the path's row shows: the row selected, a file's the folder it is in, the session's folder while none is. It opened the session's folder always.
 - Explorer: with a filter on, what of each file's name the pattern matched is drawn white and bold: the pattern's own letters, not what `*` and `?` stood for.

@@ -2628,6 +2628,34 @@ const slashed = (path: string) => path.replace(/\\/g, '/')
 /** A folder's entry under it: a disk's root ends in `/` already. */
 const joinPath = (parent: string, name: string) => parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`
 
+/**
+ * The folder a file or a folder of the tree is in, as the tree writes it. A disk's root keeps its `/`: `C:/`
+ * here, `mac:/` on another machine. A disk of Windows seen from another machine, `pc:/D:`, is a folder of
+ * that machine's root, and has none.
+ */
+export const folderOf = (path: string) => {
+  const parent = path.slice(0, path.lastIndexOf('/'))
+  if (parent === '') return '/'
+  return /^[A-Za-z][\w.-]*:$/.test(parent) ? `${parent}/` : parent
+}
+
+/**
+ * The explorer with the row selected picked by itself, not by a press: `picked` shows it in the path's row, and
+ * `pickTurn`, one more each time, tells the tree to take it as its row selected. The tree keeps its selection
+ * by itself, and hears of this one by its props.
+ */
+export const pickRow = (state: Explorer, path: string): Explorer => ({ ...state, picked: path, pickTurn: (state.pickTurn ?? 0) + 1 })
+
+/**
+ * The explorer after the row at `from` went away, renamed to `to` or sent to the trash: when the row selected
+ * was that one, or one under it, the selection follows it to its new name, or goes to the folder that held it.
+ * Another row selected meanwhile stays the one selected.
+ */
+export function pickAfter (state: Explorer, from: string, to?: string): Explorer {
+  if (state.picked === undefined || !isUnder(pathKey(state.picked, state.caseless), pathKey(from, state.caseless))) return state
+  return pickRow(state, to === undefined ? folderOf(from) : `${to}${state.picked.slice(from.length)}`)
+}
+
 /** How the explorer knows a path again: on Windows `C:/Users` and `c:/users` are one folder. */
 const pathKey = (path: string, caseless: boolean) => caseless ? slashed(path).toLowerCase() : slashed(path)
 
@@ -2973,8 +3001,9 @@ async function copyPathToClipboard ($: EngineInterface, path: string, surface: P
 
 
 /**
- * Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder again.
- * Said gone only once it is: one another program holds (its working folder, a file open in it) stays, and says so.
+ * Sends a file of the tree to the Recycle Bin, or the Mac's Trash, where it can be got back; then reads its folder
+ * again, and the folder that held it is the row selected, shown in the path's row. Said gone only once it is: one
+ * another program holds (its working folder, a file open in it) stays, and says so.
  */
 async function trashFile ($: EngineInterface, path: string) {
   const name = path.split('/').pop() ?? path
@@ -2995,12 +3024,12 @@ async function trashFile ($: EngineInterface, path: string) {
     return
   }
   $.ui.toast(`speedy-code: ${name} fue a la papelera.`)
-  const parent = path.slice(0, path.lastIndexOf('/')) || path
-  const folder = parent.endsWith(':') ? `${parent}/` : parent
+  const folder = folderOf(path)
   const state = await read($, explorer)
   const key = pathKey(folder, state.caseless)
   const listed = await readFolder($, folder)
-  await update($, explorer, now => filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path))
+  // The folder that held it is the row selected from now on; the tree stays where it is.
+  await update($, explorer, now => pickAfter(filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path), path))
 }
 
 
@@ -3049,13 +3078,6 @@ async function showDialog ($: EngineInterface, mode: 'rename' | 'delete' | 'past
     : mode === 'paste' ? MAC.pasteDialog(offered || (path.split('/').pop() ?? path), into) : MAC.dialog(mode, offered || (path.split('/').pop() ?? path))
   const result = await $.process.run(argv, { env }).catch(() => undefined)
   return said(result?.stdout) ?? 'cancel'
-}
-
-/** The folder a file of the tree is in: a disk's root keeps its `/`. */
-const folderOf = (path: string) => {
-  const parent = path.slice(0, path.lastIndexOf('/'))
-  if (parent === '') return '/'
-  return parent.endsWith(':') ? `${parent}/` : parent
 }
 
 /**
@@ -3231,7 +3253,10 @@ async function askTrash ($: EngineInterface, path: string) {
   if ((await askDialog($, 'delete', path)) === 'delete') await trashFile($, path)
 }
 
-/** Renames a file of the tree in its folder, then reads the folder again. The same name, or none, leaves it as it was. */
+/**
+ * Renames a file of the tree in its folder, then reads the folder again; the row selected is the file under its
+ * new name. The same name, or none, leaves it as it was.
+ */
 async function renameFile ($: EngineInterface, path: string, wanted: string) {
   const name = wanted.trim()
   const old = path.split('/').pop() ?? path
@@ -3241,8 +3266,8 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
     $.ui.toast(`speedy-code: no renombré ${old}: ${why}.`)
     return
   }
-  const folder = path.slice(0, path.lastIndexOf('/'))
-  const target = joinPath(folder.endsWith(':') ? `${folder}/` : folder, name)
+  const folder = folderOf(path)
+  const target = joinPath(folder, name)
   // A different name that is the same file whatever its case (Windows) is a rename too; another file is not overwritten.
   if (name.toLowerCase() !== old.toLowerCase() && await kindAt($, target)) {
     $.ui.toast(`speedy-code: ya hay un archivo ${name} en esa carpeta.`)
@@ -3268,11 +3293,11 @@ async function renameFile ($: EngineInterface, path: string, wanted: string) {
     return
   }
   $.ui.toast(`speedy-code: ${old} ahora se llama ${name}.`)
-  const parent = folder.endsWith(':') ? `${folder}/` : folder
   const state = await read($, explorer)
-  const key = pathKey(parent, state.caseless)
-  const listed = await readFolder($, parent)
-  await update($, explorer, now => filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path, target))
+  const key = pathKey(folder, state.caseless)
+  const listed = await readFolder($, folder)
+  // The row selected follows the file to its new name.
+  await update($, explorer, now => pickAfter(filterMoved({ ...now, listed: { ...now.listed, [key]: listed } }, path, target), path, target))
 }
 
 /**
@@ -3434,7 +3459,7 @@ async function showExplorer ($: EngineInterface, folder = '') {
   const chain = drive ? chainOf(here, drive) : []
   const chainRead = await Promise.all(chain.map(async path => [pathKey(path, caseless), await readFolder($, path)] as const))
   // What 📋 took stays taken while the explorer is closed.
-  await update($, explorer, now => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1, clip: now.clip, clipKind: now.clipKind }))
+  await update($, explorer, now => ({ drives, drive, open: chainRead.map(([key]) => key), listed: Object.fromEntries(chainRead), here, caseless, top: -1, clip: now.clip, clipKind: now.clipKind, pickTurn: now.pickTurn }))
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
@@ -3951,7 +3976,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           the tree moves and its names change with nothing mounted or let go. Elsewhere, each name a Button:
           a press opens a file in the viewer and opens or closes a folder. */}
       {Client
-        ? <Client key={EXPLORER_TREE} module="./tree.tsx" width={treeWidth} height={room} props={{ width: treeWidth, room, rows: lines, menus, more: EXPLORER_MORE, ...(isHeld ? { isHeld: true } : {}) }} />
+        ? <Client key={EXPLORER_TREE} module="./tree.tsx" width={treeWidth} height={room} props={{ width: treeWidth, room, rows: lines, menus, more: EXPLORER_MORE, ...(isHeld ? { isHeld: true } : {}), ...(state.picked !== undefined && state.pickTurn ? { pick: { path: state.picked, turn: state.pickTurn } } : {}) }} />
         : (
           <Box flexDirection="column" width={treeWidth}>
             {lines.map(line => line.fill === undefined

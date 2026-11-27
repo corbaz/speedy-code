@@ -10,7 +10,7 @@ looks odd in the code is the answer to something that broke.
 | --- | --- | --- |
 | `hooks/register.tsx` | the hooks module, in Claude Code | — |
 | `hooks/control.tsx` | a `Client` surface module, per footer control | `surface.post({ isClicked })` → `ui.message` |
-| `hooks/tree.tsx` | a `Client` surface module, one for the explorer's whole tree: the rows shown, the row selected, a row's menu | `surface.post({ pick, isFolder })`, `{ toggle }`, `{ act, path }`, `{ drop }` → `ui.message` |
+| `hooks/tree.tsx` | a `Client` surface module, one for the explorer's whole tree: the rows shown, the row selected, a row's menu | `surface.post({ pick, isFolder })`, `{ toggle }`, `{ act, path }`, `{ drop }` → `ui.message`; the prop `pick` back, the row the hooks module selects by itself (after 🗑 and ✏) |
 | `hooks/scrollbar.tsx` | a `Client` surface module, the explorer's scroll bar | `surface.post({ scrollTo })` → `ui.message` |
 | `hooks/crumbs.tsx` | a `Client` surface module, the explorer's path under its disks | `surface.post({ go })` → `ui.message` |
 | `hooks/speak.ps1` | PowerShell, one per narration | stdout lines; a pause file |
