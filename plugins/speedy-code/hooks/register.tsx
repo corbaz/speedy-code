@@ -931,8 +931,8 @@ function voiceTitle (chosen: Picks) {
 async function closeMenu ($: EngineInterface, which: Exclude<Menu, ''>) {
   await dropEmptyAccounts($)
   if (which === 'images') {
-    viewing?.abort()
-    viewing = undefined
+    viewing.page?.abort()
+    viewing.page = undefined
   }
   if ((await read($, menu)) === which) await update($, menu, () => '')
 }
@@ -1483,8 +1483,8 @@ async function keepImages ($: EngineInterface) {
  * copied again. Claude Code's own files are never touched: it may still need them.
  */
 async function clearImages ($: EngineInterface) {
-  viewing?.abort()
-  viewing = undefined
+  viewing.page?.abort()
+  viewing.page = undefined
   const session = (await $.session.id().catch(() => '')).replace(/-/g, '').slice(0, 8)
   const highest = Math.max(0, ...(await sessionImages($, Infinity)).map(image => image.id))
   if (session) await $.store.set('imagesCleared', { ...((await $.store.get('imagesCleared')) ?? {}) as Record<string, number>, [session]: highest })
@@ -1579,8 +1579,29 @@ async function draftImage ($: EngineInterface, id: number) {
   return name ? { id, path: `${dir}/${name}` } : undefined
 }
 
-/** The image popup open, if any: opening another closes it. */
-let viewing: AbortController | undefined
+/**
+ * The popups open, one of each kind at most: the one that sounds (a narration, a sound, a video) and the one
+ * that shows (a text, a page, a picture). Another of its kind closes it; one of the other kind leaves it, so a
+ * file looked at does not stop what is sounding.
+ */
+const viewing: { sound?: AbortController; page?: AbortController } = {}
+
+/** The files the viewer plays, as view_file.ps1 and view_readers.py list them. */
+const PLAYED_EXTENSIONS = new Set([
+  // Sound.
+  'mp3', 'mpa', 'mp2', 'wav', 'm4a', 'aac', 'wma', 'ogg', 'oga', 'opus', 'flac', 'aif', 'aiff', 'mid', 'midi',
+  'm4b', 'mka', 'weba', 'ac3', 'eac3', 'dts', 'amr', 'ape', 'wv', 'tta', 'mpc', 'spx', 'caf', 'au', 'aifc', 'ra',
+  // Video.
+  'mp4', 'm4v', 'mov', 'avi', 'wmv', 'mkv', 'webm', 'mpg', 'mpeg', '3gp',
+  'flv', 'f4v', 'ogv', 'ogm', 'm2ts', 'mts', 'm2v', 'mpe', 'vob', 'divx', 'xvid', 'asf', 'rm', 'rmvb', '3g2', 'mxf', 'dv', 'wtv'
+])
+
+/** The kind of popup a file opens in: `sound` for a narration (`control`), a sound or a video; else `page`. */
+export function popupKind (path: string, control = ''): 'sound' | 'page' {
+  const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+  const dot = name.lastIndexOf('.')
+  return control || (dot > 0 && PLAYED_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())) ? 'sound' : 'page'
+}
 
 /** Windows PowerShell 5.1, which every Windows has under its system folder. */
 async function windowsPowerShell ($: EngineInterface) {
@@ -1646,26 +1667,25 @@ export function fileMention (path: string) {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`
 }
 
-/** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another closes it. */
+/** Shows a pasted image in a popup in the middle of the screen, in its own proportions; another file shown closes it. */
 const openView = ($: EngineInterface, image: PastedImage) => runViewer($, 'view.ps1', image.path)
 
-/**
- * Runs a popup in the middle of the screen: `script` on Windows, Quick Look on macOS, for the file at `path`.
- * One popup at a time: another closes it.
- */
 /** The popup a narration kept sounds in, while it does: `stop` closes it. */
 let popupPlay: AbortController | undefined
 
 /**
- * Shows a file in the viewer's popup. With `control`, it is a narration sounding there: the popup obeys
- * that file's `pause` and `play`, and the speech state follows what the popup says of its sound.
+ * Shows a file in the viewer's popup, in the middle of the screen: `script` on Windows, its Python twin on
+ * macOS. With `control`, it is a narration sounding there: the popup obeys that file's `pause` and `play`, and
+ * the speech state follows what the popup says of its sound. One popup of each kind at a time (popupKind).
  */
 async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps1', path: string, control = '', onShown?: () => void) {
   // Windows PowerShell by its path: `powershell` on the PATH can be a shim to PowerShell 7, whose popup
   // never shows, and only Windows PowerShell reads a PDF through Windows' own reader.
-  viewing?.abort()
+  // One popup of a kind at a time: another of its kind closes it.
+  const kind = popupKind(path, control)
+  viewing[kind]?.abort()
   const controller = new AbortController()
-  viewing = controller
+  viewing[kind] = controller
   if (control) popupPlay = controller
   try {
     const isWindows = (await osNow($)) === 'windows'
@@ -1722,7 +1742,7 @@ async function runViewer ($: EngineInterface, script: 'view.ps1' | 'view_file.ps
   } catch (error) {
     $.ui.log(`speedy: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
-    if (viewing === controller) viewing = undefined
+    if (viewing[kind] === controller) viewing[kind] = undefined
     // The popup closed: its narration is over.
     if (popupPlay === controller) {
       popupPlay = undefined

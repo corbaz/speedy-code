@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, popupKind, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -370,7 +370,8 @@ function world (on: On, store: Record<string, unknown>, reply = '', talks = { on
       // A popup left open says what a test hands it, a line at a time, until the test closes it.
       while (VIEWER.stays) {
         await clock.sleep(100)
-        yield { stream: 'stdout' as const, text: `${VIEWER.next.shift() ?? '.'}\r\n` }
+        // What a test hands is for the popup that sounds a narration: one that shows a file says its dots alone.
+        yield { stream: 'stdout' as const, text: `${(e.env?.SPEEDY_CONTROL ? VIEWER.next.shift() : undefined) ?? '.'}\r\n` }
       }
       return { value: { code: 0, signal: null } }
     }
@@ -2566,6 +2567,19 @@ test('on Windows a narration kept plays in the viewer’s popup, where it can be
   VIEWER.next.push('media playing')
   await w.clock.advance(200)
   expect(await mark()).toBe(' ⏸︎ ')
+  // A file shown from the explorer meanwhile opens in a popup of its own: the narration goes on sounding in its.
+  const tree = await $.ui.mount({ ...PANE, requestId: 'speedy-code-explorer', props: { ...PANE.props, title: 'Explorador', bodyColumns: 48 }, surface: 'terminal' })
+  const shownSoFar = viewed()
+  await openRow(tree, 'C:/datos/config.json')
+  await w.clock.advance(200)
+  expect(viewed()).toBe(shownSoFar + 1)
+  expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe('C:\\datos\\config.json')
+  expect(await mark()).toBe(' ⏸︎ ')
+  await tree.unmount()
+  // The popup that sounds and the one that shows are two kinds: one of each at a time. A narration, a sound and a
+  // video sound; anything else shows.
+  expect([popupKind('C:/a/tema.MP3'), popupKind('C:/a/clip.mkv'), popupKind('C:/a/notas.json'), popupKind('C:/a/foto.png'), popupKind('C:/a/sin_extension')]).toEqual(['sound', 'sound', 'page', 'page', 'page'])
+  expect(popupKind('C:/a/resumen.txt', 'C:/control.txt')).toBe('sound')
   VIEWER.next.push('media paused')
   await w.clock.advance(200)
   expect(await mark()).toBe(' ⏵ ')
@@ -2581,7 +2595,7 @@ test('on Windows a narration kept plays in the viewer’s popup, where it can be
   const said = w.spoken.filter(env => env.NARRATOR_TEXT).length
   await ui.post({ isClicked: true }, { in: 'speedy:play' })
   await w.clock.advance(100)
-  expect(viewed()).toBe(3)
+  expect(viewed()).toBe(4)
   expect(w.spoken.at(-1)?.SPEEDY_FILE).toBe(kept)
   expect(w.spoken.filter(env => env.NARRATOR_TEXT).length).toBe(said)
   await ui.unmount()

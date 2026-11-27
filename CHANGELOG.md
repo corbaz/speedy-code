@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Viewer: a file looked at no longer closes what is sounding. The popup that sounds (a narration, a sound, a video) and the one that shows (a text, a page, a picture) are two kinds, one of each at a time: another of its kind takes its place, and one of the other kind leaves it. Any file shown closed the popup of a sound.
 - Explorer: ↗ is named by the system's own file manager, Abrir con Explorer or Abrir con Finder, and opens in it the folder the path's row shows: the row selected, a file's the folder it is in, the session's folder while none is. It opened the session's folder always.
 - Explorer: with a filter on, what of each file's name the pattern matched is drawn white and bold: the pattern's own letters, not what `*` and `?` stood for.
 - Explorer: its header, made over. The disks are tabs, the one shown filled. Under them, the path: each folder from the disk down to the row selected, or to the session's folder, and one pressed is gone to (`crumbs.tsx`). One field in place of two: a path is gone to, anything else filters. `‖` and `×` stand at the field's right only while a filter is on, and they, ⊟ and ↗ are icons alone, each with its name under the pointer (⚙ → Ver labels).
