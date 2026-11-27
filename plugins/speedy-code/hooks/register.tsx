@@ -2588,7 +2588,7 @@ const UNFILTER_COLOR = '#ff6b6b'
 const UNFILTER_IDLE_COLOR = '#868e96'
 const EMPTY_EXPLORER: Explorer = { drives: [], drive: '', open: [], listed: {}, here: '', caseless: false, top: 0 }
 const explorer = atom({ plugin: 'speedy-code', key: 'explorer' } as const, EMPTY_EXPLORER, { shape: 'explorer-2' })
-/** The rows above the tree: the disks, the field a path is pasted in, the filter's, and a rule. They stay while the tree scrolls. */
+/** The rows above the tree: the disks, the path, the field, and a rule. They stay while the tree scrolls. */
 const EXPLORER_HEADER_ROWS = 4
 /** The scroll bar's cells: an empty one that parts it from the tree's tools, and the bar. */
 const EXPLORER_BAR_WIDTH = 2
@@ -3795,8 +3795,13 @@ function treeLine (row: TreeRow, state: Explorer, flashed: string, width: number
   }
 }
 
-/** The explorer pane: the disks above, the one shown underlined; under them its tree, the session's folder marked ●.
- * A file is drawn yellow and a folder blue: a click selects one, a double click opens it, and its tools are its menu. */
+/**
+ * The explorer pane. Its header, which stays while the tree scrolls: the disks as tabs, the one shown filled,
+ * with ⊟ and ↗ at their row's end; the path, each folder down to the row selected; the one field, which goes
+ * to a path or filters; and a rule, which says what a filter found. Under it the disk's tree, the session's
+ * folder marked ●: a file is drawn yellow and a folder blue, a click selects one, a double click opens it, and
+ * its tools are its menu. While a popup of the explorer is up, all of it holds still.
+ */
 async function explorerPane ($: EngineInterface, e: Drawn, columns: number, bodyRows: number) {
   const state = await read($, explorer)
   const flashed = await read($, explorerFlash)
