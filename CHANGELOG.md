@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Audio menu: a row's text takes the press as its ▶ does, the selection's too: the whole row plays, pauses and goes on.
+- Explorer: the field's magnifier is yellow, and a press on it or anywhere on the field's line gives the field the keys; it took a press on its text alone. In Claude Code the magnifier asks the prompt for the keys, which a prompt with text in it keeps: then a toast says to press on the field.
 - Explorer: after 🗑 the folder that held what went is the row selected, and the one the path's row shows; after ✏, the file under its new name. The path's row kept the path that was gone, and no row was selected. The tree stays where it was.
 - Explorer: a file in the root of a disk of Windows seen from another machine (`pc:/D:`) is gone from the tree once sent to the trash, and shows its new name once renamed. That root was read again under a name the tree does not use, so the row stayed as it was.
 - Viewer: a file looked at no longer closes what is sounding. The popup that sounds (a narration, a sound, a video) and the one that shows (a text, a page, a picture) are two kinds, one of each at a time: another of its kind takes its place, and one of the other kind leaves it. Any file shown closed the popup of a sound.

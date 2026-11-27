@@ -640,12 +640,14 @@ test('a selection read goes to the history at once: its row there shows ⏸, ⏵
   const row = async () => (await band.find({ type: 'Text', in: 'speedy:clip-read' }))?.text
   const kept = async () => (await band.find({ type: 'Text', in: 'speedy:clip-play:0' }))?.text
   expect(await band.find({ key: 'speedy:clip-play:0' })).toBeUndefined()
-  await band.post({ isClicked: true }, { in: 'speedy:clip-read' })
+  // The selection's text takes the press as its ▶ does.
+  expect((await band.find({ type: 'Text', in: 'speedy:clip-name:read' }))?.text).toBe(' leer selección')
+  await band.post({ isClicked: true }, { in: 'speedy:clip-name:read' })
   await w.clock.advance(300)
   // It is in the history as it starts, the first row there, and that row is the one playing.
   expect(await kept()).toBe(' ⏸︎ ')
   expect(await row()).toBe(' ▶ ')
-  expect((await band.find({ type: 'Text', text: /Hola,-este-es/ }))?.text).toBeDefined()
+  expect((await band.find({ type: 'Text', in: 'speedy:clip-name:0' }))?.text).toMatch(/Hola,-este-es/)
   // Its row pauses it and goes on, not a new reading.
   await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
   await w.clock.advance(200)
@@ -654,6 +656,15 @@ test('a selection read goes to the history at once: its row there shows ⏸, ⏵
   await band.post({ isClicked: true }, { in: 'speedy:clip-play:0' })
   await w.clock.advance(200)
   expect(await kept()).toBe(' ⏸︎ ')
+  // A press on the row's text does what one on its ▶ does: it pauses, and goes on.
+  expect((await band.find({ type: 'Text', in: 'speedy:clip-name:0' }))?.text).toMatch(/Hola,-este-es/)
+  await band.post({ isClicked: true }, { in: 'speedy:clip-name:0' })
+  await w.clock.advance(200)
+  expect(await kept()).toBe(' ⏵ ')
+  await band.post({ isClicked: true }, { in: 'speedy:clip-name:0' })
+  await w.clock.advance(200)
+  expect(await kept()).toBe(' ⏸︎ ')
+  expect(w.spoken.length).toBe(1)
   talks.on = false
   await w.clock.advance(500)
   expect(await kept()).toBe(' ▶ ')
@@ -670,7 +681,7 @@ test('the 📎 menu with no narration kept says so, and clear is always there', 
   expect(await band.find({ type: 'Text', in: 'speedy:clip-clear' })).toBeDefined()
   // The selection's row plays with ▶, as the narrations kept do; 📎 is in the title.
   expect((await band.find({ type: 'Text', in: 'speedy:clip-read' }))?.text).toBe(' ▶ ')
-  expect(await band.find({ type: 'Text', text: ' leer selección' })).toBeDefined()
+  expect((await band.find({ type: 'Text', in: 'speedy:clip-name:read' }))?.text).toBe(' leer selección')
   expect(await band.find({ type: 'Text', text: / 📎 Audios / })).toBeDefined()
   await band.unmount()
   await ui.unmount()
@@ -2463,7 +2474,8 @@ test('the 📎 menu lists the narrations kept from their folder, newest first by
   await ui.post({ isClicked: true }, { in: 'speedy:clip' })
   const band = await $.ui.mount(BAND)
   const rows = []
-  for (const name of ['Nuevo', 'Medio', 'Viejo']) rows.push((await band.find({ type: 'Text', text: new RegExp(`^ ?${name}`) }))?.text?.trim().split(' ')[0])
+  // Each row's text, a control as its ▶ is.
+  for (const at of [0, 1, 2]) rows.push((await band.find({ type: 'Text', in: `speedy:clip-name:${at}` }))?.text?.trim().split(' ')[0])
   expect(rows).toEqual(['Nuevo', 'Medio', 'Viejo'])
   expect(w.ran.filter(argv => argv.join(' ').includes('*.mp3'))).toEqual([])
   await band.unmount()
@@ -2749,7 +2761,9 @@ async function explorerBar (ui: { find: (query: { key?: string }) => Promise<{ p
 test('the footer’s folder opens the explorer beside the chat: the disks above, the tree open down to the session’s folder; a folder opens and closes, a disk shows its own, and the folder clicked again closes it', { timeoutMs: 30000 }, async ($, on) => {
   const panes: string[] = []
   const closed: string[] = []
-  on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); return { value: { isPlaced: true } } })
+  // The panes opened asking for the keys.
+  const keysWanted: string[] = []
+  on('ui.open', (_, e) => { if (!panes.includes(e.id)) panes.push(e.id); if (e.focus) keysWanted.push(e.id); return { value: { isPlaced: true } } })
   on('ui.close', (_, e) => { closed.push(e.id); panes.splice(panes.indexOf(e.id), 1); return { value: undefined } })
   on('ui.panes', () => ({ value: panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
   const copies: string[] = []
@@ -2993,7 +3007,17 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await rowLook(pane, 'C:/Windows')).toMatchObject({ kind: 'dir', menu: 'dir', color: '#74c0fc', fill: '#74c0fc', at: 2 })
   expect(await rowLook(pane, 'C:/')).toMatchObject({ kind: 'dir', menu: 'disk', at: 0 })
   // The whole tree is one Client and the scroll bar another: no Client for each row, none for each tool.
-  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual([CRUMBS_KEY, 'speedy:explorer-collapse:', 'speedy:explorer-system:', TREE_KEY, 'speedy:explorer-bar'])
+  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual([CRUMBS_KEY, 'speedy:explorer-collapse:', 'speedy:explorer-system:', 'speedy:explorer-field-mark', TREE_KEY, 'speedy:explorer-bar'])
+  // The field's line. Its magnifier is yellow, and the field is as wide as the rest of the line, so a press
+  // anywhere on it gives the field the keys. A press on the magnifier asks them for the field: of the pane, and
+  // where the pane has not got them, the pane asks the prompt for them first. A prompt with text keeps its keys:
+  // then a toast says where to press. A pane of the test kit never holds the keys, so here it ends in the toast.
+  expect((await pane.find({ key: 'speedy:explorer-field-mark' }))?.props?.props).toMatchObject({ color: '#ffd43b' })
+  expect((await pane.findAll({ type: 'Box' })).some(box => box.props?.flexDirection === 'column' && box.props?.width === 45)).toBe(true)
+  expect(keysWanted.length).toBe(0)
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-field-mark' })
+  expect(keysWanted).toEqual(['speedy-code-explorer'])
+  expect(TOASTS.at(-1)).toBe('speedy-code: con texto en el prompt, hacé clic sobre el campo para escribir ahí.')
   // What the tree's Client draws, a Text for each row. Under the pointer a file's fills yellow and a folder's
   // blue, each row by itself, the row's `fill`: the test kit does not report a hover inside a Client's drawing.
   const rowAt = async (path: string) => (await treeProps(pane))?.rows.findIndex(row => row.path === path) ?? -1

@@ -5,12 +5,13 @@
 import type { ClientModule } from 'claude-code'
 
 /**
- * The label drawn, its color and, for a control that shows a choice, the fill behind it; `hover`, how it
- * looks while its hover group is under the pointer (an explorer row: its name and its tools).
+ * The label drawn, its color (the terminal's own when none is given) and, for a control that shows a choice,
+ * the fill behind it; `hover`, how it looks while its hover group is under the pointer (an explorer row: its
+ * name and its tools).
  */
 type Props = {
   label: string
-  color: string
+  color?: string
   bold?: boolean
   backgroundColor?: string
   hover?: { scope: string; color?: string; backgroundColor?: string }

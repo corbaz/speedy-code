@@ -1331,7 +1331,10 @@ async function clipPress ($: EngineInterface, clip: HistoryClip) {
   return playClip($, clip)
 }
 
-/** The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. */
+/**
+ * The 📎 menu: the selection, the narrations kept newest first, each with its play button, and clear. A row's
+ * text takes the press as its button does.
+ */
 async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   const elements = glyphed($.ui.resolve(e))
   const { Box, Client, Text } = elements
@@ -1345,6 +1348,11 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
   const action = (key: string, label: string, color: string) => (
     <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, color, bold: true }} />
   )
+  // A row's text takes the press as its ▶ does: the whole row plays, pauses and goes on (speedy:clip-name:<n>,
+  // and speedy:clip-name:read for the selection's).
+  const named = (key: string, label: string, color?: string) => (
+    <Client key={key} module="./control.tsx" width={cells(label)} props={{ label, ...(color ? { color, bold: true } : {}) }} />
+  )
   return (
     <Box flexDirection="column">
       {/* The selection plays as the narrations below do: its ▶ in the same column, ⧗ while Haiku writes it, then ⏸ and ⏵. */}
@@ -1352,7 +1360,7 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
         {playing === SELECTION_CLIP
           ? action('speedy:clip-read', ` ${({ idle: '▶', thinking: '⧗', playing: '⏸︎', paused: '⏵' } as const)[now]} `, now === 'playing' ? '#ffd43b' : '#63e6be')
           : action('speedy:clip-read', ' ▶ ', '#63e6be')}
-        <Text bold color="#ffd43b">{' leer selección'}</Text>
+        {named('speedy:clip-name:read', ' leer selección', '#ffd43b')}
       </Box>
       {list.length === 0
         ? <Text dimColor>{'  Todavía no hay audios. Se guardan cada vez que se lee una respuesta o una selección.'}</Text>
@@ -1364,7 +1372,7 @@ async function historyMenu ($: EngineInterface, e: Drawn, width = 90) {
           return (
           <Box key={`clip:${clip.path}`} flexDirection="row">
             {action(`speedy:clip-play:${index}`, ` ${glyph} `, color)}
-            <Text>{` ${fit(historySplit(clip.name).description, descriptionWidth)} ${historySplit(clip.name).stamp}`}</Text>
+            {named(`speedy:clip-name:${index}`, ` ${fit(historySplit(clip.name).description, descriptionWidth)} ${historySplit(clip.name).stamp}`)}
           </Box>
           )
         })}
@@ -3463,9 +3471,31 @@ async function showExplorer ($: EngineInterface, folder = '') {
   await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
 }
 
-/** What the filter's field says while empty. */
 /** What the explorer's one field says while empty: it takes a filter's pattern, or a path to go to. */
 export const FIELD_HINT = 'filtrar *.pdf o pegar una ruta'
+
+
+/** The field's magnifier, a control: pressed, the field takes the keys. */
+const EXPLORER_FIELD_MARK = 'speedy:explorer-field-mark'
+
+/** The field's key as it is drawn now: a new one each time the field is emptied. */
+const explorerFieldKey = (state: Explorer) => `explorer-field:${state.cleared ?? 0}`
+
+/**
+ * The field takes the keys, for a press on its magnifier. A press on the field itself gives them by the
+ * engine's own hand; from a control beside it they are asked for: the pane takes them from the prompt, and the
+ * field from the pane. The engine leaves a prompt with text in it its keys: then a toast says where to press.
+ */
+async function focusField ($: EngineInterface) {
+  const key = explorerFieldKey(await read($, explorer))
+  const take = () => $.ui.focus({ requestId: EXPLORER_PANE, key }).catch(() => ({ deny: 'failed' }))
+  let taken = await take()
+  if ('deny' in taken) {
+    await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true, focus: true }).catch(() => undefined)
+    taken = await take()
+  }
+  if ('deny' in taken) $.ui.toast('speedy-code: con texto en el prompt, hacé clic sobre el campo para escribir ahí.')
+}
 
 /**
  * Whether what was typed in the explorer's field is a path to go to, not a filter's pattern: it has a folder
@@ -3950,9 +3980,13 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
       {Input
         ? (
           <Box flexDirection="row" width={width}>
-            <Text dimColor>{fieldMark}</Text>
-            <Box width={Math.max(4, width - cells(fieldMark) - (state.filter ? cells(pauseLabel) + cells(unfilterLabel) : 0))}>
-              <Input key={`explorer-field:${state.cleared ?? 0}`} placeholder={FIELD_HINT} value={state.filter?.pattern ?? ''} submitLabel="buscar" onSubmit={value => { if (explorerHolds === 0) void submitField($, value) }} />
+            {/* The magnifier, in the color of what the field finds, is the field's too: a press on it gives the field the keys. */}
+            {Client
+              ? <Client key={EXPLORER_FIELD_MARK} module="./control.tsx" width={cells(fieldMark)} props={{ label: fieldMark, color: EXPLORER_VIEWABLE_COLOR }} />
+              : <Text color={EXPLORER_VIEWABLE_COLOR}>{fieldMark}</Text>}
+            {/* In a column the field is as wide as its box: a press anywhere on its line gives it the keys, not on its text alone. */}
+            <Box flexDirection="column" width={Math.max(4, width - cells(fieldMark) - (state.filter ? cells(pauseLabel) + cells(unfilterLabel) : 0))}>
+              <Input key={explorerFieldKey(state)} placeholder={FIELD_HINT} value={state.filter?.pattern ?? ''} submitLabel="buscar" onSubmit={value => { if (explorerHolds === 0) void submitField($, value) }} />
             </Box>
             {!state.filter
               ? null
@@ -5513,6 +5547,11 @@ export const register: Register = on => {
       return result
     }
     if (!e.element.startsWith('speedy:') || data?.isClicked !== true) return result
+    // The field's magnifier: the field takes the keys, as when it is pressed itself.
+    if (e.element === EXPLORER_FIELD_MARK) {
+      await focusField($)
+      return result
+    }
     // 📋 and 📥 of the explorer go one right after the other: a control of the footer lets go of what 📋 took.
     if (!e.element.startsWith('speedy:explorer-')) await dropClip($)
     if (e.element === 'speedy:voice') {
@@ -5581,12 +5620,13 @@ export const register: Register = on => {
       const image = await draftImage($, Number(e.element.slice('speedy:draft-image:'.length)))
       if (image) void openView($, image)
       else $.ui.toast('speedy-code: esa imagen ya no está guardada.')
-    } else if (e.element === 'speedy:clip-read') {
+    } else if (e.element === 'speedy:clip-read' || e.element === 'speedy:clip-name:read') {
       await readPending($)
     } else if (e.element === 'speedy:clip-clear') {
       await clearClips($)
-    } else if (e.element.startsWith('speedy:clip-play:')) {
-      const clip = (await read($, clips))[Number(e.element.slice('speedy:clip-play:'.length))]
+    } else if (e.element.startsWith('speedy:clip-play:') || e.element.startsWith('speedy:clip-name:')) {
+      // A row's ▶ or its text: the row's number is what follows the last `:`.
+      const clip = (await read($, clips))[Number(e.element.slice(e.element.lastIndexOf(':') + 1))]
       if (clip) void clipPress($, clip)
     } else if (e.element === 'speedy:more') {
       await openMenu($, 'more')
