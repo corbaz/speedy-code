@@ -2825,14 +2825,15 @@ export function treeRows (state: Explorer): TreeRow[] {
 let explorerShownTop = 0
 
 /**
- * The popups of the explorer that are up: a dialog (rename, delete, paste, new folder) or the viewer a file of
- * the tree opened. While one is, the explorer holds still: its tree takes no press, fills no row under the
+ * The dialogs of the explorer that are up: rename, delete, paste, new folder. Not the viewer's popup: with a
+ * file shown the explorer goes on, and another file opened takes its place. While a dialog is up, the
+ * explorer holds still: its tree takes no press, fills no row under the
  * pointer and opens no menu, and its bar, the wheel and its header move nothing. So the one row marked is the
  * one the popup is about. Kept here, not in the state: a mod loaded again starts with none.
  */
 let explorerHolds = 0
 
-/** Runs what shows a popup of the explorer and waits for it to be gone, the explorer held still meanwhile. */
+/** Runs what shows a dialog of the explorer and waits for it to be gone, the explorer held still meanwhile. */
 async function holdingExplorer<T> ($: EngineInterface, show: () => Promise<T>): Promise<T> {
   explorerHolds++
   $.ui.invalidate('ui.render')
@@ -3336,7 +3337,7 @@ async function viewTreeFile ($: EngineInterface, path: string) {
   void $.clock.sleep(OPENING_MOST_MS).then(() => isOver(false), () => undefined)
   try {
     const file = await localFile($, path)
-    if (file) await holdingExplorer($, () => runViewer($, 'view_file.ps1', file, '', () => { void isOver(true) }))
+    if (file) await runViewer($, 'view_file.ps1', file, '', () => { void isOver(true) })
   } finally {
     await isOver(false).catch(() => undefined)
   }

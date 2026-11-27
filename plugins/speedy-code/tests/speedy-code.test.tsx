@@ -3080,7 +3080,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await press('C:/Documents and Settings', 6)
   expect((await drawn('C:/Windows'))?.props?.backgroundColor).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: ' ⋯ ', in: TREE_KEY })).toBeUndefined()
-  // While a popup of the explorer is up, a dialog's or the viewer's, the explorer holds still: the tree is told
+  // While a dialog of the explorer is up, the explorer holds still: the tree is told
   // so and takes no press, fills no row and opens no menu; its bar and its header move nothing. The popup
   // gone, it is as before.
   const isHeld = async () => (await treeProps(pane))?.isHeld === true
@@ -3113,17 +3113,21 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect([await isHeld(), await barHeld()]).toEqual([false, false])
   await press('C:/setup.exe', 8)
   expect((await drawn('C:/setup.exe'))?.props).toMatchObject({ backgroundColor: '#ffd43b' })
-  // The viewer's popup holds it too, from the press that opens it until it is closed: no other file opens meanwhile.
+  // The viewer's popup does not hold it: with a file shown, the explorer goes on as ever, and another file
+  // opened takes the popup's place.
   await w.clock.advance(600)
   const shownBefore = viewers()
   VIEWER.stays = true
   await openRow(pane, 'C:/setup.exe')
   await w.clock.advance(100)
   expect(viewers()).toBe(shownBefore + 1)
-  expect(await isHeld()).toBe(true)
+  expect([await isHeld(), await barHeld()]).toEqual([false, false])
+  await press('C:/Windows', 8)
+  expect((await drawn('C:/Windows'))?.props).toMatchObject({ backgroundColor: '#74c0fc' })
+  await w.clock.advance(600)
   await openRow(pane, 'C:/Users/test/proyectos/notas.txt')
   await w.clock.advance(100)
-  expect(viewers()).toBe(shownBefore + 1)
+  expect(viewers()).toBe(shownBefore + 2)
   VIEWER.stays = false
   await w.clock.advance(300)
   expect(await isHeld()).toBe(false)
