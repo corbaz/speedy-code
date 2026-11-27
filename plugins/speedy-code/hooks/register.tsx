@@ -2377,20 +2377,27 @@ async function followPlace ($: EngineInterface) {
 let folderOpened = 0
 const FOLDER_PAUSE_MS = 3000
 
-/** Opens the session's folder in the system's file manager: Explorer, or Finder. */
-async function openFolder ($: EngineInterface) {
-  // One window for a run of clicks: each call starts another, and a dozen of them slow the system down.
-  if (!place.cwd || Date.now() - folderOpened < FOLDER_PAUSE_MS) return
+/** The folder opened last, with `folderOpened`. */
+let folderLast = ''
+
+/** ↗'s name, under the pointer: the system's file manager, by its own name. */
+export const systemTip = (isWindows: boolean) => isWindows ? 'Abrir con Explorer' : 'Abrir con Finder'
+
+/** Opens a folder in the system's file manager, Explorer or Finder: `folder`, or the session's. */
+async function openFolder ($: EngineInterface, folder = place.cwd) {
+  // One window for a run of clicks on one folder: each call starts another, and a dozen of them slow the system down.
+  if (!folder || (folder === folderLast && Date.now() - folderOpened < FOLDER_PAUSE_MS)) return
   folderOpened = Date.now()
+  folderLast = folder
   if ((await osNow($)) !== 'windows') {
-    await $.process.run(MAC.open(place.cwd)).catch(() => undefined)
+    await $.process.run(MAC.open(folder)).catch(() => undefined)
     return
   }
   // open_folder.ps1 finds the folder's window, or opens one, and puts it in front: `start` only flashes
   // a window the folder already has, and explorer.exe leaves a new one behind the terminal.
   await $.process.run(
     ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `${$.plugin.root}/hooks/open_folder.ps1`],
-    { env: { SPEEDY_FOLDER: place.cwd.replace(/\//g, '\\') } }
+    { env: { SPEEDY_FOLDER: folder.replace(/\//g, '\\') } }
   ).catch(() => undefined)
 }
 
@@ -3428,6 +3435,31 @@ async function submitField ($: EngineInterface, text: string) {
   else await filterExplorer($, text)
 }
 
+/**
+ * The path shown under the disks, where the person stands in the explorer: the row selected (or the path gone
+ * to), or else the session's folder, where it is on the disk shown; else the disk.
+ */
+export function shownPath (state: Explorer) {
+  const disk = pathKey(state.drive, state.caseless)
+  return [state.picked, state.here].find(one => one !== undefined && one !== '' && isUnder(pathKey(one, state.caseless), disk)) ?? state.drive
+}
+
+/**
+ * ↗: the system's file manager opens where the person stands in the explorer, the folder the path's row shows;
+ * a file selected, the folder it is in. A folder of another machine is not opened from here.
+ */
+async function openShownFolder ($: EngineInterface) {
+  const shown = shownPath(await read($, explorer))
+  if (!shown) return openFolder($)
+  if (remoteOf(shown)) {
+    $.ui.toast(`speedy-code: ${shown} está en otra máquina: ${(await osNow($)) === 'windows' ? 'Explorer' : 'Finder'} no la abre desde acá.`)
+    return
+  }
+  const kind = await kindAt($, shown)
+  // What is no longer there: the session's folder, as before.
+  await openFolder($, kind === undefined ? undefined : kind === 'dir' ? shown : folderOf(shown))
+}
+
 /** A piece of the path's row: its text, its cells and the cell it starts at; `path`, on a folder alone. */
 export type Crumb = { text: string; width: number; at: number; path?: string }
 
@@ -3819,9 +3851,10 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   const hasBar = Client !== undefined || thumb.size > 0
   const treeWidth = width - (hasBar ? EXPLORER_BAR_WIDTH : 0)
   const lines = rows.slice(top, top + room).map(row => treeLine(row, state, flashed, treeWidth))
-  // The path shown under the disks: the row selected, or else the session's folder, on the disk shown; else the disk.
-  const isOnDisk = (one: string | undefined): one is string => one !== undefined && isUnder(pathKey(one, state.caseless), pathKey(state.drive, state.caseless))
-  const crumbs = state.drive ? crumbsOf([state.picked, state.here].find(isOnDisk) ?? state.drive, state.drive, width) : []
+  // The path's row: where the person stands in the explorer.
+  const crumbs = state.drive ? crumbsOf(shownPath(state), state.drive, width) : []
+  // ↗'s name: the system's file manager, by its own.
+  const systemName = systemTip((await osNow($)) === 'windows')
   // The menus of a row's tools, by the name each row carries: a file's, a folder's, a disk's root's, and the
   // last two for another machine, where the session does not go to work.
   const clip = state.clip ? { kind: state.clipKind } : undefined
@@ -3842,7 +3875,7 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
           ? <Client key={EXPLORER_CRUMBS} module="./crumbs.tsx" width={width} height={1} props={{ width, parts: crumbs, ...(isHeld ? { isHeld: true } : {}) }} />
           : <Text dimColor wrap="truncate-end">{crumbs.map(part => part.text).join('')}</Text>}
         {/* The disks, as tabs: the one shown filled. At the row's end, two icons alone: ⊟ collapses every disk,
-            ↗ opens the session's folder in the system's file manager. */}
+            ↗ opens, in the system's file manager, the folder the path's row shows. */}
         <Box flexDirection="row" columnGap={1}>
           {state.drives.map(drive => {
             const isShown = drive === state.drive
@@ -3857,8 +3890,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
             ? headerControl('speedy:explorer-collapse:', collapseLabel, flashed === 'speedy:explorer-collapse:' ? FLASH_COLOR : EXPLORER_DIR_COLOR, 'colapsar', 1)
             : <Button key="explorer-collapse" plain onPress={unlessHeld(() => collapseExplorer($))}><Text color={EXPLORER_DIR_COLOR}>{collapseLabel}</Text></Button>}
           {Client
-            ? headerControl('speedy:explorer-system:', ' ↗ ', UNFILTER_IDLE_COLOR, 'abrir en el sistema', 1)
-            : <Button key="explorer-system" plain onPress={() => { void openFolder($) }}><Text dimColor>{' ↗ abrir en el sistema '}</Text></Button>}
+            ? headerControl('speedy:explorer-system:', ' ↗ ', UNFILTER_IDLE_COLOR, systemName, 1)
+            : <Button key="explorer-system" plain onPress={() => { void openShownFolder($) }}><Text dimColor>{` ↗ ${systemName} `}</Text></Button>}
         </Box>
       </Box>
       {/* The one field: a pattern, Enter, and the tree holds only the disk's files that match; a path, and the
@@ -5449,7 +5482,7 @@ export const register: Register = on => {
       await dropClip($)
       await forgetFound($)
       if (kind === 'unfilter') await clearFilter($)
-      else if (kind === 'system') await openFolder($)
+      else if (kind === 'system') await openShownFolder($)
       else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)

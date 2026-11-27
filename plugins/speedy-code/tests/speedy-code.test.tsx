@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2678,7 +2678,7 @@ async function typeField (ui: { find: (query: { type?: string }) => Promise<{ ke
 }
 
 /** The name of a header control, hidden until the pointer is on it (⚙ → Ver labels). */
-const HEADER_TIP = /^ (colapsar|abrir en el sistema|pausar|seguir|limpiar filtro) $/
+const HEADER_TIP = /^ (colapsar|Abrir con Explorer|Abrir con Finder|pausar|seguir|limpiar filtro) $/
 
 /** What the tree's Client is given to draw: its rows, its menus. */
 async function treeProps (ui: Finds) {
@@ -2923,10 +2923,28 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect((await texts()).slice(4)).toEqual(['▾ D:\\', '  ▸ fotos'])
   await pane.press({ key: 'explorer-drive:C:/' })
   expect(await texts()).toContain('      ▾ proyectos ●')
-  // The system's file manager is still a press away, and opens the session's folder.
+  // The system's file manager is a press away, ↗, named by the system's own: Explorer here, Finder on a Mac.
+  expect([systemTip(true), systemTip(false)]).toEqual(['Abrir con Explorer', 'Abrir con Finder'])
+  // It opens the folder the path's row shows: the row selected, here the folder opened last.
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-system:' })
   await w.clock.advance(100)
-  expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos'])
+  expect(w.opened).toEqual(['folder C:\\Users\\test\\proyectos\\facturas'])
+  // A file selected, by one click and no more: the folder it is in.
+  await w.clock.advance(600)
+  await pane.post({ pick: 'C:/setup.exe', isFolder: false }, { in: TREE_KEY })
+  await w.clock.advance(600)
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-system:' })
+  await w.clock.advance(100)
+  expect(w.opened.at(-1)).toBe('folder C:\\')
+  // None selected: the session's folder.
+  await pane.post({ drop: true }, { in: TREE_KEY })
+  await pane.post({ isClicked: true }, { in: 'speedy:explorer-system:' })
+  await w.clock.advance(100)
+  expect(w.opened.at(-1)).toBe('folder C:\\Users\\test\\proyectos')
+  expect(w.opened.length).toBe(3)
+  // The path shown is the row selected, else the session's folder, where it is on the disk shown; else the disk.
+  const where = { drives: ['C:/', 'D:/'], drive: 'C:/', open: [], listed: {}, here: 'C:/Users/ana', caseless: true, top: 0 }
+  expect([shownPath(where), shownPath({ ...where, picked: 'C:/Windows' }), shownPath({ ...where, drive: 'D:/', picked: 'C:/Windows' })]).toEqual(['C:/Users/ana', 'C:/Windows', 'D:/'])
   // A text file pressed opens in the viewer, in the middle of the screen; a file it does not show is not a button.
   // Its Copiar says what it took: the text goes into the prompt too, on a line of its own.
   VIEWER.says = 'copied aG9sYSDDsQ==\r\n'
@@ -3385,7 +3403,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // alone, its name hidden until the pointer is on it.
   expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × ', color: '#ff6b6b' })
   expect((await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props).toMatchObject({ label: ' ‖ ', color: '#868e96' })
-  expect((await tree.findAll({ type: 'Text' })).map(one => one.text ?? '').filter(text => HEADER_TIP.test(text))).toEqual([' colapsar ', ' abrir en el sistema ', ' pausar ', ' limpiar filtro '])
+  expect((await tree.findAll({ type: 'Text' })).map(one => one.text ?? '').filter(text => HEADER_TIP.test(text))).toEqual([' colapsar ', ' Abrir con Explorer ', ' pausar ', ' limpiar filtro '])
   // A folder of a filter's tree closes with a press, and opens with another.
   await toggle(tree, 'C:/Users/test')
   expect(await filtered()).toContain('    ▸ test')
