@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, popupKind, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, popupKind, closeShutsMenu, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -2704,7 +2704,7 @@ async function typeField (ui: { find: (query: { type?: string }) => Promise<{ ke
 }
 
 /** The name of a header control, hidden until the pointer is on it (⚙ → Ver labels). */
-const HEADER_TIP = /^ (colapsar|Abrir con Explorer|Abrir con Finder|pausar|seguir|limpiar filtro) $/
+const HEADER_TIP = /^ (colapsar|Abrir con Explorer|Abrir con Finder|buscar|pausar|seguir|limpiar filtro) $/
 
 /** What the tree's Client is given to draw: its rows, its menus. */
 async function treeProps (ui: Finds) {
@@ -3007,13 +3007,13 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await rowLook(pane, 'C:/Windows')).toMatchObject({ kind: 'dir', menu: 'dir', color: '#74c0fc', fill: '#74c0fc', at: 2 })
   expect(await rowLook(pane, 'C:/')).toMatchObject({ kind: 'dir', menu: 'disk', at: 0 })
   // The whole tree is one Client and the scroll bar another: no Client for each row, none for each tool.
-  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual([CRUMBS_KEY, 'speedy:explorer-collapse:', 'speedy:explorer-system:', 'speedy:explorer-field-mark', TREE_KEY, 'speedy:explorer-bar'])
+  expect((await pane.findAll({ type: 'Client' })).map(one => one.key)).toEqual([CRUMBS_KEY, 'speedy:explorer-collapse:', 'speedy:explorer-system:', 'speedy:explorer-field-mark', 'speedy:explorer-search:', TREE_KEY, 'speedy:explorer-bar'])
   // The field's line. Its magnifier is yellow, and the field is as wide as the rest of the line, so a press
   // anywhere on it gives the field the keys. A press on the magnifier asks them for the field: of the pane, and
   // where the pane has not got them, the pane asks the prompt for them first. A prompt with text keeps its keys:
   // then a toast says where to press. A pane of the test kit never holds the keys, so here it ends in the toast.
   expect((await pane.find({ key: 'speedy:explorer-field-mark' }))?.props?.props).toMatchObject({ color: '#ffd43b' })
-  expect((await pane.findAll({ type: 'Box' })).some(box => box.props?.flexDirection === 'column' && box.props?.width === 45)).toBe(true)
+  expect((await pane.findAll({ type: 'Box' })).some(box => box.props?.flexDirection === 'column' && box.props?.width === 42)).toBe(true)
   expect(keysWanted.length).toBe(0)
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-field-mark' })
   expect(keysWanted).toEqual(['speedy-code-explorer'])
@@ -3114,6 +3114,10 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await menu()).toBeUndefined()
   await toggle(pane, 'C:/Users/Public')
   expect(await menu()).toBeUndefined()
+  // Escape closes the explorer's pane; with a row's menu open it closes the menu: the pane closes and opens
+  // again at once, with no menu. A test cannot press Escape nor close a pane as the person does: what decides
+  // is here, and the rest is run in the real engine.
+  expect([closeShutsMenu('speedy-code-explorer', 'person', true), closeShutsMenu('speedy-code-explorer', 'person', false), closeShutsMenu('speedy-code-explorer', 'plugin', true), closeShutsMenu('speedy-code-explorer', 'unload', true), closeShutsMenu('otro', 'person', true)]).toEqual([true, false, false, false, false])
   // A press on a link, or on the room left under the rows, lets go of the row selected.
   await press('C:/Documents and Settings', 6)
   expect((await drawn('C:/Windows'))?.props?.backgroundColor).toBeUndefined()
@@ -3476,7 +3480,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // alone, its name hidden until the pointer is on it.
   expect((await tree.find({ key: 'speedy:explorer-unfilter:' }))?.props?.props).toMatchObject({ label: ' × ', color: '#ff6b6b' })
   expect((await tree.find({ key: 'speedy:explorer-pause:' }))?.props?.props).toMatchObject({ label: ' ‖ ', color: '#868e96' })
-  expect((await tree.findAll({ type: 'Text' })).map(one => one.text ?? '').filter(text => HEADER_TIP.test(text))).toEqual([' colapsar ', ' Abrir con Explorer ', ' pausar ', ' limpiar filtro '])
+  expect((await tree.findAll({ type: 'Text' })).map(one => one.text ?? '').filter(text => HEADER_TIP.test(text))).toEqual([' colapsar ', ' Abrir con Explorer ', ' pausar ', ' limpiar filtro ', ' buscar '])
   // A folder of a filter's tree closes with a press, and opens with another.
   await toggle(tree, 'C:/Users/test')
   expect(await filtered()).toContain('    ▸ test')
@@ -3489,6 +3493,23 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'D:\\', SPEEDY_PATTERN: '*.pdf' })
   expect(await filtered()).toEqual(['─ *.pdf: 0 archivos ────────────────────────────', '▾ D:\\', '  (ningún archivo coincide)'])
+  // ⏎ at the field's end searches for what was typed in the field, as Enter does, and is green for a second.
+  const search = async () => (await tree.find({ key: 'speedy:explorer-search:' }))?.props?.props
+  expect(await search()).toMatchObject({ label: ' ⏎ ', color: '#ffd43b' })
+  const searches = FINDER.asked.length
+  await tree.input({ key: String((await fieldOf(tree))?.key), text: '*.txt', kind: 'change' })
+  expect(FINDER.asked.length).toBe(searches)
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-search:' })
+  await w.clock.advance(100)
+  expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'D:\\', SPEEDY_PATTERN: '*.txt' })
+  expect(await search()).toMatchObject({ color: '#51cf66' })
+  expect((await fieldOf(tree))?.props?.value).toBe('*.txt')
+  await w.clock.advance(1000)
+  expect(await search()).toMatchObject({ color: '#ffd43b' })
+  // With nothing typed since, it searches again for the filter the field shows.
+  await tree.post({ isClicked: true }, { in: 'speedy:explorer-search:' })
+  await w.clock.advance(1100)
+  expect(FINDER.asked.length).toBe(searches + 2)
   // ‖ pausar holds a search that runs, by the file it was started with, and ▶ seguir lets it go on from there.
   FINDER.isLong = true
   await typeField(tree, '*.pdf')

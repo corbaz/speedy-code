@@ -3477,9 +3477,27 @@ export const FIELD_HINT = 'filtrar *.pdf o pegar una ruta'
 
 /** The field's magnifier, a control: pressed, the field takes the keys. */
 const EXPLORER_FIELD_MARK = 'speedy:explorer-field-mark'
+/** ⏎ at the field's end, a control: pressed, what the field holds is searched for. */
+const EXPLORER_SEARCH = 'speedy:explorer-search:'
 
 /** The field's key as it is drawn now: a new one each time the field is emptied. */
 const explorerFieldKey = (state: Explorer) => `explorer-field:${state.cleared ?? 0}`
+
+/** What is typed in the field, and the field it was typed in: ⏎ beside it searches for it, as Enter does. */
+let fieldTyped: { key: string; text: string } | undefined
+
+/** The field's text as it stands: what was typed in it, or else the pattern of the filter it shows. */
+const fieldText = (state: Explorer) => fieldTyped?.key === explorerFieldKey(state) ? fieldTyped.text : state.filter?.pattern ?? ''
+
+/** Whether a row's menu is open in the tree, as the tree said last: the tree keeps its menu by itself. */
+let explorerMenuOpen = false
+
+/**
+ * Whether a close of the explorer's pane is there to close a row's menu: the person's own close (Escape, or
+ * the pane's close mark) while a menu is open. The pane is then opened again at once, with no menu; the next
+ * close is the pane's.
+ */
+export const closeShutsMenu = (id: string, origin: string, isMenuOpen: boolean) => id === EXPLORER_PANE && origin === 'person' && isMenuOpen
 
 /**
  * The field takes the keys, for a press on its magnifier. A press on the field itself gives them by the
@@ -3918,6 +3936,8 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
   // With a filter on, at the field's right: × clears it, and before it ‖ holds a search that still runs, lit
   // only while one does; held, it is ▸, which lets it go on from where it was.
   const unfilterLabel = ' × '
+  // At the field's end, always: ⏎ searches for what the field holds.
+  const searchLabel = ' ⏎ '
   const pauseLabel = state.filter?.isPaused ? ' ▸ ' : ' ‖ '
   const pauseColor = state.filter?.isPaused ? FLASH_COLOR : state.filter?.isBusy ? EXPLORER_VIEWABLE_COLOR : UNFILTER_IDLE_COLOR
   // The tree draws only the rows in its window, so the body never scrolls and the disks stay on top.
@@ -3985,8 +4005,15 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               ? <Client key={EXPLORER_FIELD_MARK} module="./control.tsx" width={cells(fieldMark)} props={{ label: fieldMark, color: EXPLORER_VIEWABLE_COLOR }} />
               : <Text color={EXPLORER_VIEWABLE_COLOR}>{fieldMark}</Text>}
             {/* In a column the field is as wide as its box: a press anywhere on its line gives it the keys, not on its text alone. */}
-            <Box flexDirection="column" width={Math.max(4, width - cells(fieldMark) - (state.filter ? cells(pauseLabel) + cells(unfilterLabel) : 0))}>
-              <Input key={explorerFieldKey(state)} placeholder={FIELD_HINT} value={state.filter?.pattern ?? ''} submitLabel="buscar" onSubmit={value => { if (explorerHolds === 0) void submitField($, value) }} />
+            <Box flexDirection="column" width={Math.max(4, width - cells(fieldMark) - cells(searchLabel) - (state.filter ? cells(pauseLabel) + cells(unfilterLabel) : 0))}>
+              <Input
+                key={explorerFieldKey(state)}
+                placeholder={FIELD_HINT}
+                value={state.filter?.pattern ?? ''}
+                submitLabel="buscar"
+                onInput={value => { fieldTyped = { key: explorerFieldKey(state), text: value } }}
+                onSubmit={value => { if (explorerHolds === 0) void submitField($, value) }}
+              />
             </Box>
             {!state.filter
               ? null
@@ -3998,6 +4025,11 @@ async function explorerPane ($: EngineInterface, e: Drawn, columns: number, body
               : Client
                 ? headerControl('speedy:explorer-unfilter:', unfilterLabel, UNFILTER_COLOR, 'limpiar filtro', -1)
                 : <Button key="explorer-unfilter" plain onPress={unlessHeld(() => clearFilter($))}><Text color={UNFILTER_COLOR}>{' × limpiar '}</Text></Button>}
+            {/* ⏎ searches for what the field holds, as Enter does: green for a second, as a press taken. Last in
+                the line, with a filter on or off: it never moves from under the pointer that pressed it. */}
+            {Client
+              ? headerControl(EXPLORER_SEARCH, searchLabel, flashed === EXPLORER_SEARCH ? FLASH_COLOR : EXPLORER_VIEWABLE_COLOR, 'buscar', -1)
+              : <Button key="explorer-search" plain onPress={unlessHeld(() => submitField($, fieldText(state)))}><Text color={EXPLORER_VIEWABLE_COLOR}>{' ⏎ buscar '}</Text></Button>}
           </Box>
           )
         : null}
@@ -5522,8 +5554,10 @@ export const register: Register = on => {
       return result
     }
     if (e.element === EXPLORER_TREE) {
-      const said = e.data as { pick?: unknown, toggle?: unknown, act?: unknown, path?: unknown, isFolder?: unknown, isMenu?: unknown, drop?: unknown } | null
+      const said = e.data as { pick?: unknown, toggle?: unknown, act?: unknown, path?: unknown, isFolder?: unknown, isMenu?: unknown, drop?: unknown, shut?: unknown } | null
       const pick = (path: string | undefined) => update($, explorer, now => now.picked === path ? now : { ...now, picked: path })
+      // A row's menu is open from the press that asks for it until the tree says anything else.
+      explorerMenuOpen = typeof said?.pick === 'string' && said.isMenu === true
       if (said?.drop === true) {
         // The row selected was let go of: the path's row shows the session's folder again.
         await forgetFound($)
@@ -5572,7 +5606,10 @@ export const register: Register = on => {
       await dropClip($)
       await forgetFound($)
       if (kind === 'unfilter') await clearFilter($)
-      else if (kind === 'system') await openShownFolder($)
+      else if (kind === 'search') {
+        void flashTool($, e.element)
+        await submitField($, fieldText(await read($, explorer)))
+      } else if (kind === 'system') await openShownFolder($)
       else if (kind === 'pause') await pauseFilter($)
       else if (kind === 'collapse') {
         void flashTool($, e.element)
@@ -5761,8 +5798,19 @@ export const register: Register = on => {
   })
   // Closed, by the footer's folder, its × or Esc: the footer has the whole width again.
   on('ui.close', async ($, e, next) => {
+    // Escape, which closes the explorer's pane, closes a row's menu first. The engine lets a plugin hear Escape
+    // only as this close, and only once for a pane it keeps open: so the pane closes, and opens again at once
+    // with no menu, the row selected still selected. Where the engine does not seat it again, it stays closed.
+    const isMenuClose = closeShutsMenu(e.id, e.origin.kind, explorerMenuOpen)
+    explorerMenuOpen = false
     const result = await next(e)
-    if (e.id === EXPLORER_PANE) followDock($, 0)
+    if (e.id !== EXPLORER_PANE) return result
+    if (isMenuClose) {
+      await update($, explorer, now => now.picked === undefined ? now : pickRow(now, now.picked))
+      const opened = await $.ui.open({ id: EXPLORER_PANE, title: 'Explorador', columns: explorerColumns(terminalColumns), closeOnEscape: true }).catch(() => undefined)
+      if (opened?.isPlaced) return result
+    }
+    followDock($, 0)
     return result
   })
   on('ui.scroll', { requestId: EXPLORER_PANE }, async ($, e) => {
