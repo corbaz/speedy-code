@@ -5,7 +5,7 @@ import type { ModeKnown } from '../hooks/register'
 /** A test's registrar, as the kit hands it to a test body. */
 type On = Parameters<TestBody>[1]
 
-import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, popupKind, closeShutsMenu, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
+import { DEFAULT_SOCIALS, MAC, badFileName, chainOf, cutCells, popupPaste, driveLabel, driveOf, withoutMounted, explorerColumns, fileMention, fromBase64Utf8, isViewable, listingOf, isPathText, crumbsOf, matchSpans, systemTip, shownPath, popupKind, pastedPath, remoteOf, thereOf, readSource, treeRows, filterRows, filterNote, filterLine, filterPattern, filterMoved, windowTop, scrollThumb, MODES, NERD_ICONS, modeAfterHint, nextMode, accountsOf, footerBlank, nerdText, versionLabel, ascii, barOrderOf, cells, distinctVoices, effortColor, draftImages, footerFit, historyName, historySplit, imageRuns, keptImage, restoreChips, stampOf, shieldChips, guessLanguage, micName, modelLabel, osOf, pythonOf, modelOf, plain, socialLink, startIcons, toolTip, freeName, isInDraft, filterAdded, filterMatches } from '../hooks/register'
 
 /** What git answers when asked for the clone's last commit: none, as where the mod is not a clone. */
 /** The notices footerSession's sessions showed, in order. */
@@ -3013,7 +3013,7 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   // where the pane has not got them, the pane asks the prompt for them first. A prompt with text keeps its keys:
   // then a toast says where to press. A pane of the test kit never holds the keys, so here it ends in the toast.
   expect((await pane.find({ key: 'speedy:explorer-field-mark' }))?.props?.props).toMatchObject({ color: '#ffd43b' })
-  expect((await pane.findAll({ type: 'Box' })).some(box => box.props?.flexDirection === 'column' && box.props?.width === 42)).toBe(true)
+  expect((await pane.findAll({ type: 'Box' })).some(box => box.props?.flexDirection === 'column' && box.props?.width === 45)).toBe(true)
   expect(keysWanted.length).toBe(0)
   await pane.post({ isClicked: true }, { in: 'speedy:explorer-field-mark' })
   expect(keysWanted).toEqual(['speedy-code-explorer'])
@@ -3114,10 +3114,6 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   expect(await menu()).toBeUndefined()
   await toggle(pane, 'C:/Users/Public')
   expect(await menu()).toBeUndefined()
-  // Escape closes the explorer's pane; with a row's menu open it closes the menu: the pane closes and opens
-  // again at once, with no menu. A test cannot press Escape nor close a pane as the person does: what decides
-  // is here, and the rest is run in the real engine.
-  expect([closeShutsMenu('speedy-code-explorer', 'person', true), closeShutsMenu('speedy-code-explorer', 'person', false), closeShutsMenu('speedy-code-explorer', 'plugin', true), closeShutsMenu('speedy-code-explorer', 'unload', true), closeShutsMenu('otro', 'person', true)]).toEqual([true, false, false, false, false])
   // A press on a link, or on the room left under the rows, lets go of the row selected.
   await press('C:/Documents and Settings', 6)
   expect((await drawn('C:/Windows'))?.props?.backgroundColor).toBeUndefined()
@@ -3493,10 +3489,19 @@ test('the footer’s folder opens the explorer beside the chat: the disks above,
   await w.clock.advance(100)
   expect(FINDER.asked.at(-1)).toMatchObject({ SPEEDY_ROOT: 'D:\\', SPEEDY_PATTERN: '*.pdf' })
   expect(await filtered()).toEqual(['─ *.pdf: 0 archivos ────────────────────────────', '▾ D:\\', '  (ningún archivo coincide)'])
-  // ⏎ at the field's end searches for what was typed in the field, as Enter does, and is green for a second.
+  // ⏎ searches for what was typed in the field, as Enter does, and is green for a second. It stands right
+  // after the field's text, a cell left for the cursor, over the engine's own ⏎, which is drawn with no word.
   const search = async () => (await tree.find({ key: 'speedy:explorer-search:' }))?.props?.props
+  const searchAt = async () => (await tree.find({ key: 'explorer-search-at' }))?.props
   expect(await search()).toMatchObject({ label: ' ⏎ ', color: '#ffd43b' })
+  expect((await fieldOf(tree))?.props?.submitLabel).toBe('')
+  expect(await searchAt()).toMatchObject({ position: 'absolute', top: 0, left: 3 + cells('*.pdf') + 1 })
   const searches = FINDER.asked.length
+  await tree.input({ key: String((await fieldOf(tree))?.key), text: '*.txt y algo más largo', kind: 'change' })
+  expect(await searchAt()).toMatchObject({ left: 3 + cells('*.txt y algo más largo') + 1 })
+  // Past the field's end it stays within the line, before ‖ and ×.
+  await tree.input({ key: String((await fieldOf(tree))?.key), text: 'x'.repeat(80), kind: 'change' })
+  expect(await searchAt()).toMatchObject({ left: 48 - 3 - 3 - 3 })
   await tree.input({ key: String((await fieldOf(tree))?.key), text: '*.txt', kind: 'change' })
   expect(FINDER.asked.length).toBe(searches)
   await tree.post({ isClicked: true }, { in: 'speedy:explorer-search:' })

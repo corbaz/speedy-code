@@ -3,8 +3,7 @@
 // every click on a name is posted as `{ pick, isFolder }`, and the row let go of as `{ drop }`. A folder's ▸ or ▾ opens or closes it with one
 // click: `{ toggle }`. The right button, Ctrl with a click, or ⋯ at the end of the row selected open the
 // row's menu inside the tree: its tools one under the other, each with what it does at its right; a press
-// on one posts `{ act, path }`, a press anywhere else closes the menu. A menu closed with nothing else to say
-// is posted as `{ shut }`: the hooks module knows whether one is open (Escape). Selection and menu are kept here, so
+// on one posts `{ act, path }`, a press anywhere else closes the menu. Selection and menu are kept here, so
 // they are drawn at once, with no word to the hooks module and back. While a popup of the explorer is up
 // (`isHeld`) the tree holds still: it takes no press, fills no row under the pointer and shows no menu, so the
 // one row filled is the one the popup is about. The hooks module picks the row selected by itself too (`pick`):
@@ -84,10 +83,8 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
   // What is kept from here on: the selection and the menu given, and the last pick taken.
   const keep = (next: State) => surface.setState({ ...next, turn: state.turn })
   const box = props.isHeld ? undefined : menuBox(props, state)
-  // A menu whose row moved away is closed for good: it does not come back when the row does. The hooks module
-  // hears it, unless it holds the tree still itself.
+  // A menu whose row moved away is closed for good: it does not come back when the row does.
   if (isPicked || (state.menu && !box)) keep({ selected: state.selected })
-  if (state.menu && !box && !props.isHeld) surface.post({ shut: true })
   surface.onPointer(event => {
     if (props.isHeld || event.type !== 'down' || (event.button !== 'left' && event.button !== 'right')) return
     const asksMenu = event.button === 'right' || event.ctrl === true
@@ -101,7 +98,7 @@ const Tree: ClientModule<Props, State> = (props, surface) => {
     }
     const row = props.rows[event.y]
     // A press outside the menu closes it, and does nothing else.
-    if (box && !asksMenu) { keep({ selected: state.selected }); surface.post({ shut: true }); return }
+    if (box && !asksMenu) { keep({ selected: state.selected }); return }
     // Only a file or a folder is selected: a press on a note, a link or the room left under the tree lets go.
     if (!row || row.fill === undefined) {
       if (state.selected !== undefined || state.menu) keep({})

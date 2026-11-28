@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-- Explorer: `⏎` at the end of the field's line searches for what the field holds, as Enter does; it is last in the line with a filter on or off.
-- Explorer: Escape closes a row's menu. In Claude Code the engine gives a plugin Escape only as its pane's close, so the pane closes and is back at once with no menu, the row selected still selected; with text in the prompt or a turn running, Escape is the engine's own.
+- Explorer: `⏎`, right after the field's text, searches for what the field holds, as Enter does. It stands where the engine drew `⏎ buscar` while the field had the keys: that word is gone, and the line has the one `⏎`, which takes a press.
 - Audio menu: a row's text takes the press as its ▶ does, the selection's too: the whole row plays, pauses and goes on.
 - Explorer: the field's magnifier is yellow, and a press on it or anywhere on the field's line gives the field the keys; it took a press on its text alone. In Claude Code the magnifier asks the prompt for the keys, which a prompt with text in it keeps: then a toast says to press on the field.
 - Explorer: after 🗑 the folder that held what went is the row selected, and the one the path's row shows; after ✏, the file under its new name. The path's row kept the path that was gone, and no row was selected. The tree stays where it was.
